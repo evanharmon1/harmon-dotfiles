@@ -1,3 +1,19 @@
+# Repo-related files (not dotfiles to deploy)
+# Note: files starting with . in the source dir are already ignored by chezmoi,
+# so only non-dot files need to be listed here.
+CLAUDE.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+LICENSE
+README.md
+todo.md
+docs/**
+Taskfile.yml
+requirements.txt
+check_for_pattern.sh
+test/**
+harmon-dotfiles.code-workspace
+
 {{- if ne .chezmoi.os "darwin" }}
 # macOS-only: Library paths (app configs stored in macOS-specific locations)
 Library/**
