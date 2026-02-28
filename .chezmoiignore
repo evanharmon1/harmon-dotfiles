@@ -20,6 +20,9 @@ Library/**
 # macOS-only: Mackup (iCloud-based backup)
 .mackup.cfg
 .mackup/**
+# MacOS-only: Karabiner-Elements (keyboard remapping)
+.config/karabiner
+.config/karabiner/karabiner.json
 {{- end }}
 
 {{- if ne .chezmoi.os "linux" }}
