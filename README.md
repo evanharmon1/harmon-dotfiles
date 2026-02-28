@@ -1,11 +1,11 @@
 # Harmon Dotfiles
+
 My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship, etc.) managed with Chezmoi
 
 [Harmon Dotfiles](TODO: project_url)
 
 Author: Evan Harmon
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/addYourNetlifySiteIdHere/deploy-status)](https://app.netlify.com/sites/harmon-dotfiles/deploys)
 [![Validate](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/validate.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/validate.yml)
 [![Build](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml)
 [![Security](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/security.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/security.yml)
@@ -17,33 +17,41 @@ Author: Evan Harmon
 ## Setup & Installation
 
 ### Requirements
+
 - Homebrew
 - Python
 - [Taskfile](https://taskfile.dev/)
 
 ### Bootstrap
+
 Install required software to run other project installers and task runners
 `task bootstrap`
 
 ### Install
+
 Install required dependencies
 `task install`
 
 ## Usage
+
 TODO: project usage
 
 ### Task Runner
+
 [Taskfile.yaml](./Taskfile.yml)
 
 ### Testing
 
 #### Validate
+
 `task validate`
 
 #### Security
+
 `task security`
 
 #### Linting, Formatting, Conventions, Style Guidelines, etc
+
 - .pre-commit-config.yaml
 - .shellcheckrc
 - .ansible-lint-ignore
@@ -51,4 +59,5 @@ TODO: project usage
 ### Building, Deploying, & CI/CD
 
 ## Todo File
+
 [todo.md](./todo.md)
