@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal dotfiles managed with [chezmoi](https://www.chezmoi.io/). This repo is the chezmoi source directory — files here use chezmoi naming conventions (e.g., `private_dot_zshrc.tmpl`) and are applied to the home directory by chezmoi. The dotfiles target macOS (primary) and Linux, with OS-conditional logic via chezmoi `.tmpl` templates and `.chezmoiignore`.
 
+## harmon-stack
+
+One of five repos in **harmon-stack** (Evan's homelab + dev-ops stack):
+[harmon-init](https://github.com/evanharmon1/harmon-init) (repo template),
+[harmon-devkit](https://github.com/evanharmon1/harmon-devkit) (boilerplates/scripts/AI assets),
+[**harmon-dotfiles**](https://github.com/evanharmon1/harmon-dotfiles) (this repo — chezmoi dotfiles),
+[harmon-ops](https://github.com/evanharmon1/harmon-ops) (machine setup),
+[harmon-infra](https://github.com/harmonops/harmon-infra) (homelab IaC). See the README for the full table.
+
 ## Key Commands
 
 - **`task validate`** — Run all validation (pre-commit hooks + checks)
