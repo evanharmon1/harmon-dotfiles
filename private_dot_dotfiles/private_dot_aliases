@@ -9,6 +9,7 @@ alias lt='eza --tree --level=2 --icons=always --color=always
 #------------------------------------------------------------------------------
 alias ..="cd .."
 alias ...="cd ../.."
+alias ....="cd ../../.."
 alias cd..="cd .."
 
 alias rm="rm -iv"
@@ -48,3 +49,12 @@ alias lazy='lazygit'
 alias llmq8='llm -m q8 -o max_tokens 4096'
 alias llmq30='llm -m q30 -o max_tokens 12000'
 alias llmqc30='llm -m qc30'
+
+#             Workmux
+#------------------------------------------------------------------------------
+alias wm='workmux'
+
+#            Charm Wishlist
+#------------------------------------------------------------------------------
+# Required to make wishlist work with 1Password ssh feature and to load tailscale devices
+alias wishlistt='SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" op run --no-masking --env-file "$HOME/.config/wishlist/wishlist.env" -- wishlist --tailscale.net=tail65702.ts.net'

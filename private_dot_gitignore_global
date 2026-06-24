@@ -52,6 +52,5 @@ Thumbs.db
 
 #             Evan's
 #------------------------------------------------------------------------------
-.meta
-todo.md
-*.code-workspace
+
+**/.claude/settings.local.json

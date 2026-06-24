@@ -14,6 +14,12 @@ check_for_pattern.sh
 test/**
 harmon-dotfiles.code-workspace
 
+# SSH: kept local only. This is a PUBLIC repo, so SSH config/keys (hostnames,
+# internal IPs, IdentityFile paths) must never be committed here. ~/.ssh stays
+# unmanaged on each machine.
+.ssh
+.ssh/**
+
 {{- if ne .chezmoi.os "darwin" }}
 # macOS-only: Library paths (app configs stored in macOS-specific locations)
 Library/**

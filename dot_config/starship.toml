@@ -17,15 +17,21 @@ $golang\
 $nodejs\
 $php\
 $java\
+$dotnet\
 $kotlin\
 $haskell\
 $python\
+$ruby\
 [](fg:color_blue bg:color_bg3)\
+${custom.ansible}\
 $docker_context\
+$kubernetes\
+$helm\
+$terraform\
+$aws\
+$gcloud\
 $conda\
 $pixi\
-[](fg:color_bg3 bg:color_bg1)\
-$time\
 [ ](fg:color_bg1)\
 $line_break$character"""
 
@@ -76,6 +82,13 @@ show_always = true
 style_user = "bg:color_orange fg:color_fg0"
 style_root = "bg:color_orange fg:color_fg0"
 format = '[ $user ]($style)'
+
+[hostname]
+disabled = false
+ssh_only = true
+trim_at = "."
+format = "[$hostname]($style) in "
+style = "green dimmed bold"
 
 [directory]
 style = "fg:color_fg0 bg:color_yellow"
@@ -147,6 +160,13 @@ symbol = ""
 style = "bg:color_blue"
 format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
 
+[dotnet]
+disabled = false
+format = "[$symbol$version( 🎯 $tfm)]($style) "
+symbol = "•NET "
+style = "blue bold"
+heuristic = true
+
 [kotlin]
 symbol = ""
 style = "bg:color_blue"
@@ -162,10 +182,50 @@ symbol = ""
 style = "bg:color_blue"
 format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
 
+[ruby]
+disabled = false
+format = "via [$symbol$version]($style) "
+symbol = " "
+style = "bold red"
+
 [docker_context]
 symbol = ""
 style = "bg:color_bg3"
 format = '[[ $symbol( $context) ](fg:#83a598 bg:color_bg3)]($style)'
+
+[terraform]
+disabled = false
+format = "via [$symbol$workspace]($style) "
+symbol = "ﰉ "
+style = "bold 105"
+
+[custom.ansible]
+format = "[󱂚 ]($style)"
+style = "fg:color_fg0 bg:color_bg3"
+detect_files = ["ansible.cfg", "site.yml", "site.yaml", "playbook.yml", "playbook.yaml"]
+detect_folders = ["roles", "group_vars", "host_vars"]
+
+[gcloud]
+disabled = true
+format = "on [🎯 $project( $account)](dimmed yellow) "
+style = "bold yellow"
+
+[aws]
+disabled = true
+format = "via [☁️ $profile( $region)](dimmed yellow) "
+style = "bold yellow"
+
+[kubernetes]
+disabled = true
+format = "on [⛵ $context\\($namespace\\)](dimmed green) "
+symbol = "⛵ "
+context_aliases = { "prod-cluster" = "prod", "dev-cluster" = "dev" }
+
+[helm]
+disabled = false
+format = "via [$symbol$version]($style) "
+symbol = "⎈ "
+style = "bold white"
 
 [conda]
 style = "bg:color_bg3"

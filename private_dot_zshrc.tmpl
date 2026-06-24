@@ -75,11 +75,42 @@ ZSH_THEME=""
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
+plugins=(
+  aliases
+  ansible
+  bgnotify
+  colored-man-pages
+  command-not-found
+  copypath
+  direnv
+  dirhistory
+  docker
+  docker-compose
+  extract
+  fzf
 {{- if eq .chezmoi.os "darwin" }}
-plugins=(git macos dirhistory bgnotify per-directory-history colored-man-pages docker docker-compose terraform python node command-not-found extract jsontools aliases gcloud ansible ufw rsync direnv pip)
-{{- else }}
-plugins=(git dirhistory bgnotify per-directory-history colored-man-pages docker docker-compose terraform python node command-not-found extract jsontools aliases ansible rsync direnv pip)
+  gcloud
 {{- end }}
+  gh
+  git
+  jsontools
+{{- if eq .chezmoi.os "darwin" }}
+  macos
+{{- end }}
+  node
+  per-directory-history
+  pip
+  python
+  rsync
+  sudo
+  terraform
+{{- if eq .chezmoi.os "darwin" }}
+  ufw
+{{- end }}
+  zoxide
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+)
 
 # Homebrew
 {{- if eq .chezmoi.os "darwin" }}
@@ -120,9 +151,89 @@ source $ZSH/oh-my-zsh.sh
 #============================================================================
 #                       Zsh Terminal Customization
 #============================================================================
-# GREP Customization to turn matches red like is default on most *nix systems
-export GREP_OPTIONS='--color=auto'
+# Agent Deck
+alias ad='agent-deck'
+adf() { agent-deck worktree finish --no-merge "$@"; }
+adl() { agent-deck launch . -c claude -w "feat/$1" -b -m "${*:2}"; }
+# Usage: adl my-branch Implement the abc plan
+# Expands to: agent-deck launch . -c claude -w feat/my-branch -b -m "Implement the abc plan"
 
+_ghd_pick_issue() {
+  gh issue list --limit "${1:-200}" \
+    --json number,title \
+    --template '{{ `{{range .}}{{printf "#%v\t%s\n" .number .title}}{{end}}` }}' \
+    | fzf --preview 'gh issue view {1}' --preview-window=right:60% \
+    | awk '{print substr($1,2)}'
+}
+
+# List GitHub Issues to pick one to send to Agent Deck to immediately implement in a new session
+ghdi() {
+  local issue
+  issue=$(_ghd_pick_issue "$1")
+  [ -z "$issue" ] && return 1
+
+  agent-deck launch . \
+    -t "issue-$issue" \
+    -c "claude --dangerously-skip-permissions" \
+    -w "agent/issue-$issue" \
+    -b \
+    -m "Implement GitHub issue #$issue. Run 'gh issue view $issue' to read the full spec, including comments and attachments, then plan, write tests, implement, and open a PR with 'Closes #$issue'."
+}
+
+# List GitHub Issues to pick one to send to Agent Deck to create a plan in a new session
+ghdp() {
+  local issue
+  issue=$(_ghd_pick_issue "$1")
+  [ -z "$issue" ] && return 1
+
+  agent-deck launch . \
+    -t "issue-$issue" \
+    -c "claude --permission-mode plan" \
+    -w "agent/issue-$issue" \
+    -b \
+    -m "Produce an implementation plan for GitHub issue #$issue. Run 'gh issue view $issue' to read the full spec, including comments and attachments. Explore the codebase as needed, then present a detailed plan via ExitPlanMode for approval. Do not implement anything yet."
+}
+# Usage: ghdi          # pick an issue, launch claude in agent-deck to implement it (YOLO, worktree)
+#        ghdp          # pick an issue, launch claude in agent-deck plan mode (read-only, worktree)
+#        ghdi 500      # raise the list limit (default 200)
+
+# Television-based variants — uses the gh-issues channel at ~/.config/television/cable/gh-issues.toml
+_gd_pick_issue() {
+  if [ -n "$1" ]; then
+    tv gh-issues --source-command "gh issue list --limit $1 --json number,title --template '{{ `{{range .}}{{printf \"%v\\t%s\\n\" .number .title}}{{end}}` }}'" | cut -f1
+  else
+    tv gh-issues | cut -f1
+  fi
+}
+
+gdi() {
+  local issue
+  issue=$(_gd_pick_issue "$1")
+  [ -z "$issue" ] && return 1
+
+  agent-deck launch . \
+    -t "issue-$issue" \
+    -c "claude --dangerously-skip-permissions" \
+    -w "agent/issue-$issue" \
+    -b \
+    -m "Implement GitHub issue #$issue. Run 'gh issue view $issue' to read the full spec, including comments and attachments, then plan, write tests, implement, and open a PR with 'Closes #$issue'."
+}
+
+gdp() {
+  local issue
+  issue=$(_gd_pick_issue "$1")
+  [ -z "$issue" ] && return 1
+
+  agent-deck launch . \
+    -t "issue-$issue" \
+    -c "claude --permission-mode plan" \
+    -w "agent/issue-$issue" \
+    -b \
+    -m "Produce an implementation plan for GitHub issue #$issue. Run 'gh issue view $issue' to read the full spec, including comments and attachments. Explore the codebase as needed, then present a detailed plan via ExitPlanMode for approval. Do not implement anything yet."
+}
+# Usage: gdi           # like ghdi, but uses television (tv) instead of fzf
+#        gdp           # like ghdp, but uses television (tv) instead of fzf
+#        gdi 500       # override the channel's default limit (100)
 
 #============================================================================
 #                       PATH
@@ -191,15 +302,32 @@ eval "$(zoxide init zsh)"
 
 
 #============================================================================
+#                       Direnv
+#============================================================================
+eval "$(direnv hook zsh)"
+
+#============================================================================
+#                       Workmux
+#============================================================================
+eval "$(workmux completions zsh)"
+
+#============================================================================
 #                       My Customizations
 #============================================================================
 source ~/.dotfiles/.aliases
 source ~/.dotfiles/.var
 source ~/.dotfiles/.functions
-[[ -f ~/.secrets ]] && source ~/.secrets
-
 {{- if eq .chezmoi.os "darwin" }}
 
 # Added by LM Studio CLI (lms)
 export PATH="$PATH:$HOME/.cache/lm-studio/bin"
 {{- end }}
+
+#============================================================================
+#                       SSH Agent
+#============================================================================
+# Start ssh-agent if not already running. So that you can just
+# ssh-add ~/.ssh/evan_harmonlab.net once after opening a terminal.
+  if [ -z "$SSH_AUTH_SOCK" ]; then
+    eval "$(ssh-agent -s)" > /dev/null
+  fi
