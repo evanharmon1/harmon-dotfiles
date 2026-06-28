@@ -6,9 +6,7 @@ My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship, etc.) manag
 
 Author: Evan Harmon
 
-[![Validate](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/validate.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/validate.yml)
 [![Build](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml)
-[![Security](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/security.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/security.yml)
 [![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-grayscale-inverted-border-orange.json)](https://github.com/copier-org/copier)
 [![Maintained](https://img.shields.io/badge/maintained%3F-yes-brightgreen.svg?style=flat-square)](https://github.com/evanharmon1/harmon-dotfiles)
 [![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat-square)](https://github.com/evanharmon1/harmon-dotfiles)
@@ -31,8 +29,8 @@ This repo is part of **harmon-stack** — my personal stack of homelab, dev-tool
 ### Requirements
 
 - Homebrew
-- Python
-- [Taskfile](https://taskfile.dev/)
+- [chezmoi](https://www.chezmoi.io/) (applies the dotfiles to your home directory)
+- [Taskfile](https://taskfile.dev/) (task runner)
 
 ### Bootstrap
 
@@ -50,23 +48,23 @@ TODO: project usage
 
 ### Task Runner
 
-[Taskfile.yaml](./Taskfile.yml)
+[Taskfile.yml](./Taskfile.yml)
 
-### Testing
+### Verify
 
-#### Validate
-
-`task validate`
+`task verify` runs the fast local gate (lint + Taskfile/hook guards); `task ci`
+mirrors the full pipeline.
 
 #### Security
 
-`task security`
+`task security` — gitleaks secret scan + dependency audit.
 
-#### Linting, Formatting, Conventions, Style Guidelines, etc
+#### Linting, formatting & conventions
 
-- .pre-commit-config.yaml
-- .shellcheckrc
-- .ansible-lint-ignore
+Git hooks (managed by [lefthook](https://lefthook.dev/), `lefthook.yml`) and CI
+delegate to the same Taskfile targets. Config lives in `.editorconfig`,
+`.shellcheckrc`, `.yamllint`, `.markdownlint.json`, `commitlint.config.mjs`, and
+`.gitleaks.toml`.
 
 ### Building, Deploying, & CI/CD
 

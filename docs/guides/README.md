@@ -1,0 +1,14 @@
+# Guides
+
+Calm, repeatable how-tos read *in advance* (the crisis counterpart is
+[runbooks/](../runbooks/)).
+
+- [onboarding.md](onboarding.md) — get a new dev or agent productive: setup,
+  where things live, the dev loop. The human entry procedure.
+- [deploying.md](deploying.md) — how to cut/promote a release (the calm
+  procedure); cross-links a rollback runbook for when it goes wrong.
+- [troubleshooting.md](troubleshooting.md) — symptom → cause → fix for **dev**
+  problems (broken build, failing local setup). Distinct from runbooks, which
+  cover prod incidents.
+
+TODO: add more guides, e.g. "local development setup", "add a feature", "how X works".
