@@ -6,10 +6,11 @@ My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship, etc.) manag
 
 Author: Evan Harmon
 
-[![Build](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml)
+[![Build & Validate](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml/badge.svg)](https://github.com/evanharmon1/harmon-dotfiles/actions/workflows/build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/evanharmon1/harmon-dotfiles?sort=semver)](https://github.com/evanharmon1/harmon-dotfiles/releases)
+[![Renovate](https://img.shields.io/badge/maintained%20with-renovate-blue?logo=renovatebot)](https://github.com/apps/renovate)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-grayscale-inverted-border-orange.json)](https://github.com/copier-org/copier)
-[![Maintained](https://img.shields.io/badge/maintained%3F-yes-brightgreen.svg?style=flat-square)](https://github.com/evanharmon1/harmon-dotfiles)
-[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat-square)](https://github.com/evanharmon1/harmon-dotfiles)
 [![Known Vulnerabilities](https://snyk.io/test/github/evanharmon1/harmon-dotfiles/badge.svg?style=flat-square)](https://snyk.io/test/github/evanharmon1/harmon-dotfiles)
 
 ## Part of harmon-stack
