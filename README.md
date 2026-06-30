@@ -13,9 +13,9 @@ Author: Evan Harmon
 [![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-grayscale-inverted-border-orange.json)](https://github.com/copier-org/copier)
 [![Known Vulnerabilities](https://snyk.io/test/github/evanharmon1/harmon-dotfiles/badge.svg?style=flat-square)](https://snyk.io/test/github/evanharmon1/harmon-dotfiles)
 
-## Part of harmon-stack
+## Part of harmon-platform
 
-This repo is part of **harmon-stack** — my personal stack of homelab, dev-tooling, and automation repos that work together.
+This repo is part of **harmon-platform** — my custom development platform with machine configuration, DevOps systems, homelab infrastructure, and automation repos that work together to help me develop software and manage my homelab.
 
 | Repo | What it is |
 | --- | --- |
