@@ -1,37 +1,18 @@
 # Lefthook config for Harmon Dotfiles
 # Install:  task install:hooks   (runs `lefthook install`)
-# Run all:  lefthook run pre-commit --all-files
+# Run:      lefthook run pre-push
 #
-# All logic lives in Taskfile.yml so GitHub Actions, Claude hooks, and local
-# developers run the exact same commands. Lefthook only orchestrates which
-# task runs at which git stage and passes the relevant file list.
+# This repo is chezmoi-managed with autoCommit + autoPush to main, so the usual
+# pre-commit (no-commit-to-main) and commit-msg (commitlint — chezmoi's auto
+# messages aren't Conventional Commits) hooks would block every auto-commit.
+# Keep only the gitleaks pre-push scan so secrets are still caught before they
+# reach GitHub. Intentional divergence from harmon-init's template lefthook.yml;
+# expect a copier-update conflict here and keep this trimmed version.
+#
+# Logic lives in Taskfile.yml so CI, Claude hooks, and local runs use the same
+# command.
 
 assert_lefthook_installed: true
-
-pre-commit:
-  parallel: true
-  commands:
-    no-commit-to-main:
-      run: task guard:no-commit-to-main
-    yaml:
-      glob: "*.{yml,yaml}"
-      run: task lint:yaml -- {staged_files}
-    shell:
-      glob: "*.{sh,bash}"
-      run: task lint:shell -- {staged_files}
-    markdown:
-      glob: "*.{md,mdx}"
-      run: task lint:markdown -- {staged_files}
-    actions:
-      glob: ".github/workflows/*.{yml,yaml}"
-      run: task lint:actions
-    hygiene:
-      run: task lint:hygiene -- {staged_files}
-
-commit-msg:
-  commands:
-    conventional:
-      run: task lint:commit-msg -- {1}
 
 pre-push:
   parallel: true
