@@ -1,6 +1,14 @@
-# Repo-related files (not dotfiles to deploy)
-# Note: files starting with . in the source dir are already ignored by chezmoi,
-# so only non-dot files need to be listed here.
+# Repo-related files (not dotfiles to deploy). This repo is BOTH a chezmoi source
+# AND a harmon-init-templated repo, so its repo-maintenance files live at the root
+# next to the dotfiles — chezmoi must not deploy any of them to $HOME.
+# Note: files starting with . are already ignored by chezmoi, so only non-dot
+# files need listing here.
+
+# Docs & meta
+AGENTS.md
+GEMINI.md
+DESIGN.md
+CHANGELOG.md
 CLAUDE.md
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
@@ -8,11 +16,23 @@ LICENSE
 README.md
 todo.md
 docs/**
+specs/**
+tests/**
+harmon-dotfiles.code-workspace
+
+# Repo tooling (task runner, git hooks, lint/commit, releases, deps, scripts)
 Taskfile.yml
+Brewfile
+commitlint.config.mjs
+lefthook.yml
+release-please-config.json
+renovate.json
+scripts/**
+
+# Legacy (pre-v3)
 requirements.txt
 check_for_pattern.sh
 test/**
-harmon-dotfiles.code-workspace
 
 # SSH: kept local only. This is a PUBLIC repo, so SSH config/keys (hostnames,
 # internal IPs, IdentityFile paths) must never be committed here. ~/.ssh stays

@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v3.8.0
+_commit: v3.14.0
 _src_path: https://github.com/evanharmon1/harmon-init
 bunch_add: false
 ci_runner: ubuntu-latest
@@ -15,6 +15,7 @@ license: mit
 obsidian_project_add: false
 project_description: My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship,
     etc.) managed with Chezmoi
+project_management: none
 project_name: Harmon Dotfiles
 project_slug: harmon-dotfiles
 project_type: general

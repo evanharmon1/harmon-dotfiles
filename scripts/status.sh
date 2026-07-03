@@ -424,6 +424,21 @@ if [[ "${SECTION}" == "setup" ]]; then
                 -f query='query($o:String!,$r:String!){repository(owner:$o,name:$r){projectsV2(first:10){nodes{title number}}}}' \
                 -F o="${OWNER}" -F r="${REPO}" \
                 >"${d}/projects.json" 2>/dev/null || echo '{}' >"${d}/projects.json") &
+            # PM setup surface — audit the results of the setup:github-* tasks the
+            # repo actually ships (each script is the marker it opted in).
+            if [ -f scripts/setup-github-labels.sh ]; then
+                (timeout "${NETWORK_TIMEOUT}" gh label list -R "${OWNER}/${REPO}" --json name \
+                    >"${d}/labels.json" 2>/dev/null || echo '[]' >"${d}/labels.json") &
+            fi
+            if [ -f scripts/setup-github-issue-types.sh ]; then
+                (timeout "${NETWORK_TIMEOUT}" gh api "orgs/${OWNER}/issue-types" --paginate \
+                    >"${d}/issue-types.json" 2>/dev/null || echo 'null' >"${d}/issue-types.json") &
+            fi
+            if [ -f scripts/setup-github-issue-fields.sh ]; then
+                (timeout "${NETWORK_TIMEOUT}" gh api "orgs/${OWNER}/issue-fields" \
+                    -H "X-GitHub-Api-Version: 2026-03-10" --paginate \
+                    >"${d}/issue-fields.json" 2>/dev/null || echo 'null' >"${d}/issue-fields.json") &
+            fi
             # App installs — definitive when we hold admin scope, else 'null'.
             (timeout "${NETWORK_TIMEOUT}" gh api "${APPS_PATH}" \
                 --jq '[.installations[].app_slug]' \
@@ -605,6 +620,33 @@ if [[ "${SECTION}" == "setup" ]]; then
                 else
                     checkline unknown "GitHub Project linked" "needs read:project scope"
                 fi
+                if [ -f scripts/setup-github-labels.sh ]; then
+                    if jq -e 'any(.[]?; .name == "needs-triage")' "${d}/labels.json" >/dev/null 2>&1; then
+                        checkline ok "Starter labels" "seeded"
+                    else
+                        checkline no "Starter labels" "run task setup:github-labels"
+                    fi
+                fi
+                if [ -f scripts/setup-github-issue-types.sh ]; then
+                    type_names="$(jq -r 'if type == "array" then (map(.name) | join(",")) else "" end' "${d}/issue-types.json" 2>/dev/null || echo "")"
+                    if [ -z "${type_names}" ]; then
+                        checkline unknown "Org issue types" "needs admin:org"
+                    elif printf '%s' "${type_names}" | grep -q 'Research'; then
+                        checkline ok "Org issue types" "Bug/Feature/Task/Research"
+                    else
+                        checkline no "Org issue types" "run task setup:github-issue-types"
+                    fi
+                fi
+                if [ -f scripts/setup-github-issue-fields.sh ]; then
+                    field_names="$(jq -r '(if type == "object" then (.issue_fields // []) elif type == "array" then . else [] end) | map(.name) | join(",")' "${d}/issue-fields.json" 2>/dev/null || echo "")"
+                    if [ -z "${field_names}" ]; then
+                        checkline unknown "Org issue fields" "needs admin:org (public preview)"
+                    elif printf '%s' "${field_names}" | grep -q 'Agent'; then
+                        checkline ok "Org issue fields" "Product + Agent"
+                    else
+                        checkline no "Org issue fields" "run task setup:github-issue-fields"
+                    fi
+                fi
                 if [ "${has_release_wf}" = 1 ]; then
                     if [ -s "${d}/release.txt" ]; then
                         rel="$(head -1 "${d}/release.txt" | awk '{print $1}')"
@@ -628,10 +670,10 @@ if [[ "${SECTION}" == "setup" ]]; then
                     checkline na "CLAUDE_CODE_OAUTH_TOKEN" "no claude-* workflows"
                 fi
                 if [ "${uses_ci_app}" = 1 ]; then
-                    if has_cred "${d}/vars.json" "CI_APP_ID"; then
-                        checkline ok "CI_APP_ID (variable)"
+                    if has_cred "${d}/vars.json" "CI_APP_CLIENT_ID"; then
+                        checkline ok "CI_APP_CLIENT_ID (variable)"
                     else
-                        checkline no "CI_APP_ID (variable)" "gh variable set"
+                        checkline no "CI_APP_CLIENT_ID (variable)" "gh variable set"
                     fi
                     if has_cred "${d}/secrets.json" "CI_APP_PRIVATE_KEY"; then
                         checkline ok "CI_APP_PRIVATE_KEY (secret)"

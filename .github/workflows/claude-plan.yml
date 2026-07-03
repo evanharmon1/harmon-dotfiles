@@ -1,7 +1,7 @@
 name: Claude Plan
 run-name: ${{ github.actor }} is running Claude Plan
 # Requires: CLAUDE_CODE_OAUTH_TOKEN secret, plus the CI GitHub App
-# (CI_APP_ID variable + CI_APP_PRIVATE_KEY secret). See docs/CHECKLIST.md
+# (CI_APP_CLIENT_ID variable + CI_APP_PRIVATE_KEY secret). See docs/CHECKLIST.md
 # and docs/architecture/security.md.
 on:
   issue_comment:
@@ -23,6 +23,7 @@ jobs:
        (github.event.action == 'labeled' &&
         github.event.label.name == 'claude-plan'))
     runs-on: [ "ubuntu-latest" ]
+    timeout-minutes: 120
     permissions:
       contents: read
       issues: write
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
-          app-id: ${{ vars.CI_APP_ID }}
+          client-id: ${{ vars.CI_APP_CLIENT_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
           # Least-privilege token: plan only comments (issues/pull-requests) and
           # reads the repo (no push). org-projects gated to org repos only —
@@ -50,7 +51,10 @@ jobs:
           track_progress: true
           base_branch: main
           branch_prefix: claude/
-          claude_args: "--model opus --disallowedTools Edit Write Bash --max-turns 80"
+          # --max-budget-usd caps API-key spend; likely a no-op under
+          # CLAUDE_CODE_OAUTH_TOKEN (subscription) billing. Real runaway guards
+          # are timeout-minutes (job-level) and --max-turns.
+          claude_args: "--model opus --effort max --max-budget-usd 10 --disallowedTools Edit Write Bash --max-turns 120"
           prompt: |
             Post the plan as a comment. Do not write code or modify files.
             Focus on the specific task described in the triggering comment or
