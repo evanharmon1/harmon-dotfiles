@@ -26,7 +26,6 @@
 [includeIf "gitdir:~/Local/AltRevLogical/"]
 	path = ~/Local/AltRevLogical/.gitconfig
 [init]
-	templateDir = ~/.git-template
 	defaultBranch = main
 [alias]
 	ll = log --graph --oneline --decorate
