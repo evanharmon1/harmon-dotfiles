@@ -31,9 +31,19 @@
       "Bash(git push:*)",
       "Bash(gh:*)"
     ],
+    "ask": [
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge:*)",
+      "Bash(git merge)",
+      "Bash(git merge:*)",
+      "Bash(git push origin main)",
+      "Bash(git push origin main:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force:*)"
+    ],
     "defaultMode": "default"
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "ElicitationResult": [
       {
