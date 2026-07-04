@@ -63,4 +63,5 @@ Thumbs.db
 # A repo can still commit a curated settings.json if it holds shared config.
 **/.vscode/settings.json
 
+# Claude Code scratch-write staging dir (harness-created)
 **/.claude/.cc-writes/
