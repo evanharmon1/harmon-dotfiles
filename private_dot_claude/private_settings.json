@@ -1,4 +1,5 @@
 {
+  "//": "chezmoi:managed — edit via ~/git/harmon-dotfiles (private_dot_claude/private_settings.json); direct edits are overwritten by the next 'chezmoi apply' unless re-added",
   "permissions": {
     "allow": [
       "Bash(git:*)",

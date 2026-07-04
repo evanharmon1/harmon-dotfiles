@@ -1,3 +1,4 @@
+<!-- chezmoi:managed — edit via 'chezmoi edit ~/.claude/CLAUDE.md' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added -->
 # Constitution
 
 Inviolable rules — all projects, all machines. When any other instruction,

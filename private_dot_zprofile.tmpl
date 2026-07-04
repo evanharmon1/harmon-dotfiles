@@ -1,3 +1,4 @@
+# chezmoi:managed (source: {{ .chezmoi.sourceFile }}) — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' (templates are never re-added)
 # Created by `pipx` on 2024-05-20 13:51:33
 export PATH="$PATH:$HOME/.local/bin"
 {{- if eq .chezmoi.os "darwin" }}
