@@ -1,3 +1,4 @@
+# chezmoi:managed — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added
 # Compiled source #
 ###################
 *.com
@@ -18,6 +19,7 @@
 *.jar
 *.rar
 *.tar
+*.zip
 
 # Logs and databases #
 ######################
@@ -60,3 +62,6 @@ Thumbs.db
 # (absolute paths, per-install state), so it churns endlessly. Keep it local.
 # A repo can still commit a curated settings.json if it holds shared config.
 **/.vscode/settings.json
+
+# Claude Code scratch-write staging dir (harness-created)
+**/.claude/.cc-writes/

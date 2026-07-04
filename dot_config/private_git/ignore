@@ -1,1 +1,2 @@
+# chezmoi:managed — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added
 **/.claude/settings.local.json
