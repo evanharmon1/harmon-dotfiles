@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.3.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.2.0...v0.3.0) (2026-07-04)
+
+
+### Features
+
+* declare chezmoi management with a header in every managed file ([880143b](https://github.com/evanharmon1/harmon-dotfiles/commit/880143bc6ff1c2a62e489ff637e052c31e07ad09))
+* declare chezmoi management with a header in every managed file ([a5fcf10](https://github.com/evanharmon1/harmon-dotfiles/commit/a5fcf105f3ca4e8dca119248b8e3a59da4aec513))
+
+
+### Bug Fixes
+
+* header the Linux-variant ghostty/aichat sources too (deploy on non-macOS) ([d005559](https://github.com/evanharmon1/harmon-dotfiles/commit/d0055592ab9e0c8bc8adce55925fbf13164fa86a))
+
 ## [0.2.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.1.1...v0.2.0) (2026-07-04)
 
 
