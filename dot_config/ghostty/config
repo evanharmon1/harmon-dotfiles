@@ -1,3 +1,4 @@
+# chezmoi:managed — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added
 # This is the configuration file for Ghostty.
 #
 # Run `ghostty +show-config --default --docs` to view a list of

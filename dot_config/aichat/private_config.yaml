@@ -1,3 +1,4 @@
+# chezmoi:managed — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added
 # see https://github.com/sigoden/aichat/blob/main/config.example.yaml
 
 model: openai:gpt-4o
