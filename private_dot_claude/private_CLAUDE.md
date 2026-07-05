@@ -35,5 +35,13 @@ rule applies, ask first.
 6. **Releases are intentional.** Never cut, tag, or trigger a release — or
    merge a release PR (see rule 1) — unless explicitly asked.
 
+7. **Password managers are read-only unless explicitly told otherwise.**
+   Never create, modify, archive, or delete anything in 1Password or any other
+   credential store (items, fields, vaults — via `op` or any other means)
+   unless Evan explicitly asked for that specific write; even then, restate
+   exactly what will be written and confirm before executing. Announcing
+   intent and proceeding in the same turn is not consent. Reads (`op read`,
+   `op item list`, `op inject`) are fine.
+
 Keep this file tiny: a rule belongs here only if it matters enough to be read
 at the start of every session.
