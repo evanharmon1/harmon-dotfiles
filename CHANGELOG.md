@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.4.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.3.0...v0.4.0) (2026-07-05)
+
+
+### Features
+
+* **claude:** constitution rule 7 — password managers are read-only ([cda6648](https://github.com/evanharmon1/harmon-dotfiles/commit/cda664894e1c79ba30f8a878abf7ff31a411adf7))
+* **claude:** constitution rule 7 — password managers are read-only ([0352d6b](https://github.com/evanharmon1/harmon-dotfiles/commit/0352d6bfa0141296f879f0bc9c36b82b38ffc6d5))
+
 ## [0.3.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.2.0...v0.3.0) (2026-07-04)
 
 
