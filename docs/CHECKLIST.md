@@ -11,6 +11,13 @@ config, toolchain, devcontainer, and dev environment — against the items below
 
 - [ ] `task install` — Brewfile deps, and lefthook git hooks
 - [ ] `task verify` passes locally
+- [ ] **Vendor shared agent skills**: `.skills-sync.yaml` pins which harmon-devkit
+      skill categories this repo gets (from your `skill_categories` answer). Set
+      `ref` to the latest
+      [harmon-devkit release](https://github.com/evanharmon1/harmon-devkit/releases)
+      that ships the skill category layout, run `task sync:skills`, and commit
+      `.claude/skills/`. Until then the `verify:skills*` drift checks skip
+      cleanly (CI + pre-push). To update later: bump `ref`, re-sync, commit.
 - [ ] Verify `harmon-dotfiles.code-workspace` opens the repo's folder in VS Code and has a unique VS Code Workspace color. Then add any other related repos (e.g. other org repos) to the `folders` list in the workspace file so you have quick access to those repos
 - [ ] Extend `.gitignore` for your stack — the template ships a base; add stack-specific entries via [gitignore.io](https://www.toptal.com/developers/gitignore)
 - [ ] macOS: add a Raycast quicklink/alias that opens the `harmon-dotfiles.code-workspace`
