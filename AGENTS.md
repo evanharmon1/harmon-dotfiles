@@ -83,7 +83,10 @@ can reproduce a CI run locally on demand instead of waiting on a PR.
 - Conventional commit message (types: build, chore, ci, docs, feat, fix, perf,
   refactor, revert, style, test).
 - Never bypass git hooks (`--no-verify` is forbidden); fix the underlying issue.
-- Work on a feature branch; direct commits to `main` are blocked.
+- Human and agent work uses feature branches. Chezmoi's configured
+  `autoCommit`/`autoPush` maintenance flow is the sole direct-`main` exception;
+  its generated messages are why this repo intentionally omits the pre-commit
+  main guard and commit-msg hook. Do not use that exception for ordinary work.
 - **Never merge to main yourself** — no `gh pr merge`, `git merge`, or push to
   `main` without the maintainer's explicit, per-merge approval, even when CI is
   green and the ruleset would allow it. Open the PR, report that checks pass,

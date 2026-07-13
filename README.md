@@ -45,7 +45,15 @@ Install required dependencies
 
 ## Usage
 
-TODO: project usage
+This repository is the chezmoi source of truth. Edit a managed file through
+`chezmoi edit <target>` or edit its corresponding source file here, inspect the
+result with `chezmoi diff`, then apply it with `chezmoi apply`. Use `chezmoi
+re-add <target>` only for non-template files; live edits to `*.tmpl` targets are
+not recoverable with `re-add`.
+
+Run `task test` to render the entire source against an isolated temporary home
+with `chezmoi apply --dry-run`. It does not modify the real home directory or
+refresh externals.
 
 ### Task Runner
 
@@ -66,8 +74,6 @@ Git hooks (managed by [lefthook](https://lefthook.dev/), `lefthook.yml`) and CI
 delegate to the same Taskfile targets. Config lives in `.editorconfig`,
 `.shellcheckrc`, `.yamllint`, `.markdownlint.json`, `commitlint.config.mjs`, and
 `.gitleaks.toml`.
-
-### Building, Deploying, & CI/CD
 
 ## Todo File
 

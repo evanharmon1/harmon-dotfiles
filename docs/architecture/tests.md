@@ -7,11 +7,12 @@ How testing works in Harmon Dotfiles.
 | Layer | Tool | Command |
 |---|---|---|
 | Lint / static analysis | shellcheck, yamllint, markdownlint, actionlint | `task check` |
-| Tests | TODO: pick a test runner | `task test` |
+| Source render | chezmoi isolated dry run | `task test:chezmoi` |
+| Task/hook guards | shell assertions | `task test:tasks` |
 | Secrets | gitleaks | `task security:secrets` |
 
 ## Conventions
 
-- Test files live in `tests/` at the repo root (or co-located per framework convention).
+- The chezmoi test renders into a temporary destination with external refreshes
+  disabled; it never applies changes to the real home directory.
 - `task verify` is the local merge gate; CI runs the same task targets.
-- TODO: document coverage expectations and fixtures as the suite grows.

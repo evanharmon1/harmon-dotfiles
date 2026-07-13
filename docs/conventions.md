@@ -8,16 +8,20 @@ it points here.
 
 ## Commits & git
 
-- **Conventional Commits**, enforced by commitlint at the `commit-msg` hook.
+- **Conventional Commits** for human and agent changes, normally enforced by
+  commitlint at the `commit-msg` hook. This repo intentionally omits that hook
+  because chezmoi's configured auto-commit messages are machine-generated.
   Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
   `refactor`, `revert`, `style`, `test`. Format
   `type(scope): subject`, imperative mood.
 - **Subject and body lines ≤ 100 characters** (config-conventional).
 - **Breaking changes:** `feat!:` (or a `BREAKING CHANGE:` footer) — drives a
   major bump.
-- **Feature branches only.** Direct commits to `main` are blocked by the
-  `guard:no-commit-to-main` pre-commit hook and the branch ruleset. Land changes
-  via a PR; code-owner review and the `verify` + `security` checks are required.
+- **Feature branches for human and agent work.** Land ordinary changes via a PR;
+  code-owner review and the `verify` + `security` checks are required. Chezmoi's
+  configured `autoCommit`/`autoPush` maintenance flow is the sole direct-`main`
+  exception, so lefthook deliberately omits the main guard and commit-msg hook.
+  Do not use that automation exception for ordinary work.
 - **Never bypass hooks** (`--no-verify` is forbidden) — fix the underlying issue.
 - Run **`task verify`** before pushing; the pre-push hook runs secret scanning
   (and type/IaC checks where applicable).
