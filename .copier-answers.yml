@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: v3.21.0
+_commit: v3.24.0
 _src_path: https://github.com/evanharmon1/harmon-init
 bunch_add: false
 ci_runner: ubuntu-latest
@@ -20,4 +20,7 @@ project_name: Harmon Dotfiles
 project_slug: harmon-dotfiles
 project_type: general
 run_task_install: false
+skill_categories:
+- universal
 use_release_please: true
+use_skills_sync: true
