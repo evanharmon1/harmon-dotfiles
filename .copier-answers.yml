@@ -20,6 +20,7 @@ project_name: Harmon Dotfiles
 project_slug: harmon-dotfiles
 project_type: general
 run_task_install: false
+use_codeql: false
 use_foreman: false
 use_release_please: true
 use_skills_sync: false

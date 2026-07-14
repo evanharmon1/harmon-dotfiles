@@ -20,38 +20,41 @@ current — it is the reference for "where do secrets live and who can do what".
 
 Scanning is layered across a few axes. Each check runs at a defined place — a
 `task` target, a CI job, a git hook, or a GitHub-native setting — so local runs,
-git hooks, and CI stay identical. **The default stack is GitHub-native + CI-local
-and needs no paid service.**
+git hooks, and CI stay identical.
 
 | Axis | Catches | Default tool | Where it runs |
 |---|---|---|---|
-| **SAST** — flaws in *your own code* | injection, XSS, SSRF, path traversal, crypto/auth misuse | **CodeQL** (`codeql.yml`; JS/TS + Python) | CI, opt-in via the `FULL_SECURITY_SCAN=true` repo variable; results land in the GitHub Security tab |
-| **SCA** — CVEs in *dependencies* | vulnerable third-party packages | **Dependabot alerts** + **`task security:audit`** (`pnpm audit` / `pip-audit`) | Dependabot continuous (GitHub-native); audit in the CI `security` job + `task security` locally |
+| **SAST** — flaws in *your own code* | injection, command construction, unsafe file handling | **No default CI scanner** | CodeQL is intentionally omitted: the primary first-party content is Shell and configuration, which CodeQL does not analyze |
+| **SCA** — CVEs in *dependencies* | vulnerable third-party packages | **Dependabot alerts** + **`task security:audit`** | Dependabot continuous; the audit target runs in CI and is an explicit no-op while the repo has no package manifest |
 | **Secrets** — committed credentials | keys, tokens, certs, `.env` | **gitleaks** (`task security:secrets`) | pre-push git hook + CI `security` job |
-| **IaC** — insecure infrastructure | open security groups, public buckets, … | **checkov** (`task lint:terraform:security`) | CI `lint` job + `task check` locally (Terraform repos) |
 | **Freshness** — stale dependencies | a widening exposure window | **Renovate** (`minimumReleaseAge: 3 days`) | continuous, grouped update PRs |
 
 - **`task security`** (the CI `security` job) is `security:secrets` (gitleaks) +
-  `security:audit` (dependency audit). It does **not** run Snyk.
-- **CodeQL is opt-in** — its analyze jobs skip unless `FULL_SECURITY_SCAN=true`,
-  which `task setup:github` sets. If CodeQL is your only SAST, confirm it is on.
-- **`task setup:github`** turns on the GitHub-native layers: Dependabot alerts,
-  Private Vulnerability Reporting, and the `FULL_SECURITY_SCAN` variable; the branch
-  ruleset makes `verify` + `security` required checks. See
+  `security:audit`. Today the latter reports that there are no package manifests;
+  it must be replaced with the appropriate ecosystem audit if one is introduced.
+  The aggregate does **not** run Snyk.
+- **CodeQL is deliberately omitted; there is no default CI SAST coverage.**
+  The Copier contract records `use_codeql: false` because the repo's primary
+  first-party Shell/configuration sources are outside CodeQL's supported languages. The
+  small generated JavaScript reporting helper is not an application stack and
+  does not justify claiming repository-wide CodeQL coverage.
+- **`task setup:github`** enables Dependabot alerts and, when applicable,
+  Private Vulnerability Reporting; the branch ruleset makes `verify` +
+  `security` required checks. See
   [../CHECKLIST.md](../CHECKLIST.md).
-- Which tools apply depends on the stack: SAST/SCA need code + a manifest (web/app,
-  or Python for iac); IaC scanning is Terraform-only. A `general`/`docs` repo leans
-  mainly on secrets + audit.
+- Gitleaks is a secrets scanner and Dependabot/`security:audit` are dependency
+  controls. Neither is a substitute for SAST, so this exception must remain
+  explicit until a scanner that supports the repo's first-party stack is added.
 
-### Snyk is optional and redundant by default
+### Snyk is optional and local-only
 
 The template ships Snyk targets — `task security:sast` (`snyk code test`, SAST) and
 `task security:sca` (`snyk test`, SCA) — but they are **opt-in, local-only, and not
-in CI**, because the default stack already covers both axes: **CodeQL** for SAST and
-**Dependabot + `security:audit`** for SCA. On a normal repo Snyk is redundant — leave
-it off. (`SNYK_TOKEN` is a local credential, not a CI secret; and if the Snyk GitHub
-App is installed, its `code/snyk`/`security/snyk` PR checks are **not** required by
-the branch ruleset — remove the app to drop them.)
+in CI or `task security`. They are optional manual tools, not evidence of default
+coverage; `security:sca` is only meaningful once a supported package manifest
+exists. (`SNYK_TOKEN` is a local credential, not a CI secret; and if the Snyk
+GitHub App is installed, its `code/snyk`/`security/snyk` PR checks are **not**
+required by the branch ruleset — remove the app to drop them.)
 
 ### Exception: a shipped product (e.g. a B2B SaaS web app)
 
