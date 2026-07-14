@@ -43,7 +43,7 @@ jobs:
           # renovate: datasource=github-releases depName=go-task/task extractVersion=^v(?<version>.+)$
           version: 3.51.1
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install lint tools (shellcheck, shfmt, actionlint, yamllint)
+      - name: Install lint/test tools (shellcheck, shfmt, actionlint, yamllint, chezmoi)
         run: |
           # renovate: datasource=github-releases depName=koalaman/shellcheck extractVersion=^v(?<version>.+)$
           SHELLCHECK_VERSION=0.10.0
@@ -67,10 +67,18 @@ jobs:
           curl -fsSL --retry 3 "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C /tmp actionlint
           sudo mv /tmp/actionlint /usr/local/bin/
+          # renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v(?<version>.+)$
+          CHEZMOI_VERSION=2.71.0
+          CHEZMOI_SHA256=6ea2040ecc0e82d3dac604289e100b0157afefcd94ebb818e5f6e31655156d34
+          curl -fsSL --retry 3 -o /tmp/chezmoi.tgz \
+            "https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}/chezmoi_${CHEZMOI_VERSION}_linux_amd64.tar.gz"
+          echo "${CHEZMOI_SHA256}  /tmp/chezmoi.tgz" | sha256sum -c -
+          tar -xzf /tmp/chezmoi.tgz -C /tmp chezmoi
+          sudo install -m 0755 /tmp/chezmoi /usr/local/bin/chezmoi
           pip install yamllint
       - name: Lint
         run: task check
-      - run: task test:tasks
+      - run: task test
 
   security:
     # Runner switch: CI_RUNS_ON repo/org variable unset -> the rendered

@@ -10,6 +10,9 @@
 brew "go-task"
 brew "lefthook"
 
+# Repo-specific test runtime (scripts/test-chezmoi.sh)
+brew "chezmoi"
+
 # Git / GitHub
 brew "git"
 brew "gh"
