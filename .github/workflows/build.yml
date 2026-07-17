@@ -43,7 +43,7 @@ jobs:
           # renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v?(?<version>.+)$
           CHEZMOI_VERSION=2.71.0
           CHEZMOI_SHA256=6ea2040ecc0e82d3dac604289e100b0157afefcd94ebb818e5f6e31655156d34
-          curl -fsSL --retry 3 -o /tmp/chezmoi.tgz \\
+          curl -fsSL --retry 3 -o /tmp/chezmoi.tgz \
             "https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}/chezmoi_${CHEZMOI_VERSION}_linux_amd64.tar.gz"
           echo "${CHEZMOI_SHA256}  /tmp/chezmoi.tgz" | sha256sum -c -
           tar -xzf /tmp/chezmoi.tgz -C /tmp chezmoi
