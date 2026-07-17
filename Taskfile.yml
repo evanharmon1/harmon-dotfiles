@@ -182,8 +182,9 @@ tasks:
 
   # ── Security ───────────────────────────────────────────────────
   security:
-    desc: Run all security checks (parallel)
+    desc: Run all free local security checks (Semgrep CE + gitleaks + dependency audit)
     deps:
+      - security:sast
       - security:secrets
       - security:audit
 
@@ -207,14 +208,24 @@ tasks:
       - echo "No package manifests to audit yet."
 
   security:sast:
-    desc: "Static application security testing (Snyk) — optional/local, needs SNYK_TOKEN (not in CI or `task security`)"
+    desc: Static application security testing (Semgrep Community Edition)
     cmds:
-      - snyk code test --exclude=.worktrees --severity-threshold=high
+      - ./scripts/run-semgrep.sh {{.CLI_ARGS}}
 
   security:sca:
-    desc: "Software composition analysis (Snyk) — optional/local, needs SNYK_TOKEN (not in CI or `task security`)"
+    desc: Software composition analysis (free package-manager audit)
+    deps:
+      - security:audit
+
+  security:sast:snyk:
+    desc: "Optional Snyk Code second-opinion scan (manual/local or explicitly scheduled); needs SNYK_TOKEN"
     cmds:
-      - snyk test --severity-threshold=high --show-vulnerable-paths=all
+      - snyk code test --exclude=.worktrees,.foreman,.claude --severity-threshold=high {{.CLI_ARGS}}
+
+  security:sca:snyk:
+    desc: "Optional Snyk Open Source second-opinion scan (manual/local or explicitly scheduled); needs SNYK_TOKEN"
+    cmds:
+      - snyk test --all-projects --exclude=.worktrees,.foreman,.claude --severity-threshold=high --show-vulnerable-paths=all {{.CLI_ARGS}}
 
   # ── Secrets ────────────────────────────────────────────────────
   # Destination-only helpers: the secret value stays on stdin — never in argv,

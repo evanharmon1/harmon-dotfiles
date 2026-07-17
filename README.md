@@ -66,7 +66,7 @@ mirrors the full pipeline.
 
 #### Security
 
-`task security` — gitleaks secret scan + dependency audit.
+`task security` — Semgrep CE SAST + gitleaks secret scan + dependency audit. Optional Snyk second-opinion targets remain manual/local.
 
 #### Linting, formatting & conventions
 
@@ -74,7 +74,3 @@ Git hooks (managed by [lefthook](https://lefthook.dev/), `lefthook.yml`) and CI
 delegate to the same Taskfile targets. Config lives in `.editorconfig`,
 `.shellcheckrc`, `.yamllint`, `.markdownlint.json`, `commitlint.config.mjs`, and
 `.gitleaks.toml`.
-
-## Todo File
-
-[todo.md](./todo.md)
