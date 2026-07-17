@@ -61,8 +61,8 @@ refresh externals.
 
 ### Verify
 
-`task verify` runs the fast local gate (lint + Taskfile/hook guards); `task ci`
-mirrors the full pipeline.
+`task check` runs the fast lint gate. `task verify` is the definition-of-done
+gate (check + validation + Taskfile guards + tests); `task ci` adds security.
 
 #### Security
 
