@@ -23,11 +23,14 @@ brew "yamllint"
 
 # Security
 brew "gitleaks"
-tap "snyk/tap"
-brew "snyk/tap/snyk"
 
 # Runtime for npx-based tools (commitlint, markdownlint-cli2)
 brew "node"
+# Python tool runner (Semgrep CE use uv/uvx)
+brew "uv"
+
+# Skills sync (scripts/sync-skills.sh reads .skills-sync.yaml)
+brew "yq"
 
 # Utilities
 brew "direnv"

@@ -6,7 +6,18 @@
   "prConcurrentLimit": 10,
   "automerge": false,
   "dependencyDashboard": true,
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
   "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Released harmon-devkit tag pinned by the skills-sync manifest",
+      "managerFilePatterns": ["/\\.skills-sync\\.ya?ml/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ref:\\s*(?<currentValue>\\S+)"
+      ]
+    },
     {
       "customType": "regex",
       "description": "Workflow tool pins, `version:` style",
@@ -18,8 +29,8 @@
     },
     {
       "customType": "regex",
-      "description": "Workflow tool pins, `FOO_VERSION=x.y.z` shell-variable style",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "description": "Workflow/composite-action and script tool pins, `FOO_VERSION=x.y.z` shell-variable style",
+      "managerFilePatterns": ["/^(\\.github/(actions|workflows)/.*\\.ya?ml|scripts/.*\\.sh)$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\s+[A-Z_]+_VERSION=(?<currentValue>\\S+)"
       ]
@@ -56,6 +67,17 @@
       "description": "Batch all Docker image updates into one PR",
       "matchDatasources": ["docker"],
       "groupName": "Docker images"
+    },
+    {
+      "description": "Surface harmon-devkit releases for deliberate pin-and-sync updates",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["evanharmon1/harmon-devkit"],
+      "groupName": "harmon-devkit skills",
+      "dependencyDashboardApproval": true,
+      "dependencyDashboardCategory": "Agent skills",
+      "prBodyNotes": [
+        "After approving this update, run `task sync:skills` and push the refreshed `.claude/skills/` as a separate commit; do not amend Renovate's commit."
+      ]
     }
   ]
 }

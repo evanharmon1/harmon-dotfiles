@@ -17,7 +17,7 @@ it points here.
   major bump.
 - **Feature branches only.** Direct commits to `main` are blocked by the
   `guard:no-commit-to-main` pre-commit hook and the branch ruleset. Land changes
-  via a PR; code-owner review and the `verify` + `security` checks are required.
+  via a PR; code-owner review and the `verify` + `security`  checks are required.
 - **Never bypass hooks** (`--no-verify` is forbidden) — fix the underlying issue.
 - Run **`task verify`** before pushing; the pre-push hook runs secret scanning
   (and type/IaC checks where applicable).
@@ -29,7 +29,9 @@ it points here.
   `install:hooks`, `status:git`. **Never action-first** (`typescript:lint`,
   `yaml:lint`).
 - Pipeline order is **`check → build → validate → test → security`**, with
-  `verify` (local gate) and `ci` (full) as the aggregates.
+  `verify` (the definition-of-done gate — check + validate + test) and
+  `ci` (full — verify + security) as the aggregates. `check` is the fast
+  inner-loop/hook gate.
 - **`lint:*` and `check` are read-only gates** — they report and fail, never
   modify files. All auto-fixing lives in **`task format`**, **`task format:file
   -- <path>`**, and **`task fix`** (= format then lint). Pre-commit hooks run the
@@ -69,6 +71,9 @@ it points here.
 - **Pin third-party actions by full commit SHA** with a trailing `# vX.Y.Z`
   comment, and annotate tool versions with `# renovate: datasource=…` so
   Renovate keeps them current.
+- Third-party CI/SaaS integrations that require an account, app installation,
+  trial, or payment must be explicit opt-ins that default off. Document free-tier
+  and private-repository limitations before adding them to generated output.
 - **Least-privilege `permissions:`** per job; never log secrets.
 - CI authenticates as the **`evanharmon1-ci` GitHub App** (short-lived
   tokens), not a PAT — see [architecture/security.md](architecture/security.md).
@@ -89,6 +94,12 @@ it points here.
 - **`AGENTS.md` is the single source of truth** for AI guidance; `CLAUDE.md`,
   `GEMINI.md`, and `.github/copilot-instructions.md` are **symlinks** to it —
   edit only `AGENTS.md`.
+- **Vendored vs local skills:** the skills sync manages ONLY the directories
+  listed on the `# managed:` line of `.claude/skills/.SKILLS_PROVENANCE`. Any
+  other directory under `.claude/skills/` is a **local skill owned by this
+  repo** — create, edit, and delete it freely; `task sync:skills` and the
+  `verify:skills*` drift checks never touch or report it. Never hand-edit the
+  managed (vendored) skills — change them in harmon-devkit and bump the pin.
 - **Doc filenames are kebab-case** (`branch-protection.md`, `ci-cd.md`). The
   conventional uppercase project files keep their names: `README.md`,
   `AGENTS.md`, `DESIGN.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
