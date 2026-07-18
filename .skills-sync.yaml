@@ -3,11 +3,13 @@
 # copier answer (seeded from your project type); edit them freely, then run
 # `task sync:skills`. See docs/CHECKLIST.md.
 #
-# harmon-devkit is the single source of truth; `dest` is fully managed by the
-# sync (do not hand-edit vendored skills there).
+# harmon-devkit is the single source of truth; the sync manages ONLY the
+# skill directories it vendored (tracked on the provenance `# managed:`
+# line) — any other directory in `dest` is a local skill it never touches.
 source:
   repo: https://github.com/evanharmon1/harmon-devkit.git
-  ref: v0.5.0 # pinned tag — bump deliberately to a released harmon-devkit tag
+  # renovate: datasource=github-releases depName=evanharmon1/harmon-devkit
+  ref: v0.7.2 # pinned tag — bump deliberately to a released harmon-devkit tag
 categories:
   - universal
 dest: .claude/skills

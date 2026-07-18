@@ -18,60 +18,111 @@ current — it is the reference for "where do secrets live and who can do what".
 
 ## Security scanning: SAST, SCA, secrets & audits
 
-Scanning is layered across a few axes. Each check runs at a defined place — a
-`task` target, a CI job, a git hook, or a GitHub-native setting — so local runs,
-git hooks, and CI stay identical. **The default stack is GitHub-native + CI-local
-and needs no paid service.**
+Scanning is layered across a few axes. GitHub-hosted CodeQL is the preferred SAST
+engine where it is free: public repositories with a supported generated
+workflow. Semgrep Community Edition (CE) is the free CI fallback for private
+repositories and for profiles without a CodeQL workflow.
 
 | Axis | Catches | Default tool | Where it runs |
 |---|---|---|---|
-| **SAST** — flaws in *your own code* | injection, XSS, SSRF, path traversal, crypto/auth misuse | **CodeQL** (`codeql.yml`; JS/TS + Python) | CI, opt-in via the `FULL_SECURITY_SCAN=true` repo variable; results land in the GitHub Security tab |
-| **SCA** — CVEs in *dependencies* | vulnerable third-party packages | **Dependabot alerts** + **`task security:audit`** (`pnpm audit` / `pip-audit`) | Dependabot continuous (GitHub-native); audit in the CI `security` job + `task security` locally |
+| **SAST** — flaws in *your own code* | injection, XSS, SSRF, path traversal, crypto/auth misuse | **Semgrep CE** | CI and `task security:sast`; this profile has no generated CodeQL workflow |
+| **SCA** — CVEs in *dependencies* | vulnerable third-party packages | **Dependabot alerts** + **`task security:audit`** (`pnpm audit` / `pip-audit`) | Dependabot continuous; audit in the CI `security` job + `task security` locally |
 | **Secrets** — committed credentials | keys, tokens, certs, `.env` | **gitleaks** (`task security:secrets`) | pre-push git hook + CI `security` job |
 | **IaC** — insecure infrastructure | open security groups, public buckets, … | **checkov** (`task lint:terraform:security`) | CI `lint` job + `task check` locally (Terraform repos) |
-| **Freshness** — stale dependencies | a widening exposure window | **Renovate** (`minimumReleaseAge: 3 days`) | continuous, grouped update PRs |
+| **Freshness/remediation** — stale or vulnerable dependencies | a widening exposure window | **Renovate** (`minimumReleaseAge: 3 days`, Dependabot-alert remediation enabled) | continuous update and vulnerability-fix PRs |
 
-- **`task security`** (the CI `security` job) is `security:secrets` (gitleaks) +
-  `security:audit` (dependency audit). It does **not** run Snyk.
-- **CodeQL is opt-in** — its analyze jobs skip unless `FULL_SECURITY_SCAN=true`,
-  which `task setup:github` sets. If CodeQL is your only SAST, confirm it is on.
+The repository-class policy is:
+
+| Repository class | Standard |
+|---|---|
+| Public, CodeQL-supported | CodeQL + Dependabot alerts/Renovate + gitleaks; no Snyk by default |
+| Selected important public | Optionally add Snyk Free as a scheduled SAST/SCA second opinion; private-test quotas do not apply to public repositories |
+| Private | Semgrep CE is the dependable free CI SAST baseline; keep Snyk Free manual/local by default because its Organization-wide quotas can stop scans mid-month |
+| Important private | Consider paid GitHub Code Security/private CodeQL and/or paid Snyk, then decide whether per-PR scans should be merge-gating |
+| Qualifying public OSS | Consider Snyk's [Secure Developer Program](https://snyk.io/open-source/) for full entitlements without usage limits |
+
+- **`task security`** is the portable free local baseline: `security:sast`
+  (Semgrep CE) + `security:secrets` (gitleaks) + `security:audit` (the
+  package-manager audit). It does **not** run Snyk.
+- **CI routes SAST by visibility** instead of running duplicate engines:
+  this profile has no CodeQL workflow, so Semgrep CE runs for both public and
+  private repositories.
 - **`task setup:github`** turns on the GitHub-native layers: Dependabot alerts,
-  Private Vulnerability Reporting, and the `FULL_SECURITY_SCAN` variable; the branch
+  and Private Vulnerability Reporting when the repository is public; the branch
   ruleset makes `verify` + `security` required checks. See
   [../CHECKLIST.md](../CHECKLIST.md).
 - Which tools apply depends on the stack: SAST/SCA need code + a manifest (web/app,
-  or Python for iac); IaC scanning is Terraform-only. A `general`/`docs` repo leans
-  mainly on secrets + audit.
+  or Python for iac); IaC scanning is Terraform-only.
 
-### Snyk is optional and redundant by default
+Semgrep CE is useful, open-source, and runs without a hosted account, but it is
+not CodeQL-equivalent: its community analysis is principally intraprocedural
+and normally has shallower data-flow coverage than CodeQL or commercial engines.
+It is the private-repository floor, not a claim of full vulnerability coverage.
 
-The template ships Snyk targets — `task security:sast` (`snyk code test`, SAST) and
-`task security:sca` (`snyk test`, SCA) — but they are **opt-in, local-only, and not
-in CI**, because the default stack already covers both axes: **CodeQL** for SAST and
-**Dependabot + `security:audit`** for SCA. On a normal repo Snyk is redundant — leave
-it off. (`SNYK_TOKEN` is a local credential, not a CI secret; and if the Snyk GitHub
-App is installed, its `code/snyk`/`security/snyk` PR checks are **not** required by
-the branch ruleset — remove the app to drop them.)
+### Semgrep is the SAST baseline
 
-### Exception: a shipped product (e.g. a B2B SaaS web app)
+This profile does not generate `codeql.yml`, so the build workflow runs Semgrep
+CE for public and private repositories. If the repository later gains a
+CodeQL-supported application stack, add a CodeQL workflow for public coverage or
+for paid private GitHub Code Security coverage.
 
-For a product that holds customer data, revisit the above — the redundancy stops
-being waste and a **paid Snyk tier** is worth weighing:
+### Dependency monitoring and update ownership
 
-- **Defense in depth** — a second SAST/SCA opinion matters when a miss means a
-  customer-data breach, not a broken marketing page.
-- **License compliance** — you are distributing a product, and **Dependabot does not
-  scan dependency licences**; Snyk (or FOSSA) does.
-- **Reachability** — Snyk can rank which dependency CVEs are actually reachable in
-  your code, cutting noise.
-- **Sales & compliance** — B2B customers send security questionnaires and may require
-  SOC 2 / a vendor review, where a recognised commercial scanner is a checkbox. A
-  paid tier also removes the free Snyk-Code monthly test limit.
+Dependabot **alerts** are free for public and private repositories and are the
+continuous GitHub advisory feed. Renovate owns routine dependency update PRs and
+alert-remediation PRs (`vulnerabilityAlerts.enabled=true`). Do not add a
+`dependabot.yml`: Dependabot update PRs would compete with Renovate. The
+package-manager audit remains in CI as an immediate provider-independent check.
 
-A web app also needs layers this stack does **not** cover: **DAST** (scanning the
-running app for auth bypass / IDOR / injection on live endpoints), **multi-tenant
-isolation** (the top B2B web-app risk), and **container/image scanning** if it ships
-images.
+### Snyk second opinion and scheduling
+
+Snyk is not installed by default and is not part of `task security` or required
+PR CI. The explicit `task security:sast:snyk` (`snyk code test`) and
+`task security:sca:snyk` (`snyk test --all-projects`) targets provide
+manual/local second-opinion scans. Every detected dependency manifest can
+consume a separate Snyk Open Source test on a private repository.
+
+The Copier answer `snyk_scan_schedule` controls the optional workflow:
+
+- `off` (default) — no workflow; keep `SNYK_TOKEN` local;
+- `weekly` — quota-aware advisory scans, appropriate for a selected repository;
+- `daily` — intended for public repositories or an accepted unlimited OSS
+  project, not the ordinary private Free-plan posture.
+
+This repository kept the default `off`, so no Snyk workflow or Actions secret is
+needed. Re-render with `weekly` or `daily` only after deliberately selecting the
+repository for scheduled defense in depth.
+
+Scheduled and local CLI tests draw from the same private-repository allocation.
+Weekly is the conservative cadence. Daily Snyk Code alone is about 30 tests per
+repository per month, before manual tests, and SCA multiplies by the number of
+manifests. The scheduled workflow is intended primarily for selected important
+public repositories because Snyk's private-test limits do not apply there. A
+private repository may deliberately choose weekly after estimating
+Organization-wide usage, but the standard remains Semgrep CE in CI plus
+occasional local Snyk. Dependabot already monitors dependency advisories
+continuously, so weekly Snyk is normally enough for a second opinion.
+
+No Snyk GitHub App is needed for local or scheduled CLI scans. Leave it off on
+ordinary repositories. If installed, its PR checks (commonly
+`code/snyk`/`security/snyk`) are not required by the branch ruleset; remove the
+repository from the integration to eliminate them.
+
+### Paid escalation for a high-consequence product
+
+Choose paid controls based on the capability the product needs:
+
+- **GitHub Code Security** supplies private-repository CodeQL and keeps findings
+  and remediation in GitHub.
+- **Paid Snyk** can be an alternative or a second SAST/SCA opinion, especially
+  when dependency-license policy, reachability, or vendor reporting matters.
+- **GitHub Secret Protection** adds server-side secret scanning, push protection,
+  and governance. Gitleaks remains useful locally and in CI but does not block a
+  secret before it reaches GitHub in every client/path.
+
+DAST, tenant-isolation tests, and container/image scanning are separate,
+application-specific controls. A deployed web application should evaluate them;
+a library or docs repository usually should not.
 
 ## CI automation identity (GitHub App)
 
@@ -198,13 +249,11 @@ even the in-org radius small:
 
 ## Token & secret inventory
 
-TODO: enumerate the tokens/secrets this repo depends on and where each lives:
-
 | Secret / variable | Used by | Stored in | Rotation |
 |---|---|---|---|
 | `CI_APP_CLIENT_ID` (var) + `CI_APP_PRIVATE_KEY` (secret) | release-please, claude-* | repo or org Actions variable + secret | rotate App key per policy |
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude-* workflows | repo Actions secret | re-run `claude setup-token` |
-| `SNYK_TOKEN` | `task security:sast`/`sca` (optional, local-only — not in CI) | local env / 1Password | TODO |
+| `SNYK_TOKEN` | optional Snyk CLI scans | local env / 1Password by default | manual |
 | TODO | TODO | TODO | TODO |
 
 > **`CLAUDE_CODE_OAUTH_TOKEN` must be an OAuth token, not an API key.** Generate

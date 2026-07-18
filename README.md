@@ -29,9 +29,10 @@ This repo is part of **harmon-platform** — my custom development platform with
 
 ### Requirements
 
-- Homebrew
+- [Homebrew](https://brew.sh/)
 - [chezmoi](https://www.chezmoi.io/) (applies the dotfiles to your home directory)
-- [Taskfile](https://taskfile.dev/) (task runner)
+- [go-task](https://taskfile.dev/) (task runner)
+- [uv](https://docs.astral.sh/uv/) (runs the pinned Semgrep CE baseline)
 
 ### Bootstrap
 
@@ -53,12 +54,15 @@ TODO: project usage
 
 ### Verify
 
-`task verify` runs the fast local gate (lint + Taskfile/hook guards); `task ci`
-mirrors the full pipeline.
+`task check` runs the fast lint gate. `task verify` is the definition-of-done
+gate (check + validation + tests), and `task ci` adds the complete security
+baseline to mirror CI locally.
 
 #### Security
 
-`task security` — gitleaks secret scan + dependency audit.
+`task security` — Semgrep CE + gitleaks secret scan + dependency audit. Optional
+Snyk second opinions remain available through `task security:sast:snyk` and
+`task security:sca:snyk`.
 
 #### Linting, formatting & conventions
 
