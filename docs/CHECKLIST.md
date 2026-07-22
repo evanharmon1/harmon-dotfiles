@@ -34,7 +34,8 @@ config, toolchain, devcontainer, and dev environment — against the items below
 - [ ] **Automated settings** — run `task setup:github` (idempotent, safe to
       re-run): enables **Dependabot alerts** and **private vulnerability
       reporting** when public. Do not add `dependabot.yml`: Renovate owns routine
-      and vulnerability-remediation PRs; Dependabot owns advisory alerts.- [ ] Import the branch ruleset (see [architecture/branch-protection.md](architecture/branch-protection.md)) — do this once `build.yml` are on `main` so the required `verify`/`security` checks resolve. **Use the UI import:** Settings → Rules → Rulesets → **New ruleset ▸ Import a ruleset** → select `.github/Branch Protection Ruleset - Protect Main.json`. (Prefer the UI over `gh api … rulesets`: the API `POST` is not idempotent — re-running creates a duplicate ruleset — and currently rejects the `merge_queue` rule. To later change the ruleset, edit the existing one in the UI rather than re-importing.)
+      and vulnerability-remediation PRs; Dependabot owns advisory alerts.
+- [ ] Import the branch ruleset (see [architecture/branch-protection.md](architecture/branch-protection.md)) — do this once `build.yml` are on `main` so the required `verify`/`security` checks resolve. **Use the UI import:** Settings → Rules → Rulesets → **New ruleset ▸ Import a ruleset** → select `.github/Branch Protection Ruleset - Protect Main.json`. (Prefer the UI over `gh api … rulesets`: the API `POST` is not idempotent — re-running creates a duplicate ruleset — and currently rejects the `merge_queue` rule. To later change the ruleset, edit the existing one in the UI rather than re-importing.)
 
 - [ ] Install the [Renovate app](https://github.com/apps/renovate) on the repo
 - [ ] Install the [CodeRabbit app](https://github.com/apps/coderabbitai) on the repo (`.coderabbit.yaml` is pre-configured)
@@ -44,8 +45,9 @@ config, toolchain, devcontainer, and dev environment — against the items below
       key, billed at pay-as-you-go API rates). Then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`
 - [ ] **SAST coverage** — this profile has no CodeQL workflow, so Semgrep CE runs
       in `build.yml` for public and private repositories. Add CodeQL later if the
-      repo gains a supported application stack and is public (free) or has paid
-      GitHub Code Security (private/internal).
+      repo gains supported first-party source: set `use_codeql=true`, select its
+      `codeql_languages`, and ensure it is public (free) or has paid GitHub Code
+      Security (private/internal).
 - [ ] **Choose the Snyk posture** — the default is manual/local only via
       `task security:sast:snyk` and `task security:sca:snyk`; it is not part of
       `task security` or required PR CI. Free private-repository tests share the

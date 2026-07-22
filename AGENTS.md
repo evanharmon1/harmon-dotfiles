@@ -79,6 +79,34 @@ test). `ci` is the full pipeline — everything CI runs (`verify` +
 `security`) — so you can reproduce a CI
 run locally on demand instead of waiting on a PR.
 
+## Dev Loop
+
+Bias toward shipping: drive every change to an open PR instead of stopping at
+a green local diff. Work in small, PR-sized units, and move to the next stage
+on your own — an open PR with green checks is the default deliverable, not
+something to ask permission for.
+
+- **Branch** — feature branch off `main`; never commit directly to `main`.
+- **Edit + `task check`** — the fast inner loop; run it constantly and fix
+  lint immediately.
+- **`task verify`** — when the change feels done, loop edit → verify until
+  green; verify is the definition-of-done gate.
+- **`task ci`** — the full CI mirror; fix anything it catches.
+- **Open the PR** — conventional commit, push the branch, `gh pr create` with
+  a clear what/why/verification summary.
+- **Shepherd the PR (max 4 rounds).** Opening the PR is not the end. Watch CI
+  (`gh pr checks <n> --watch`) and incoming bot/human reviews. When a check
+  fails or a review lands findings, treat the findings as hypotheses: verify
+  them against the code, fix only what's confirmed, explain rejections in a
+  PR comment, push the fix commit, and watch again. Shepherd-round fixes
+  must pass `task verify` before each push; the local challenge/review loops
+  are not re-entered — the post-push cloud/bot review is the second-model
+  check at this stage. This cap is independent of the other loop caps. If
+  checks still fail or material findings remain after 4 rounds, stop and
+  summarize what's unresolved on the PR for the maintainer.
+- **Stop at green.** Report that checks pass, then stop — merging is always a
+  human decision.
+
 ## Definition of Done
 
 - `task verify` passes.
@@ -90,6 +118,14 @@ run locally on demand instead of waiting on a PR.
   `main` without the maintainer's explicit, per-merge approval, even when CI is
   green and the ruleset would allow it. Open the PR, report that checks pass,
   then stop; merging is always a human decision.
+- **Reply to every inline PR review comment in its own thread** — bot
+  reviewers (Codex, CodeRabbit, …) and humans alike. Treat findings as
+  hypotheses: verify each against the code, fix what's confirmed, and post the
+  rejection reasoning with evidence otherwise. Post replies with
+  `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment-id>/replies -f body=…`
+  (comment IDs from `gh api …/pulls/<n>/comments`). A rollup summary comment
+  on the PR is optional in addition, never a substitute for per-thread
+  replies.
 - Releases are intentional: release-please keeps a rolling release PR from
   conventional commits; merging it cuts the tag/release. Nothing bumps on a
   normal merge. `task release:*` remains as a manual override.
