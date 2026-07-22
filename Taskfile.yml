@@ -85,16 +85,8 @@ tasks:
 
   lint:shell:
     desc: shellcheck + shfmt
-    vars:
-      SHELL_FILES:
-        sh: git ls-files '*.sh' '*.bash' 2>/dev/null | tr '\n' ' '
     cmds:
-      - |
-        files="{{.CLI_ARGS}}"
-        [ -z "$files" ] && files="{{.SHELL_FILES}}"
-        [ -z "$files" ] && exit 0
-        shellcheck --severity=error $files
-        shfmt -d $files
+      - ./scripts/lint-shell.sh {{.CLI_ARGS}}
 
   lint:markdown:
     # Check-only (no --fix) so this is a read-only gate like lint:prettier /
@@ -168,9 +160,7 @@ tasks:
   format:
     desc: Auto-format code
     cmds:
-      - |
-        files=$(git ls-files '*.sh' '*.bash')
-        [ -n "$files" ] && shfmt -w $files || true
+      - ./scripts/format-shell.sh
       # Best-effort markdown auto-fix (bin-vs-npx dispatch in the helper); must
       # NOT abort `format` on un-auto-fixable rule violations — `lint:markdown`
       # (check-only) is the gate.

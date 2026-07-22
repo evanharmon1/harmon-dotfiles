@@ -27,12 +27,39 @@ if ! task --list-all >/dev/null 2>&1; then
 fi
 
 echo "==> bootstrap is a no-op when Homebrew is already installed"
-if command -v brew >/dev/null 2>&1; then
-    if ! task bootstrap >/dev/null 2>&1; then
-        fail "task bootstrap failed even though brew is already installed"
-    fi
-else
-    echo "    (skipped: brew not on PATH)"
+# Run against STUBS, never the real toolchain. `test:tasks` is part of `verify`,
+# and in a generated use_node repo `bootstrap` runs `brew install node` plus
+# `npm install -g pnpm` — so invoking it for real made running the tests mutate
+# the developer's machine, and CI too (GitHub's ubuntu images carry linuxbrew on
+# PATH). A test must not install a global toolchain as a side effect.
+#
+# Stubbing also removes the old `command -v brew` skip, so the assertion now
+# runs everywhere instead of silently doing nothing on most CI runners.
+bootstrap_bin="${test_tmp}/bootstrap-bin"
+installer_marker="${test_tmp}/homebrew-installer-fetched"
+mkdir -p "$bootstrap_bin"
+for stub in brew npm node pnpm; do
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"${bootstrap_bin}/${stub}"
+    chmod +x "${bootstrap_bin}/${stub}"
+done
+# Fake curl records any attempt to fetch the Homebrew installer, so we can prove
+# the `command -v brew` guard short-circuited instead of re-running setup.
+cat >"${bootstrap_bin}/curl" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+    case "\$arg" in
+    *Homebrew/install*) : >"${installer_marker}" ;;
+    esac
+done
+exit 0
+EOF
+chmod +x "${bootstrap_bin}/curl"
+
+if ! PATH="${bootstrap_bin}:${PATH}" task bootstrap >/dev/null 2>&1; then
+    fail "task bootstrap failed with brew already on PATH"
+fi
+if [ -f "$installer_marker" ]; then
+    fail "task bootstrap fetched the Homebrew installer despite brew being on PATH"
 fi
 
 echo "==> Semgrep wrapper preserves explicit scan targets"
@@ -50,6 +77,45 @@ PATH="${semgrep_bin}:${PATH}" SEMGREP_ARGS="$semgrep_args" \
     fail "Semgrep wrapper did not preserve the explicit target"
 if grep -Fxq . "$semgrep_args"; then
     fail "Semgrep wrapper appended a repository-wide target"
+fi
+
+echo "==> shell formatter preserves tracked paths and failures"
+format_repo="${test_tmp}/format-repo"
+# Assemble the jinja-style segment so this file never contains a literal
+# copier marker: the standardize-repo skill's unrendered-marker scan
+# (verify-applied.sh) would otherwise flag scripts/test-tasks.sh in every
+# generated repo. The RUNTIME path still opens a real block marker ("[%"
+# followed by " if ... %]") plus whitespace — the case format-shell.sh
+# must survive.
+jinja_open='[%'
+format_path="${format_repo}/template/${jinja_open} if sample %]/script with spaces.sh"
+mkdir -p "$(dirname "$format_path")"
+git -C "$format_repo" init -q
+printf '%s\n' '#!/usr/bin/env bash' 'if true;then' 'echo ok' 'fi' >"$format_path"
+git -C "$format_repo" add -- "${format_path#"$format_repo"/}"
+(
+    cd "$format_repo"
+    "$repo/scripts/format-shell.sh"
+)
+if ! shfmt -d "$format_path" >/dev/null; then
+    fail "shell formatter did not safely format a tracked path containing spaces"
+fi
+
+format_fail_bin="${test_tmp}/format-fail-bin"
+mkdir -p "$format_fail_bin"
+cat >"${format_fail_bin}/shfmt" <<'EOF'
+#!/usr/bin/env bash
+exit 42
+EOF
+chmod +x "${format_fail_bin}/shfmt"
+if (
+    cd "$format_repo"
+    PATH="${format_fail_bin}:${PATH}" "$repo/scripts/format-shell.sh"
+); then
+    fail "shell formatter masked a shfmt failure"
+fi
+if ! grep -qF './scripts/format-shell.sh' Taskfile.yml; then
+    fail "Taskfile.yml does not delegate shell formatting to the path-safe helper"
 fi
 
 echo "==> secret helper tasks reject missing destination metadata"
@@ -116,4 +182,4 @@ for category in SSH_KEY SSHKEY; do
     fi
 done
 
-echo "==> task targets OK (compile + bootstrap idempotency)"
+echo "==> task targets OK (compile + bootstrap idempotency + path-safe formatting)"

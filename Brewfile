@@ -33,6 +33,9 @@ brew "uv"
 brew "yq"
 
 # Utilities
+# coreutils provides `timeout`, which stock macOS lacks — scripts/status.sh
+# bounds its network probes with it.
+brew "coreutils"
 brew "direnv"
 brew "jq"
 brew "fzf"
