@@ -1,0 +1,52 @@
+# chezmoi:managed (source: {{ .chezmoi.sourceFile }}) — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' (templates are never re-added)
+# Agent Deck configuration
+# Reference: https://github.com/asheshgoplani/agent-deck/blob/main/skills/agent-deck/references/config-reference.md
+
+default_tool = "claude"
+theme = "dark"
+
+[claude]
+  dangerous_mode = false
+  auto_mode = true
+
+[worktree]
+  default_enabled = true
+  auto_cleanup = true
+  default_location = "subdirectory"
+
+[global_search]
+  enabled = true
+  tier = "auto"
+  recent_days = 90
+
+[logs]
+  max_size_mb = 10
+  max_lines = 10000
+  remove_orphans = true
+  debug_compress = false
+
+[mcp_pool]
+  auto_start = false
+  shutdown_on_exit = false
+  fallback_to_stdio = true
+  show_pool_status = false
+
+[updates]
+  check_enabled = true
+  check_interval_hours = 24
+  notify_in_cli = true
+
+[experiments]
+  date_prefix = false
+
+[notifications]
+  enabled = true
+  max_shown = 10
+
+[conductor]
+  enabled = true
+  heartbeat_interval = 15
+
+  [conductor.telegram]
+    token = '{{ onepasswordRead "op://Private/Telegram/agentdeckbotKey" }}'
+    user_id = {{ onepasswordRead "op://Private/Telegram/user id" }}
