@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.5.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.4.0...v0.5.0) (2026-07-29)
+
+
+### Features
+
+* **agent-deck:** manage config with chezmoi ([d5d4f9e](https://github.com/evanharmon1/harmon-dotfiles/commit/d5d4f9ebc1476aaa8b51e05fb2971f8bf3f020da))
+* **agent-deck:** manage config with chezmoi ([94ef7a4](https://github.com/evanharmon1/harmon-dotfiles/commit/94ef7a44ed17e25e0d0d323c434cc12ca9021cb2))
+
 ## [0.4.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.3.0...v0.4.0) (2026-07-05)
 
 
