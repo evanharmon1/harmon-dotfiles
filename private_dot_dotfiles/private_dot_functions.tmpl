@@ -82,3 +82,62 @@ e() {
   llm -m qc30 -s "Output ONLY the shell command. No explanation, no markdown, no code fences. Shell: zsh. OS: Linux." "$*"
 {{- end }}
 }
+
+
+#==============================================================================
+#                       Claude Code
+#==============================================================================
+
+# Launch Claude Code with Kimi K3 without changing the parent shell environment.
+# Provide the API key as KIMI_API_KEY (or Moonshot's MOONSHOT_API_KEY), ideally
+# through `op run`.
+claude-kimi() {
+    local api_key="${KIMI_API_KEY:-${MOONSHOT_API_KEY:-}}"
+
+    if [ -z "$api_key" ]; then
+        echo "claude-kimi: KIMI_API_KEY or MOONSHOT_API_KEY is not set" >&2
+        return 1
+    fi
+
+    (
+        unset ANTHROPIC_API_KEY KIMI_API_KEY MOONSHOT_API_KEY
+        export ANTHROPIC_BASE_URL="https://api.moonshot.ai/anthropic"
+        export ANTHROPIC_AUTH_TOKEN="$api_key"
+        export ANTHROPIC_MODEL="kimi-k3[1m]"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="kimi-k3[1m]"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="kimi-k3[1m]"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="kimi-k3[1m]"
+        export ANTHROPIC_DEFAULT_FABLE_MODEL="kimi-k3[1m]"
+        export CLAUDE_CODE_SUBAGENT_MODEL="kimi-k3[1m]"
+        export ENABLE_TOOL_SEARCH="false"
+        export CLAUDE_CODE_AUTO_COMPACT_WINDOW="1048576"
+        export CLAUDE_CODE_EFFORT_LEVEL="max"
+        command claude "$@"
+    )
+}
+
+# Launch Claude Code with DeepSeek V4 Pro for primary work and V4 Flash for
+# lightweight tiers and subagents, without changing the parent shell environment.
+# Provide the API key as DEEPSEEK_API_KEY, ideally through `op run`.
+claude-deepseek() {
+    local api_key="${DEEPSEEK_API_KEY:-}"
+
+    if [ -z "$api_key" ]; then
+        echo "claude-deepseek: DEEPSEEK_API_KEY is not set" >&2
+        return 1
+    fi
+
+    (
+        unset ANTHROPIC_API_KEY DEEPSEEK_API_KEY
+        export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+        export ANTHROPIC_AUTH_TOKEN="$api_key"
+        export ANTHROPIC_MODEL="deepseek-v4-pro[1m]"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-pro[1m]"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-v4-pro[1m]"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flash"
+        export ANTHROPIC_DEFAULT_FABLE_MODEL="deepseek-v4-pro[1m]"
+        export CLAUDE_CODE_SUBAGENT_MODEL="deepseek-v4-flash"
+        export CLAUDE_CODE_EFFORT_LEVEL="max"
+        command claude "$@"
+    )
+}
