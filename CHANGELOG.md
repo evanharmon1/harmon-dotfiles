@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.7.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.6.0...v0.7.0) (2026-07-30)
+
+
+### Features
+
+* add Claude GLM launcher ([244f75b](https://github.com/evanharmon1/harmon-dotfiles/commit/244f75b3997139643ab896ccc88e2c40223345a2))
+* add Claude GLM launcher ([cc954eb](https://github.com/evanharmon1/harmon-dotfiles/commit/cc954eba8f4c4cc2fc4f66b97540b42450b07f46))
+
 ## [0.6.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.5.0...v0.6.0) (2026-07-30)
 
 
