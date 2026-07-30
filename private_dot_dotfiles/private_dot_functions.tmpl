@@ -89,18 +89,35 @@ e() {
 #==============================================================================
 
 # Launch Claude Code with Kimi K3 without changing the parent shell environment.
-# Provide the API key as KIMI_API_KEY (or Moonshot's MOONSHOT_API_KEY), ideally
-# through `op run`.
+# Uses an existing KIMI_API_KEY (or MOONSHOT_API_KEY), otherwise loads it from
+# ~/.config/claude-providers.env through `op run`.
 claude-kimi() {
     local api_key="${KIMI_API_KEY:-${MOONSHOT_API_KEY:-}}"
+    local provider_env_file="${CLAUDE_PROVIDERS_ENV_FILE:-$HOME/.config/claude-providers.env}"
 
     if [ -z "$api_key" ]; then
-        echo "claude-kimi: KIMI_API_KEY or MOONSHOT_API_KEY is not set" >&2
-        return 1
+        if [ "${CLAUDE_PROVIDERS_OP_RUN_ACTIVE:-}" = "1" ]; then
+            echo "claude-kimi: $provider_env_file did not provide KIMI_API_KEY or MOONSHOT_API_KEY" >&2
+            return 1
+        fi
+        if ! command -v op >/dev/null 2>&1; then
+            echo "claude-kimi: op is not installed and KIMI_API_KEY or MOONSHOT_API_KEY is not set" >&2
+            return 1
+        fi
+        if [ ! -r "$provider_env_file" ]; then
+            echo "claude-kimi: cannot read $provider_env_file" >&2
+            return 1
+        fi
+
+        CLAUDE_PROVIDERS_OP_RUN_ACTIVE=1 \
+            op run --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
+            'source "$HOME/.dotfiles/.functions"; claude-kimi "$@"' -- "$@"
+        return
     fi
 
     (
-        unset ANTHROPIC_API_KEY KIMI_API_KEY MOONSHOT_API_KEY
+        unset ANTHROPIC_API_KEY KIMI_API_KEY MOONSHOT_API_KEY DEEPSEEK_API_KEY
+        unset CLAUDE_PROVIDERS_OP_RUN_ACTIVE
         export ANTHROPIC_BASE_URL="https://api.moonshot.ai/anthropic"
         export ANTHROPIC_AUTH_TOKEN="$api_key"
         export ANTHROPIC_MODEL="kimi-k3[1m]"
@@ -118,17 +135,35 @@ claude-kimi() {
 
 # Launch Claude Code with DeepSeek V4 Pro for primary work and V4 Flash for
 # lightweight tiers and subagents, without changing the parent shell environment.
-# Provide the API key as DEEPSEEK_API_KEY, ideally through `op run`.
+# Uses an existing DEEPSEEK_API_KEY, otherwise loads it from
+# ~/.config/claude-providers.env through `op run`.
 claude-deepseek() {
     local api_key="${DEEPSEEK_API_KEY:-}"
+    local provider_env_file="${CLAUDE_PROVIDERS_ENV_FILE:-$HOME/.config/claude-providers.env}"
 
     if [ -z "$api_key" ]; then
-        echo "claude-deepseek: DEEPSEEK_API_KEY is not set" >&2
-        return 1
+        if [ "${CLAUDE_PROVIDERS_OP_RUN_ACTIVE:-}" = "1" ]; then
+            echo "claude-deepseek: $provider_env_file did not provide DEEPSEEK_API_KEY" >&2
+            return 1
+        fi
+        if ! command -v op >/dev/null 2>&1; then
+            echo "claude-deepseek: op is not installed and DEEPSEEK_API_KEY is not set" >&2
+            return 1
+        fi
+        if [ ! -r "$provider_env_file" ]; then
+            echo "claude-deepseek: cannot read $provider_env_file" >&2
+            return 1
+        fi
+
+        CLAUDE_PROVIDERS_OP_RUN_ACTIVE=1 \
+            op run --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
+            'source "$HOME/.dotfiles/.functions"; claude-deepseek "$@"' -- "$@"
+        return
     fi
 
     (
-        unset ANTHROPIC_API_KEY DEEPSEEK_API_KEY
+        unset ANTHROPIC_API_KEY KIMI_API_KEY MOONSHOT_API_KEY DEEPSEEK_API_KEY
+        unset CLAUDE_PROVIDERS_OP_RUN_ACTIVE
         export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
         export ANTHROPIC_AUTH_TOKEN="$api_key"
         export ANTHROPIC_MODEL="deepseek-v4-pro[1m]"
