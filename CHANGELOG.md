@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.6.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.5.0...v0.6.0) (2026-07-30)
+
+
+### Features
+
+* **shell:** add Claude provider wrappers ([5235e12](https://github.com/evanharmon1/harmon-dotfiles/commit/5235e12685d0d5d730c2756780931d57a8e1c86c))
+* **shell:** add Claude provider wrappers ([079f195](https://github.com/evanharmon1/harmon-dotfiles/commit/079f1951210afe9ca0c6330260debcb583113c66))
+* **shell:** load Claude keys with 1Password ([503c66f](https://github.com/evanharmon1/harmon-dotfiles/commit/503c66f8782870bdc0deb7b385ab52a1caf39164))
+
+
+### Bug Fixes
+
+* **shell:** preserve TTY for Claude wrappers ([dcfda80](https://github.com/evanharmon1/harmon-dotfiles/commit/dcfda80c29dfe5015b0fda0881fe08c940f95eac))
+* **shell:** preserve TTY for Claude wrappers ([51e6af0](https://github.com/evanharmon1/harmon-dotfiles/commit/51e6af051606bb4de18f2ccf8cc8e0443416f996))
+* **shell:** silence unavailable connector warning ([e1de5cf](https://github.com/evanharmon1/harmon-dotfiles/commit/e1de5cf68766976e91ec52007eb28fd50d948643))
+* **shell:** silence unavailable connector warning ([4fdfa20](https://github.com/evanharmon1/harmon-dotfiles/commit/4fdfa200bd53e41ed5219bf19d26f56318d444d1))
+
 ## [0.5.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.4.0...v0.5.0) (2026-07-29)
 
 
