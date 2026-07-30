@@ -110,7 +110,7 @@ claude-kimi() {
         fi
 
         CLAUDE_PROVIDERS_OP_RUN_ACTIVE=1 \
-            op run --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
+            op run --no-masking --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
             'source "$HOME/.dotfiles/.functions"; claude-kimi "$@"' -- "$@"
         return
     fi
@@ -156,7 +156,7 @@ claude-deepseek() {
         fi
 
         CLAUDE_PROVIDERS_OP_RUN_ACTIVE=1 \
-            op run --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
+            op run --no-masking --env-file="$provider_env_file" -- "${SHELL:-/bin/zsh}" -c \
             'source "$HOME/.dotfiles/.functions"; claude-deepseek "$@"' -- "$@"
         return
     fi
