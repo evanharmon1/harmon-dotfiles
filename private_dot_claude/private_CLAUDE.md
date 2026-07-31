@@ -9,7 +9,8 @@ rule applies, ask first.
    No `gh pr merge` (including `--auto`/`--admin`), no `git merge` or push into
    main, no API-driven merge — in any repo, even when CI is green and the
    ruleset would allow it, even when the task plan includes post-merge steps.
-   Open the PR, report that checks pass, then stop; merging is Evan's decision.
+   Open the PR and shepherd it — checks green with reviews unpolled is not the
+   stopping point — then report and stop; merging is always a human decision.
    (Backstop: `permissions.ask` rules in `~/.claude/settings.json`.)
 
 2. **Never bypass safety gates.** No `--no-verify`, no disabling or weakening
