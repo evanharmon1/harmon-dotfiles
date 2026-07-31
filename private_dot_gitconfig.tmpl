@@ -49,3 +49,23 @@
 	trustExitCode = true
 [commit]
 	template = ~/.stCommitMsg
+{{ if $gh := lookPath "gh" -}}
+# GitHub git operations go over HTTPS, authenticated by gh's token (ADR 0002,
+# issue #37) — pushes never depend on the SSH agent being unlocked. The empty
+# `helper =` resets inherited helpers (e.g. Homebrew's osxkeychain) so gh is
+# authoritative for github.com. Do NOT run `gh auth setup-git` on machines
+# managed by these dotfiles — chezmoi owns ~/.gitconfig.
+[credential "https://github.com"]
+	helper =
+	helper = !{{ $gh }} auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !{{ $gh }} auth git-credential
+# Rewrite GitHub SSH URLs to HTTPS for fetch AND push, so legacy SSH remotes,
+# submodules, and SSH-form clone URLs transparently use the gh credential
+# helper. Pushes still go through the named remote, so tracking refs update
+# normally (pushing to a raw HTTPS URL is what caused the stale "ahead 1").
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+{{- end }}
