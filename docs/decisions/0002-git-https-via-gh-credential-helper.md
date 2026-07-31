@@ -79,6 +79,8 @@ Rejected alternatives:
   sits *before* the `includeIf` sections so included files expand after the
   reset and have the last word (the include must supply its own empty
   `helper =` reset plus its helper to win).
-- The devcontainer fleet applies the same policy in-container
-  (`url.insteadOf` in `post-create-common.sh`), so behavior is uniform
-  across host, bot containers, and VS Code dev containers.
+- The devcontainer fleet adopts the same policy in-container (`url.insteadOf`
+  in `post-create-common.sh`), rolled out via the sibling PRs referenced
+  from #37 (harmon-devkit, harmon-init, and the drifted snapshots) — so
+  behavior converges on uniform across host, bot containers, and VS Code
+  dev containers.
