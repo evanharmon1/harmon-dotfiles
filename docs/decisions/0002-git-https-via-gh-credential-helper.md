@@ -75,7 +75,10 @@ Rejected alternatives:
   need an explicit `git -c` override.
 - Multiple GitHub accounts on one host share the active `gh` account's token;
   a path-scoped `includeIf` gitconfig can override the helper per directory
-  tree if that ever becomes necessary.
+  tree if that ever becomes necessary — the github.com block deliberately
+  sits *before* the `includeIf` sections so included files expand after the
+  reset and have the last word (the include must supply its own empty
+  `helper =` reset plus its helper to win).
 - The devcontainer fleet applies the same policy in-container
   (`url.insteadOf` in `post-create-common.sh`), so behavior is uniform
   across host, bot containers, and VS Code dev containers.
