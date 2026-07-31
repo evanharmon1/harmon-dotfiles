@@ -34,8 +34,11 @@ authenticated by `gh`:
   inherited osxkeychain entry, is authoritative) followed by
   `helper = !<gh-path> auth git-credential`, with the absolute gh path
   resolved via chezmoi's `lookPath` so GUI clients with a sparse PATH
-  (VS Code, Sourcetree) can invoke it. The whole block is omitted on machines
-  where gh is not installed.
+  (VS Code, Sourcetree) can invoke it. The whole block renders only when gh
+  is installed **and authenticated** (checked at apply time): before
+  `gh auth login` — or if auth is later lost — the block is omitted so the
+  machine keeps whatever push behavior it already had, and the policy
+  (re)activates on the next apply once gh authenticates.
 - `[url "https://github.com/"] insteadOf` rewrites both SSH forms
   (`git@github.com:` and `ssh://git@github.com/`) for fetch and push, so
   legacy SSH remotes, submodules, and SSH-form clone URLs transparently use
@@ -66,7 +69,9 @@ Rejected alternatives:
 - The stale "ahead 1" side effect disappears: pushes go through the named
   remote again, so tracking refs update normally.
 - Push auth now depends on `gh` being installed and authenticated on every
-  machine that pushes (already true via the Brewfile and onboarding). The
+  machine that pushes — the Brewfile covers installation and the onboarding
+  guide covers `gh auth login`; the apply-time guard means a machine missing
+  either simply keeps its previous behavior instead of breaking. The
   OAuth token's blast radius is broader than a git-only SSH key, but it
   already exists on the machine, is centrally revocable, and using it for git
   retires a second long-lived credential rather than adding exposure.

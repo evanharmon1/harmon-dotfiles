@@ -20,12 +20,19 @@
 	process = git-lfs filter-process
 	required = true
 	clean = git-lfs clean -- %f
-{{ if $gh := lookPath "gh" -}}
+{{ $gh := lookPath "gh" -}}
+{{ $ghReady := eq (output "sh" "-c" "command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && echo yes || echo no" | trim) "yes" -}}
+{{ if and $gh $ghReady -}}
 # GitHub git operations go over HTTPS, authenticated by gh's token (ADR 0002,
 # issue #37) — pushes never depend on the SSH agent being unlocked. The empty
 # `helper =` resets inherited helpers (e.g. Homebrew's osxkeychain) so gh is
 # authoritative for github.com. Do NOT run `gh auth setup-git` on machines
 # managed by these dotfiles — chezmoi owns ~/.gitconfig.
+#
+# Rendered only when gh is installed AND authenticated (checked at apply
+# time): on a freshly provisioned machine before `gh auth login`, this block
+# is omitted entirely so existing SSH pushes keep working — the policy
+# activates on the first apply after login and degrades back if auth is lost.
 #
 # This block sits BEFORE the [includeIf] work-directory sections below on
 # purpose: includes expand at their directive, so a work include can still
