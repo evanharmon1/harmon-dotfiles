@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.8.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.7.0...v0.8.0) (2026-08-01)
+
+
+### Features
+
+* authenticate GitHub git operations via gh credential helper ([9b354fd](https://github.com/evanharmon1/harmon-dotfiles/commit/9b354fd80cb9b9a4c112241bed13fa153025d57f))
+* authenticate GitHub git operations via gh credential helper ([625d67d](https://github.com/evanharmon1/harmon-dotfiles/commit/625d67db5096262b872032bb25693cc04e1e9d5d))
+
+
+### Bug Fixes
+
+* place github.com credential block before includeIf sections ([d2b5c13](https://github.com/evanharmon1/harmon-dotfiles/commit/d2b5c13647fb2cd4c66c2060f3726663279b40dc))
+* render the github.com block only when gh is authenticated ([999b27f](https://github.com/evanharmon1/harmon-dotfiles/commit/999b27f30dcad27e74ad636a44d15e8579775d4e))
+* rewrite gist and port-443 SSH endpoints to HTTPS too ([bfde849](https://github.com/evanharmon1/harmon-dotfiles/commit/bfde84988f677e49d835451078e66a569b0a74ba))
+* scope the apply-time auth check to github.com ([8a1ab4c](https://github.com/evanharmon1/harmon-dotfiles/commit/8a1ab4c251a5b5eba9a22813488ee58dbf30e3c6))
+* update constitution rule 1 stop condition to require shepherding ([6f6972d](https://github.com/evanharmon1/harmon-dotfiles/commit/6f6972d762422fcbeef1c9bcdd4a46f7e0a9a0ee))
+* update constitution rule 1 stop condition to require shepherding ([310a32d](https://github.com/evanharmon1/harmon-dotfiles/commit/310a32dbe691bfe2040e0b1208ff129e0443b6ba)), closes [#26](https://github.com/evanharmon1/harmon-dotfiles/issues/26)
+
 ## [0.7.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.6.0...v0.7.0) (2026-07-30)
 
 
