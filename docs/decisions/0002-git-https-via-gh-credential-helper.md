@@ -39,10 +39,12 @@ authenticated by `gh`:
   `gh auth login` — or if auth is later lost — the block is omitted so the
   machine keeps whatever push behavior it already had, and the policy
   (re)activates on the next apply once gh authenticates.
-- `[url "https://github.com/"] insteadOf` rewrites both SSH forms
-  (`git@github.com:` and `ssh://git@github.com/`) for fetch and push, so
-  legacy SSH remotes, submodules, and SSH-form clone URLs transparently use
-  HTTPS without per-repo surgery.
+- `[url "https://github.com/"] insteadOf` rewrites every GitHub SSH URL form
+  for fetch and push — the scp form (`git@github.com:`), both `ssh://` forms,
+  and the port-443 endpoint (`ssh://git@ssh.github.com[:443]/`) — and
+  `[url "https://gist.github.com/"] insteadOf` does the same for gist SSH
+  remotes, so legacy SSH remotes, submodules, and SSH-form clone URLs
+  transparently use HTTPS without per-repo surgery.
 - Do **not** run `gh auth setup-git` on dotfiles-managed machines — it edits
   `~/.gitconfig`, which chezmoi owns and will overwrite. The template already
   encodes what setup-git writes.
