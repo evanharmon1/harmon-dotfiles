@@ -301,6 +301,10 @@ provider accounts, and machines. The standard:
 - **SSH** keys are stored as 1Password SSH-key items (see conventions above)
   and served by the 1Password SSH agent where possible, so private keys never
   sit loose on disk.
+- **Git operations against GitHub do not use SSH** — they go over HTTPS with
+  `gh` as the git credential helper, so pushes never depend on the 1Password
+  SSH agent being unlocked. See
+  [ADR 0002](../decisions/0002-git-https-via-gh-credential-helper.md).
 - **VNC / screen sharing: Screens 5 is the standard client**, connecting over
   the tailnet (never an exposed VNC port); any credential it needs lives on
   the relevant 1Password item.

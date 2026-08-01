@@ -7,7 +7,12 @@ Getting productive in Harmon Dotfiles.
 1. Clone the repo: `git clone https://github.com/evanharmon1/harmon-dotfiles.git`
 2. One-time machine setup (Homebrew): `task bootstrap`
 3. Install dependencies and git hooks: `task install`
-4. Verify everything works: `task verify`
+4. Authenticate the GitHub CLI: `gh auth login` — git pushes to GitHub
+   authenticate through gh's token (ADR 0002), so this is what turns on
+   HTTPS-with-gh git operations; until it runs, the gitconfig block is
+   skipped and pushes behave as they did before.
+5. Apply the dotfiles and verify everything works: `chezmoi apply`, then
+   `task verify`
 
 ## Daily workflow
 
