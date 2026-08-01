@@ -35,7 +35,9 @@ authenticated by `gh`:
   `helper = !<gh-path> auth git-credential`, with the absolute gh path
   resolved via chezmoi's `lookPath` so GUI clients with a sparse PATH
   (VS Code, Sourcetree) can invoke it. The whole block renders only when gh
-  is installed **and authenticated** (checked at apply time): before
+  is installed **and authenticated for github.com** (`gh auth status
+  --hostname github.com` at apply time — a bare `gh auth status` is
+  host-agnostic and would also pass on a GHES-only machine): before
   `gh auth login` — or if auth is later lost — the block is omitted so the
   machine keeps whatever push behavior it already had, and the policy
   (re)activates on the next apply once gh authenticates.

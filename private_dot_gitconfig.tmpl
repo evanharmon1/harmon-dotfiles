@@ -21,7 +21,7 @@
 	required = true
 	clean = git-lfs clean -- %f
 {{ $gh := lookPath "gh" -}}
-{{ $ghReady := eq (output "sh" "-c" "command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && echo yes || echo no" | trim) "yes" -}}
+{{ $ghReady := eq (output "sh" "-c" "command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1 && echo yes || echo no" | trim) "yes" -}}
 {{ if and $gh $ghReady -}}
 # GitHub git operations go over HTTPS, authenticated by gh's token (ADR 0002,
 # issue #37) — pushes never depend on the SSH agent being unlocked. The empty
