@@ -45,10 +45,11 @@
 	helper =
 	helper = !{{ $gh }} auth git-credential
 # Rewrite every GitHub SSH URL form to HTTPS for fetch AND push — the scp
-# form, both ssh:// forms, and the port-443 endpoint — so legacy SSH remotes,
-# submodules, and SSH-form clone URLs transparently use the gh credential
-# helper. Pushes still go through the named remote, so tracking refs update
-# normally (pushing to a raw HTTPS URL is what caused the stale "ahead 1").
+# form (git@github.com:) plus all three ssh:// forms, including the explicit
+# port-443 endpoint — so legacy SSH remotes, submodules, and SSH-form clone
+# URLs transparently use the gh credential helper. Pushes still go through
+# the named remote, so tracking refs update normally (pushing to a raw HTTPS
+# URL is what caused the stale "ahead 1").
 [url "https://github.com/"]
 	insteadOf = git@github.com:
 	insteadOf = ssh://git@github.com/
