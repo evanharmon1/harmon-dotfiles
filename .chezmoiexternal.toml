@@ -24,13 +24,13 @@
 # running on the host, and a status line that only containers get is a status
 # line that quietly stops matching its own documentation.
 #
-# Pinned at v4.12.0.
+# Pinned at v4.14.0.
 
 # Status line — the four-line renderer. ~/.claude/settings.json (managed here)
 # already points statusLine.command at this path.
 [".claude/statusline.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-statusline.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-statusline.sh"
 executable = true
 refreshPeriod = "8760h"
 
@@ -41,31 +41,31 @@ refreshPeriod = "8760h"
 # message, editing a secret or a lockfile, leaving unformatted code behind.
 [".claude/hooks/block-no-verify.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/block-no-verify.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-hooks/block-no-verify.sh"
 executable = true
 refreshPeriod = "8760h"
 
 [".claude/hooks/enforce-conventional-commits.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/enforce-conventional-commits.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-hooks/enforce-conventional-commits.sh"
 executable = true
 refreshPeriod = "8760h"
 
 [".claude/hooks/protect-files.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/protect-files.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-hooks/protect-files.sh"
 executable = true
 refreshPeriod = "8760h"
 
 [".claude/hooks/post-edit-format.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/post-edit-format.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-hooks/post-edit-format.sh"
 executable = true
 refreshPeriod = "8760h"
 
 [".claude/hooks/session-start-context.sh"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/session-start-context.sh"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/claude-hooks/session-start-context.sh"
 executable = true
 refreshPeriod = "8760h"
 
@@ -73,7 +73,7 @@ refreshPeriod = "8760h"
 # already sitting unmanaged in ~/.config/television/cable/.
 [".config/television/cable/gh-issues.toml"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/television/cable/gh-issues.toml"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/television/cable/gh-issues.toml"
 refreshPeriod = "8760h"
 
 # micro key bindings. This REPLACES the near-identical copy that was unmanaged
@@ -81,5 +81,5 @@ refreshPeriod = "8760h"
 # (Alt-/ and Ctrl-_) and Ctrl-q bound to "None" rather than "".
 [".config/micro/bindings.json"]
 type = "file"
-url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/micro-bindings.json"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.14.0/.devcontainer/config/micro-bindings.json"
 refreshPeriod = "8760h"
