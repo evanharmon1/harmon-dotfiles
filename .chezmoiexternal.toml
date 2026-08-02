@@ -1,0 +1,85 @@
+# Files fetched from another repository at apply time, rather than vendored here.
+#
+# Use an external when another repo is the AUTHORITATIVE source of a file and
+# this repo's only job is delivery. Vendoring a copy would make harmon-dotfiles
+# a second source of truth, and the two would drift the moment either side is
+# edited — which is exactly the failure this file exists to end.
+#
+# Every URL is pinned to a RELEASE TAG, never a branch. A `main` URL would
+# silently change the host's config on an unrelated `chezmoi apply`; a tag makes
+# every upgrade an explicit, reviewable edit here. Bump the tags deliberately,
+# the same way `.copier-answers.yml` and `.skills-sync.yaml` are bumped — and
+# bump them together, so the host never runs a half-upgraded set.
+#
+# refreshPeriod is long everywhere because the URLs are immutable: a tag's
+# content cannot change, so re-downloading buys nothing. A new version arrives
+# by editing the tag, which invalidates the cache on its own. In between,
+# `chezmoi apply` stays offline-friendly.
+
+# ── harmon-init: the shared Claude Code + terminal config ────────────────────
+#
+# harmon-init bakes these same files into its devcontainer image, so a container
+# session and a host session behave identically. That parity is the whole point:
+# a guardrail that only exists in containers is a guardrail an agent escapes by
+# running on the host, and a status line that only containers get is a status
+# line that quietly stops matching its own documentation.
+#
+# Pinned at v4.12.0.
+
+# Status line — the four-line renderer. ~/.claude/settings.json (managed here)
+# already points statusLine.command at this path.
+[".claude/statusline.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-statusline.sh"
+executable = true
+refreshPeriod = "8760h"
+
+# Agent guardrail hooks. Wired up in private_dot_claude/private_settings.json;
+# delivering the scripts without those entries would be inert, so the two must
+# change together. Each blocks or repairs a specific thing an agent does that a
+# human would not: bypassing git hooks, writing a non-conventional commit
+# message, editing a secret or a lockfile, leaving unformatted code behind.
+[".claude/hooks/block-no-verify.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/block-no-verify.sh"
+executable = true
+refreshPeriod = "8760h"
+
+[".claude/hooks/enforce-conventional-commits.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/enforce-conventional-commits.sh"
+executable = true
+refreshPeriod = "8760h"
+
+[".claude/hooks/protect-files.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/protect-files.sh"
+executable = true
+refreshPeriod = "8760h"
+
+[".claude/hooks/post-edit-format.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/post-edit-format.sh"
+executable = true
+refreshPeriod = "8760h"
+
+[".claude/hooks/session-start-context.sh"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/claude-hooks/session-start-context.sh"
+executable = true
+refreshPeriod = "8760h"
+
+# Television channel: browse GitHub issues. Byte-identical to the copy that was
+# already sitting unmanaged in ~/.config/television/cable/.
+[".config/television/cable/gh-issues.toml"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/television/cable/gh-issues.toml"
+refreshPeriod = "8760h"
+
+# micro key bindings. This REPLACES the near-identical copy that was unmanaged
+# on the host; the differences are harmon-init's comment-toggle bindings
+# (Alt-/ and Ctrl-_) and Ctrl-q bound to "None" rather than "".
+[".config/micro/bindings.json"]
+type = "file"
+url = "https://raw.githubusercontent.com/evanharmon1/harmon-init/v4.12.0/.devcontainer/config/micro-bindings.json"
+refreshPeriod = "8760h"
