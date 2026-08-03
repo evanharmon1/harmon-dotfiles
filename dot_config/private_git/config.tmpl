@@ -1,0 +1,57 @@
+# chezmoi:managed — edit via 'chezmoi edit' or in ~/git/harmon-dotfiles; direct edits are overwritten by the next 'chezmoi apply' unless re-added
+#
+# ENVIRONMENT git config for this host — the GitHub transport/credential policy
+# (ADR 0002). Personal git config (identity, aliases, diff/merge tools) stays in
+# ~/.gitconfig; this file holds only what belongs to the machine.
+#
+# Why not ~/.gitconfig (issue #42, harmon-init#542): VS Code Dev Containers
+# copies ONLY ~/.gitconfig into a container on startup
+# (`dev.containers.copyGitConfig`). A macOS-rendered absolute gh path landing in
+# a Linux container breaks every remote op (`/opt/homebrew/bin/gh: not found`),
+# and the empty `helper =` reset below would discard the credential helper the
+# devcontainer deliberately installed. Nothing copies this XDG file, so the
+# container keeps its own ~/.config/git/config from the harmon-init image.
+#
+# Precedence is unchanged by living here: git reads system →
+# ~/.config/git/config → ~/.gitconfig, so this file still comes AFTER Homebrew's
+# /opt/homebrew/etc/gitconfig (the empty `helper =` still overrides its
+# osxkeychain helper) and BEFORE the [includeIf] work-directory sections in
+# ~/.gitconfig (which therefore still expand later and can still override the
+# helper — the ADR's multi-account escape hatch).
+#
+# Git only reads this path while XDG_CONFIG_HOME is unset or empty; nothing in
+# these dotfiles sets it. If that ever changes, this file has to move with it.
+{{ $gh := lookPath "gh" -}}
+{{ $ghReady := eq (output "sh" "-c" "command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1 && echo yes || echo no" | trim) "yes" -}}
+{{ if and $gh $ghReady -}}
+# GitHub git operations go over HTTPS, authenticated by gh's token (ADR 0002,
+# issue #37) — pushes never depend on the SSH agent being unlocked. Do NOT run
+# `gh auth setup-git` on machines managed by these dotfiles — it writes
+# ~/.gitconfig, and `git config --global` does too; both are read after this
+# file and would shadow it.
+#
+# Rendered only when gh is installed AND authenticated (checked at apply
+# time): on a freshly provisioned machine before `gh auth login`, this block
+# is omitted entirely so existing SSH pushes keep working — the policy
+# activates on the first apply after login and degrades back if auth is lost.
+[credential "https://github.com"]
+	helper =
+	helper = !{{ $gh }} auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !{{ $gh }} auth git-credential
+# Rewrite every GitHub SSH URL form to HTTPS for fetch AND push — the scp
+# form (git@github.com:) plus all three ssh:// forms, including the explicit
+# port-443 endpoint — so legacy SSH remotes, submodules, and SSH-form clone
+# URLs transparently use the gh credential helper. Pushes still go through
+# the named remote, so tracking refs update normally (pushing to a raw HTTPS
+# URL is what caused the stale "ahead 1").
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+	insteadOf = ssh://git@ssh.github.com:443/
+	insteadOf = ssh://git@ssh.github.com/
+[url "https://gist.github.com/"]
+	insteadOf = git@gist.github.com:
+	insteadOf = ssh://git@gist.github.com/
+{{- end }}
