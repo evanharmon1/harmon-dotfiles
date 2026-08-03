@@ -20,45 +20,14 @@
 	process = git-lfs filter-process
 	required = true
 	clean = git-lfs clean -- %f
-{{ $gh := lookPath "gh" -}}
-{{ $ghReady := eq (output "sh" "-c" "command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1 && echo yes || echo no" | trim) "yes" -}}
-{{ if and $gh $ghReady -}}
-# GitHub git operations go over HTTPS, authenticated by gh's token (ADR 0002,
-# issue #37) — pushes never depend on the SSH agent being unlocked. The empty
-# `helper =` resets inherited helpers (e.g. Homebrew's osxkeychain) so gh is
-# authoritative for github.com. Do NOT run `gh auth setup-git` on machines
-# managed by these dotfiles — chezmoi owns ~/.gitconfig.
+# This file is PERSONAL git config only — identity, aliases, diff/merge tool
+# prefs. Do NOT add environment/machine config here (credential helpers,
+# url.insteadOf rewrites, transport policy): VS Code Dev Containers copies only
+# ~/.gitconfig into containers, so anything host-specific here breaks them
+# (issue #42). ADR 0002's GitHub HTTPS-via-gh policy lives in
+# ~/.config/git/config (dot_config/private_git/config.tmpl), which is read
+# before this file and is never copied into a container.
 #
-# Rendered only when gh is installed AND authenticated (checked at apply
-# time): on a freshly provisioned machine before `gh auth login`, this block
-# is omitted entirely so existing SSH pushes keep working — the policy
-# activates on the first apply after login and degrades back if auth is lost.
-#
-# This block sits BEFORE the [includeIf] work-directory sections below on
-# purpose: includes expand at their directive, so a work include can still
-# override this helper (with its own empty `helper =` reset + helper) for a
-# second GitHub account — the ADR's multi-account escape hatch.
-[credential "https://github.com"]
-	helper =
-	helper = !{{ $gh }} auth git-credential
-[credential "https://gist.github.com"]
-	helper =
-	helper = !{{ $gh }} auth git-credential
-# Rewrite every GitHub SSH URL form to HTTPS for fetch AND push — the scp
-# form (git@github.com:) plus all three ssh:// forms, including the explicit
-# port-443 endpoint — so legacy SSH remotes, submodules, and SSH-form clone
-# URLs transparently use the gh credential helper. Pushes still go through
-# the named remote, so tracking refs update normally (pushing to a raw HTTPS
-# URL is what caused the stale "ahead 1").
-[url "https://github.com/"]
-	insteadOf = git@github.com:
-	insteadOf = ssh://git@github.com/
-	insteadOf = ssh://git@ssh.github.com:443/
-	insteadOf = ssh://git@ssh.github.com/
-[url "https://gist.github.com/"]
-	insteadOf = git@gist.github.com:
-	insteadOf = ssh://git@gist.github.com/
-{{- end }}
 # Conditional to use a specific .gitconfig file if repo is in the specified folder. E.g., for work git user.
 # Trailing slash should make it apply to all subfolders as well.
 [includeIf "gitdir:~/Local/RevLogical/"]

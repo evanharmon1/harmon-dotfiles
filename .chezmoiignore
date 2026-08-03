@@ -57,3 +57,12 @@ Library/**
 .config/aichat/**
 .config/io.datasette.llm/**
 {{- end }}
+
+{{- if or (stat "/.dockerenv") (env "REMOTE_CONTAINERS") (env "CODESPACES") }}
+# Containers: the devcontainer image owns environment git config at
+# ~/.config/git/config (harmon-init ships it). chezmoi isn't part of the
+# container bootstrap today — this is insurance so that if it ever runs in one,
+# it can't clobber the image's file with a host render (issue #42,
+# harmon-init#542). ~/.gitconfig stays managed: it's personal config only.
+.config/git/config
+{{- end }}
