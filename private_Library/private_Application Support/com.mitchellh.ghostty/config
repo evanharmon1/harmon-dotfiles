@@ -50,6 +50,26 @@
 # resize-overlay-duration = 4s 200ms
 theme = Catppuccin Frappe
 
+# SSH integration. Ghostty sets TERM=xterm-ghostty, which is correct here and
+# unknown almost everywhere else — so on a remote host without that terminfo
+# entry, every ncurses program (vim, less, htop, tmux) fails with "unknown
+# terminal type" or renders with broken keys and colors. Both features ship
+# disabled (the default is `no-ssh-env,no-ssh-terminfo`).
+#
+#   ssh-terminfo  installs Ghostty's terminfo on the remote host on first
+#                 connection and caches which hosts are done, so xterm-ghostty
+#                 simply works there. Inspect or clear with `ghostty +ssh-cache`.
+#   ssh-env       the fallback: when installation is not possible (no tic, a
+#                 read-only or locked-down host), downgrade to xterm-256color
+#                 and forward COLORTERM/TERM_PROGRAM rather than leaving the
+#                 session with a terminfo name nothing recognizes.
+#
+# They compose deliberately: try the real entry, degrade to a working one. The
+# rest of the defaults are kept explicitly because this key REPLACES the default
+# list rather than adding to it — dropping `cursor`, `title`, or `path` here
+# would silently turn those off.
+shell-integration-features = cursor,no-sudo,title,ssh-env,ssh-terminfo,path
+
 # Quick terminal (Guake/Quake style)
 quick-terminal-position = top
 
