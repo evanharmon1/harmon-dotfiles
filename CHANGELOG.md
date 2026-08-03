@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.8.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.0...v0.8.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* move ADR 0002 git transport config to the host XDG layer ([fefaefe](https://github.com/evanharmon1/harmon-dotfiles/commit/fefaefe8957d9bdae4a0064f24b12d44643ba90f))
+* move ADR 0002 git transport config to the host XDG layer ([d182816](https://github.com/evanharmon1/harmon-dotfiles/commit/d182816413790f000999ce6631a7d2c8aa3b4777)), closes [#42](https://github.com/evanharmon1/harmon-dotfiles/issues/42)
+
 ## [0.8.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.7.0...v0.8.0) (2026-08-01)
 
 
