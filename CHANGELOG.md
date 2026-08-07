@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.9.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.1...v0.9.0) (2026-08-07)
+
+
+### Features
+
+* **claude:** default to opus-4-8, add Herdr session hook, lower effort to medium ([612a6d8](https://github.com/evanharmon1/harmon-dotfiles/commit/612a6d8e591eca26665f9365f4e31c84349571c7))
+
 ## [0.8.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.0...v0.8.1) (2026-08-03)
 
 
