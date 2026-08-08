@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.9.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.1...v0.9.0) (2026-08-08)
+
+
+### Features
+
+* add additional repos to agy trustedWorkspaces ([5e83aff](https://github.com/evanharmon1/harmon-dotfiles/commit/5e83aff3ad0bd5fdcb4328e11a79b331a3772e31))
+* add comprehensive list of safe read-only commands to agy allowlist ([103b228](https://github.com/evanharmon1/harmon-dotfiles/commit/103b228958d4a4148ac76cdf8edb13fdda92dfdc))
+* add ls and git status to allowed commands in agy ([5ec2de0](https://github.com/evanharmon1/harmon-dotfiles/commit/5ec2de03041890a70a81e59b1a23a45142e93f3d))
+* add platform repos to agy trustedWorkspaces ([1c5604c](https://github.com/evanharmon1/harmon-dotfiles/commit/1c5604c9aa6dbec5cffad894ba6400a726faa8a4))
+* **agents:** add wildcards to safe command allowlist for agy ([f5e0811](https://github.com/evanharmon1/harmon-dotfiles/commit/f5e08119fd1c1324d61ca13a9df25632ea1bf3c8))
+* **claude:** default to opus-4-8, add Herdr session hook, lower effort to medium ([612a6d8](https://github.com/evanharmon1/harmon-dotfiles/commit/612a6d8e591eca26665f9365f4e31c84349571c7))
+* port agy hooks and setup adapter ([9d9c73c](https://github.com/evanharmon1/harmon-dotfiles/commit/9d9c73c740d3d19e65e722d0826a23b394d67586))
+* port agy hooks and setup adapter ([a603d1c](https://github.com/evanharmon1/harmon-dotfiles/commit/a603d1c30764b9bb02d2d7fc2f9611e43dc3d5b1))
+
+
+### Bug Fixes
+
+* address codex P2s for hook resilience ([6c4f794](https://github.com/evanharmon1/harmon-dotfiles/commit/6c4f794c9cfde7c6dbbe1cbe858ba25d0bf52389))
+* address codex P2s in session-start-context ([4ee0922](https://github.com/evanharmon1/harmon-dotfiles/commit/4ee09224b06b6c42dec6540314cdb3be85f37da1))
+* **hooks:** address codex review findings on arg parsing ([538b9ed](https://github.com/evanharmon1/harmon-dotfiles/commit/538b9ed8663ee3d656e8d6111a1fd8f06ce0a2c1))
+* **hooks:** address edge cases around remote owners and pathspecs ([f44ed07](https://github.com/evanharmon1/harmon-dotfiles/commit/f44ed07375e958921edc77f174d2728d83f21888))
+* **hooks:** address edge cases around short option parsing and templating ([2f598fd](https://github.com/evanharmon1/harmon-dotfiles/commit/2f598fdbfaf69ae76fd5ec6a60521394da3b06a4))
+* **hooks:** address further codex review findings on hook robustness ([133628f](https://github.com/evanharmon1/harmon-dotfiles/commit/133628f6b91a74f9184a1545195960a54642e0f4))
+* **hooks:** address further codex review findings on isolated stderr and .git matching ([1afef7c](https://github.com/evanharmon1/harmon-dotfiles/commit/1afef7cb74fbd1e57e60d7ad0eec4164472a95fa))
+* **hooks:** address further edge cases from codex review ([e24aaaa](https://github.com/evanharmon1/harmon-dotfiles/commit/e24aaaa7974c7c8bcfb44cc927998d9a9eb715ca))
+* **hooks:** address further edge cases from codex review ([db4be8d](https://github.com/evanharmon1/harmon-dotfiles/commit/db4be8d83cfba837a4d4e7d94f3ff40b3a7c6586))
+* **hooks:** escape jinja delimiters in bash sed command ([8651c45](https://github.com/evanharmon1/harmon-dotfiles/commit/8651c45f825b49efd8d93241a4063c10e5be0978))
+* **hooks:** fail open on missing commit-msg task and increase timeout ([f3a294f](https://github.com/evanharmon1/harmon-dotfiles/commit/f3a294f985b2415e4c711e46ecefe26d152dce56))
+* **hooks:** join repeated message arguments with actual newlines ([9dc66d9](https://github.com/evanharmon1/harmon-dotfiles/commit/9dc66d9ad2fa52430a300607cccd33a25ff77ac0))
+* **hooks:** match parsed remote owner exactly ([598d31c](https://github.com/evanharmon1/harmon-dotfiles/commit/598d31cf0c9904fadea3239146de0630e23502e4))
+* **hooks:** support gtimeout and improve block-no-verify parsing ([8e8b27d](https://github.com/evanharmon1/harmon-dotfiles/commit/8e8b27d883867918acb1bf02b0f84dd33d58afcd))
+* map file_path for adapter hooks ([0a6af9d](https://github.com/evanharmon1/harmon-dotfiles/commit/0a6af9d29ed0b7ac5bb14f3b1d331a1988d9c3c7))
+* resolve lint errors in hooks ([8e143ec](https://github.com/evanharmon1/harmon-dotfiles/commit/8e143ecf0f22cb6234b7ac0a33688c22b087eccf))
+
 ## [0.8.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.0...v0.8.1) (2026-08-03)
 
 
