@@ -32,16 +32,18 @@ else
     git_pid=$!
     timeout 12 task status:gh >"$gh_out" 2>/dev/null &
     gh_pid=$!
-    
-    git_rc=0; wait $git_pid || git_rc=$?
-    gh_rc=0; wait $gh_pid || gh_rc=$?
-    
+
+    git_rc=0
+    wait $git_pid || git_rc=$?
+    gh_rc=0
+    wait $gh_pid || gh_rc=$?
+
     if [ $git_rc -ne 0 ] || [ ! -s "$git_out" ]; then
         git_status="(task status:git unavailable or failed)"
     else
         git_status="$(cat "$git_out" | strip_ansi)"
     fi
-    
+
     if [ $gh_rc -ne 0 ] || [ ! -s "$gh_out" ]; then
         gh_status="(task status:gh unavailable or failed)"
     else

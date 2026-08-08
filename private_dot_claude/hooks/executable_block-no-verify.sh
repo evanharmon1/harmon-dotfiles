@@ -43,9 +43,9 @@ for seg in segments:
             sys.exit(1)
 sys.exit(0)
 ' "$command"; then
-    echo "block-no-verify: refusing to bypass git hooks (--no-verify / --no-gpg-sign / -n)." >&2
-    echo "If a hook is failing, fix the underlying issue rather than skipping it." >&2
-    exit 2
+        echo "block-no-verify: refusing to bypass git hooks (--no-verify / --no-gpg-sign / -n)." >&2
+        echo "If a hook is failing, fix the underlying issue rather than skipping it." >&2
+        exit 2
     fi
 fi
 
