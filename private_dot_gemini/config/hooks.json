@@ -1,0 +1,45 @@
+{
+  "claude-hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.gemini/config/agy-adapter.sh ~/.claude/hooks/block-no-verify.sh PreToolUse"
+          },
+          {
+            "type": "command",
+            "command": "~/.gemini/config/agy-adapter.sh ~/.claude/hooks/enforce-conventional-commits.sh PreToolUse"
+          }
+        ]
+      },
+      {
+        "matcher": "replace_file_content|write_to_file|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.gemini/config/agy-adapter.sh ~/.claude/hooks/protect-files.sh PreToolUse"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "replace_file_content|write_to_file|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.gemini/config/agy-adapter.sh ~/.claude/hooks/post-edit-format.sh PostToolUse"
+          }
+        ]
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "~/.gemini/config/agy-adapter.sh ~/.claude/hooks/session-start-context.sh PreInvocation"
+      }
+    ]
+  }
+}
