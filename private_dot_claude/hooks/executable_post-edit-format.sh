@@ -17,8 +17,10 @@ cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 # Delegate to the Taskfile so the formatter SET lives in one place.
 remote_url="$(git config --get remote.origin.url 2>/dev/null || echo '')"
-case "$remote_url" in
-*"evanharmon1"* | *"harmonops"* | *"ponderousdev"*)
+owner="$(echo "$remote_url" | sed -E 's/.*[:\/]([^\/]+)\/[^\/]+(\.git)?$/\1/')"
+
+case "$owner" in
+"evanharmon1" | "harmonops" | "ponderousdev")
     task format:file -- "$file_path" >/dev/null 2>&1 || true
     ;;
 esac
