@@ -17,8 +17,10 @@ cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 # Delegate to the Taskfile so the formatter SET lives in one place.
 remote_url="$(git config --get remote.origin.url 2>/dev/null || echo '')"
-if [[ "$remote_url" == *"evanharmon1"* || "$remote_url" == *"harmonops"* || "$remote_url" == *"ponderousdev"* ]]; then
+case "$remote_url" in
+*"evanharmon1"* | *"harmonops"* | *"ponderousdev"*)
     task format:file -- "$file_path" >/dev/null 2>&1 || true
-fi
+    ;;
+esac
 
 exit 0
