@@ -1,0 +1,18 @@
+{
+  "model": "Gemini 3.1 Pro (High)",
+  "permissions": {
+    "allow": [
+      "command(task)",
+      "command(ls -R \"$(git rev-parse --git-path deferred-findings)\" 2>/dev/null || echo \"no deferred-findings directory\")",
+      "command(cat \"$(git rev-parse --git-path \"deferred-findings/$(git branch --show-current)\")\")",
+      "command(gh)",
+      "command(cat)"
+    ]
+  },
+  "trustedWorkspaces": [
+    "{{ .chezmoi.homeDir }}/git/harmon-init",
+    "{{ .chezmoi.homeDir }}/git/harmon-devkit",
+    "{{ .chezmoi.homeDir }}/git/orgs/ponderousdev/foreman"
+  ],
+  "dangerouslySkipPermissions": true
+}
