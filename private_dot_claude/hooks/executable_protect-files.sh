@@ -34,6 +34,10 @@ done
 
 # Suffix patterns — binary assets that shouldn't be hand-edited.
 case "$file_path" in
+*/.git | .git)
+    echo "protect-files: blocked write to '$file_path' (exact .git file)" >&2
+    exit 2
+    ;;
 *.png | *.jpg | *.jpeg | *.webp | *.gif | *.ico | *.pdf | *.pem | *.key)
     echo "protect-files: blocked write to '$file_path' (binary asset or secret)" >&2
     exit 2
