@@ -16,7 +16,7 @@ if [ "$event_type" = "PreToolUse" ] || [ "$event_type" = "PostToolUse" ]; then
         claude_input="$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')"
     elif [[ "$tool_name" == *"file"* || "$tool_name" == *"edit"* ]]; then
         path="$(echo "$input" | jq -r '.toolCall.args.TargetFile // .toolCall.args.AbsolutePath // ""')"
-        claude_input="$(jq -n --arg p "$path" '{tool_input: {path: $p}}')"
+        claude_input="$(jq -n --arg p "$path" '{tool_input: {file_path: $p}}')"
     else
         claude_input="{}"
     fi
