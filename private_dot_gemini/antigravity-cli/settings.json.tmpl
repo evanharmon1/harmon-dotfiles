@@ -6,7 +6,9 @@
       "command(ls -R \"$(git rev-parse --git-path deferred-findings)\" 2>/dev/null || echo \"no deferred-findings directory\")",
       "command(cat \"$(git rev-parse --git-path \"deferred-findings/$(git branch --show-current)\")\")",
       "command(gh)",
-      "command(cat)"
+      "command(cat)",
+      "command(ls)",
+      "command(git status)"
     ]
   },
   "trustedWorkspaces": [
