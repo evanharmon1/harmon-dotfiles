@@ -1,5 +1,5 @@
 {
-  "//": "chezmoi:managed — edit via ~/git/harmon-dotfiles (private_dot_claude/private_settings.json); direct edits are overwritten by the next 'chezmoi apply' unless re-added",
+  "//": "chezmoi:managed \u2014 edit via ~/git/harmon-dotfiles (private_dot_claude/private_settings.json); direct edits are overwritten by the next 'chezmoi apply' unless re-added",
   "permissions": {
     "allow": [
       "Bash(git:*)",
@@ -100,6 +100,15 @@
             "command": "workmux set-window-status working"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-edit-format.sh"
+          }
+        ]
       }
     ],
     "PreCompact": [
@@ -118,6 +127,28 @@
           {
             "type": "command",
             "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/protect-files.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-no-verify.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/enforce-conventional-commits.sh"
           }
         ]
       }
@@ -150,6 +181,26 @@
             "type": "command",
             "command": "bash '/Users/evan/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-context.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start-context.sh",
+            "timeout": 20
           }
         ]
       }
