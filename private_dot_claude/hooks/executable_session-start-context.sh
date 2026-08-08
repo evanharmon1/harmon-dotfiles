@@ -21,11 +21,21 @@ strip_ansi() { sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g'; }
 # spends up to NETWORK_TIMEOUT (5s) on the auth probe and then up to another 5s
 # on the PR/run probes it launches in parallel — 10s worst case, so 12 here.
 # status:git makes no network calls at all.
-git_status="$(timeout 5 task status:git 2>/dev/null | strip_ansi || echo '(task status:git unavailable)')"
-gh_status="$(timeout 12 task status:gh 2>/dev/null | strip_ansi || echo '(task status:gh unavailable)')"
+git_out="$(mktemp)"
+gh_out="$(mktemp)"
+timeout 5 task status:git >"$git_out" 2>/dev/null &
+git_pid=$!
+timeout 12 task status:gh >"$gh_out" 2>/dev/null &
+gh_pid=$!
+wait $git_pid || true
+wait $gh_pid || true
+git_status="$(cat "$git_out" | strip_ansi || echo '(task status:git unavailable)')"
+gh_status="$(cat "$gh_out" | strip_ansi || echo '(task status:gh unavailable)')"
+rm -f "$git_out" "$gh_out"
+
 branch="$(git branch --show-current 2>/dev/null || echo 'unknown')"
 
-reminder=$'Repo conventions:\n- Run `task verify` before committing (lint + build + validate + test).\n- Conventional Commits required (feat/fix/docs/style/refactor/perf/test/chore/ci/build/change/remove/revert).\n- Never bypass git hooks with --no-verify; fix the underlying issue.\n- Use lefthook for git hooks (not pre-commit).\n- See docs/conventions.md (and AGENTS.md) for the authoritative conventions catalog.'
+reminder=$'Repo conventions:\n- Run `task verify` before committing (lint + build + validate + test).\n- Conventional Commits required (feat/fix/docs/style/refactor/perf/test/chore/ci/build/revert).\n- Never bypass git hooks with --no-verify; fix the underlying issue.\n- Use lefthook for git hooks (not pre-commit).\n- See docs/conventions.md (and AGENTS.md) for the authoritative conventions catalog.'
 
 context="$(printf 'Branch: %s\n\n=== task status:git ===\n%s\n\n=== task status:gh ===\n%s\n\n%s\n' \
     "$branch" "$git_status" "$gh_status" "$reminder")"
