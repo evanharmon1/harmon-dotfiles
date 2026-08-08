@@ -24,7 +24,7 @@ if printf '%s' "$command" | grep -qE -- '--no-verify(\b|=)|--no-gpg-sign\b|--no-
 fi
 
 # Short flag: -n on `git commit` (git commit -n is the no-verify shorthand).
-if printf '%s' "$command" | grep -qE 'git[[:space:]]+commit\b[^|;&]*[[:space:]]-n(\b|[[:space:]])'; then
+if printf '%s' "$command" | grep -qE 'git[[:space:]]+commit\b[^|;&]*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*(\b|[[:space:]])'; then
     echo "block-no-verify: refusing 'git commit -n' (shorthand for --no-verify)." >&2
     exit 2
 fi
