@@ -60,6 +60,7 @@ codex() {
     local skip_value=false
     local skip_nested_value=false
     local add_dirs=false
+    local image_values=false
     for arg in "$@"; do
         case "$arg" in
         --) break ;;
@@ -105,13 +106,21 @@ codex() {
             *) continue ;;
             esac
         fi
+        if $image_values; then
+            case "$arg" in
+            --) break ;;
+            -*) image_values=false ;;
+            *) continue ;;
+            esac
+        fi
         case "$arg" in
         --) break ;;
         -c | --config | --enable | --disable | --remote | --remote-auth-token-env | \
-            -i | --image | -m | --model | --local-provider | -s | --sandbox | \
-            -C | --cd | -a | --ask-for-approval)
+            -m | --model | --local-provider | -s | --sandbox | -C | --cd | \
+            -a | --ask-for-approval)
             skip_value=true
             ;;
+        -i | --image | -i?* | --image=*) image_values=true ;;
         --add-dir) add_dirs=true ;;
         --*=* | -*) ;;
         *) subcommand="$arg" ;;

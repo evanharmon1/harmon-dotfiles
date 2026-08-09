@@ -79,6 +79,9 @@ runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex debug -c foo=b
 runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -- doctor' _ "$aliases_file")"
 [ "$runtime_args" = $'<--profile>\n<harmon-local>\n<-->\n<doctor>' ] ||
     fail "Codex wrapper treated option-delimited prompt text as a subcommand"
+runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -i first.png doctor -- "inspect these"' _ "$aliases_file")"
+[ "$runtime_args" = $'<--profile>\n<harmon-local>\n<-i>\n<first.png>\n<doctor>\n<-->\n<inspect these>' ] ||
+    fail "Codex wrapper treated a later variadic image value as a subcommand"
 for subcommand in login doctor completion plugin features; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
     [ "$admin_args" = "<$subcommand>" ] ||
