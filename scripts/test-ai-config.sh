@@ -45,8 +45,12 @@ if grep -Eq 'session-start-context|post-edit-format|enforce-conventional-commits
 fi
 
 echo "==> validate instruction and skill compatibility links"
-[ "$(cat "$repo/private_dot_codex/symlink_AGENTS.md")" = "../.claude/CLAUDE.md" ] ||
-    fail "Codex AGENTS.md link does not target the global Claude guidance"
+[ -f "$repo/private_dot_agents/private_AGENTS.md" ] ||
+    fail "standards-first global AGENTS.md source is missing"
+[ "$(cat "$repo/private_dot_codex/symlink_AGENTS.md")" = "../.agents/AGENTS.md" ] ||
+    fail "Codex AGENTS.md link does not target the shared global guidance"
+[ "$(cat "$repo/private_dot_claude/symlink_CLAUDE.md")" = "../.agents/AGENTS.md" ] ||
+    fail "Claude CLAUDE.md link does not target the shared global guidance"
 [ -L "$repo/.claude/skills" ] || fail "repository Claude skills path is not a symlink"
 [ "$(readlink "$repo/.claude/skills")" = "../.agents/skills" ] ||
     fail "repository Claude skills path does not target .agents/skills"
