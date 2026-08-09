@@ -51,6 +51,20 @@ alias llmq8='llm -m q8 -o max_tokens 4096'
 alias llmq30='llm -m q30 -o max_tokens 12000'
 alias llmqc30='llm -m qc30'
 
+#             Codex CLI
+#------------------------------------------------------------------------------
+# Keep CLI defaults isolated from the desktop app and IDE. An explicit profile
+# flag still wins, which makes one-off testing and recovery straightforward.
+codex() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+        -p | --profile | --profile=*) command codex "$@"; return ;;
+        esac
+    done
+    command codex --profile harmon-local "$@"
+}
+
 #             Workmux
 #------------------------------------------------------------------------------
 alias wm='workmux'

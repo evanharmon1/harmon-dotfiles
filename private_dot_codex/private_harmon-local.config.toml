@@ -1,0 +1,23 @@
+# CLI-only local defaults. The shell wrapper selects this profile explicitly;
+# desktop and IDE clients continue using the unprofiled base config.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+project_doc_max_bytes = 65536
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+
+[features]
+hooks = true
+
+[tui]
+status_line = [
+  "project-name",
+  "git-branch",
+  "model-with-reasoning",
+  "context-remaining",
+  "five-hour-limit",
+  "weekly-limit",
+  "used-tokens",
+  "run-state",
+]

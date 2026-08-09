@@ -60,6 +60,8 @@ tasks:
       - task: test:tasks
       - task: test:ci-results
       - task: test:release-title
+      - task: test:hooks
+      - task: test:ai-config
       - task: test
 
   # ── Quality Checks ────────────────────────────────────────────
@@ -144,7 +146,7 @@ tasks:
   # The verify:skills* drift checks skip cleanly until the first `task sync:skills`,
   # so a fresh scaffold stays green. See docs/CHECKLIST.md.
   sync:skills:
-    desc: Vendor the pinned skill categories from harmon-devkit into .claude/skills
+    desc: Vendor the pinned skill categories from harmon-devkit into .agents/skills
     cmds:
       - ./scripts/sync-skills.sh sync
 
@@ -205,6 +207,16 @@ tasks:
     desc: Unit-test the release-content title guard (require-release-title.sh)
     cmds:
       - ./scripts/test-release-title.sh
+
+  test:hooks:
+    desc: Unit-test shared Claude/Codex hook adapters and Taskfile delegation
+    cmds:
+      - ./scripts/test-hooks.sh
+
+  test:ai-config:
+    desc: Validate Claude/Codex config, profiles, rules, agents, and symlinks
+    cmds:
+      - ./scripts/test-ai-config.sh
 
   # ── Security ───────────────────────────────────────────────────
   security:

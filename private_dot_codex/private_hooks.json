@@ -1,0 +1,27 @@
+{
+  "description": "Local cross-harness repository policy hooks.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.codex/hooks/claude-compat.sh ~/.claude/hooks/block-no-verify.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.codex/hooks/file-payload.sh ~/.claude/hooks/protect-files.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
