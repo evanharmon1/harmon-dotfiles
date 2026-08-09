@@ -35,6 +35,20 @@ prefix_rule(
     match = ["gh pr merge 123", "gh pr merge --squash"],
 )
 
+# GitHub CLI also permits global options before and between subcommands, with
+# attached values that prefix rules cannot wildcard. Prompt for gh as a whole
+# so an option-prefixed pull-request merge cannot bypass human approval.
+prefix_rule(
+    pattern = ["gh"],
+    decision = "prompt",
+    justification = "GitHub CLI global options can hide pull-request merges, so gh invocations require review.",
+    match = [
+        "gh pr view 123",
+        "gh -R owner/repo pr merge 123",
+        "gh --repo=owner/repo pr merge 123",
+    ],
+)
+
 prefix_rule(
     pattern = ["rm"],
     decision = "prompt",

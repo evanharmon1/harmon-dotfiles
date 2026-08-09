@@ -73,6 +73,12 @@ explicit_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -ptest exec t
 runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex debug prompt-input -- -ptest' _ "$aliases_file")"
 [ "$runtime_args" = $'<--profile>\n<harmon-local>\n<debug>\n<prompt-input>\n<-->\n<-ptest>' ] ||
     fail "Codex wrapper treated option-delimited prompt text as a profile"
+runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex debug -c foo=bar prompt-input' _ "$aliases_file")"
+[ "$runtime_args" = $'<--profile>\n<harmon-local>\n<debug>\n<-c>\n<foo=bar>\n<prompt-input>' ] ||
+    fail "Codex wrapper misclassified a valued debug option"
+runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -- doctor' _ "$aliases_file")"
+[ "$runtime_args" = $'<--profile>\n<harmon-local>\n<-->\n<doctor>' ] ||
+    fail "Codex wrapper treated option-delimited prompt text as a subcommand"
 for subcommand in login doctor completion plugin features; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
     [ "$admin_args" = "<$subcommand>" ] ||
@@ -109,6 +115,10 @@ if command -v codex >/dev/null 2>&1; then
     [ "$decision" = "prompt" ] || fail "attached short-option git merge should require approval, got $decision"
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git --git-dir=/tmp/project/.git push origin main | jq -r '.decision')"
     [ "$decision" = "prompt" ] || fail "attached long-option git push should require approval, got $decision"
+    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- gh -R owner/repo pr merge 123 | jq -r '.decision')"
+    [ "$decision" = "prompt" ] || fail "option-prefixed gh pr merge should require approval, got $decision"
+    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- gh --repo=owner/repo pr merge 123 | jq -r '.decision')"
+    [ "$decision" = "prompt" ] || fail "attached-option gh pr merge should require approval, got $decision"
 else
     echo "SKIP: codex is unavailable; execpolicy parsing is covered on configured hosts"
 fi

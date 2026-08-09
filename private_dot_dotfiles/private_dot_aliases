@@ -58,6 +58,7 @@ alias llmqc30='llm -m qc30'
 codex() {
     local arg subcommand="" nested_command=""
     local skip_value=false
+    local skip_nested_value=false
     local add_dirs=false
     for arg in "$@"; do
         case "$arg" in
@@ -72,8 +73,17 @@ codex() {
     for arg in "$@"; do
         if [ -n "$subcommand" ]; then
             if [ "$subcommand" = debug ] && [ -z "$nested_command" ]; then
+                if $skip_nested_value; then
+                    skip_nested_value=false
+                    continue
+                fi
                 case "$arg" in
-                -*) continue ;;
+                --) break ;;
+                -c | --config | --enable | --disable)
+                    skip_nested_value=true
+                    continue
+                    ;;
+                --*=* | -*) continue ;;
                 *) nested_command="$arg"; break ;;
                 esac
             fi
@@ -96,6 +106,7 @@ codex() {
             esac
         fi
         case "$arg" in
+        --) break ;;
         -c | --config | --enable | --disable | --remote | --remote-auth-token-env | \
             -i | --image | -m | --model | --local-provider | -s | --sandbox | \
             -C | --cd | -a | --ask-for-approval)
