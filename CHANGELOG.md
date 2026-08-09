@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.11.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.10.0...v0.11.0) (2026-08-09)
+
+
+### Features
+
+* pair local Claude and Codex CLI configuration ([446abc3](https://github.com/evanharmon1/harmon-dotfiles/commit/446abc395c206d6b6d600f39f275381165e69ffd))
+* pair local Claude and Codex CLI configuration ([40276d9](https://github.com/evanharmon1/harmon-dotfiles/commit/40276d9c64bb03ecb97131355548e517c50d65c6))
+
+
+### Bug Fixes
+
+* close attached Git option bypass ([6157a56](https://github.com/evanharmon1/harmon-dotfiles/commit/6157a56a623151bdf9be1a220451133abda11f6b))
+* close Codex dispatch bypasses ([5efcb64](https://github.com/evanharmon1/harmon-dotfiles/commit/5efcb6428277743b6791611753281bfd3e44d7ae))
+* close Codex policy edge cases ([2b22d4e](https://github.com/evanharmon1/harmon-dotfiles/commit/2b22d4ef110b0d910dc0c1d4c13cbd52b682b669))
+* consume variadic Codex images ([2da593d](https://github.com/evanharmon1/harmon-dotfiles/commit/2da593d0267c6a46483b23e90a2b3674e39ddecb))
+* cover Codex wrapper runtime cases ([8c823ba](https://github.com/evanharmon1/harmon-dotfiles/commit/8c823bab2625b0d0944bb245d9dff9c5bc0a8b8f))
+* harden Codex config safeguards ([cdca0bf](https://github.com/evanharmon1/harmon-dotfiles/commit/cdca0bfddb0e031917fc4072c23286575b7449f2))
+* normalize protected Codex config paths ([72704bf](https://github.com/evanharmon1/harmon-dotfiles/commit/72704bf58a27c7fff7e85fc7e5f8cb462719de73))
+* normalize protected system paths ([6450be3](https://github.com/evanharmon1/harmon-dotfiles/commit/6450be37296ec8621439ca9701526246c1c31ff9))
+* preserve attached Codex image values ([591d09d](https://github.com/evanharmon1/harmon-dotfiles/commit/591d09d845a3b8573e830c06b77c8a664c79714b))
+* preserve Codex administrative commands ([da239e7](https://github.com/evanharmon1/harmon-dotfiles/commit/da239e7408b9487e0b33be250fc0c9e997ffd482))
+* preserve explicit Codex profiles ([81bc21e](https://github.com/evanharmon1/harmon-dotfiles/commit/81bc21ef50804acc25e9e12979b61c26dd60c5f8))
+* scope Codex config protection to user settings ([e96f045](https://github.com/evanharmon1/harmon-dotfiles/commit/e96f045060bed34cd18ad34512a29dd2409b0b2d))
+* validate TOML portably in CI ([55caaff](https://github.com/evanharmon1/harmon-dotfiles/commit/55caaff1ecd8445283a109b152830380ea9e708b))
+
 ## [0.10.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.9.0...v0.10.0) (2026-08-09)
 
 
