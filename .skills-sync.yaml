@@ -12,4 +12,4 @@ source:
   ref: v0.8.4 # pinned tag — bump deliberately to a released harmon-devkit tag
 categories:
   - universal
-dest: .claude/skills
+dest: .agents/skills

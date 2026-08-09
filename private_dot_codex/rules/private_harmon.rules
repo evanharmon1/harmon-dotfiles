@@ -1,0 +1,57 @@
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Publishing commits changes shared remote state.",
+    match = ["git push", "git push origin feat/example", "git push --force-with-lease"],
+)
+
+prefix_rule(
+    pattern = ["git", "merge"],
+    decision = "prompt",
+    justification = "Merging changes branch history and remains a human-reviewed action.",
+    match = ["git merge main", "git merge --continue"],
+)
+
+# Git permits global options before the operation, including attached-value
+# forms such as `-C/path` and `--git-dir=/path`. Prefix rules match exact
+# argument positions and cannot wildcard those values, so prompt for Git as a
+# whole rather than leave a bypass around protected push and merge operations.
+prefix_rule(
+    pattern = ["git"],
+    decision = "prompt",
+    justification = "Git global options can hide protected operations, so Git invocations require review.",
+    match = [
+        "git status",
+        "git -C /tmp/project merge main",
+        "git -C/tmp/project merge main",
+        "git --git-dir=/tmp/project/.git push origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "prompt",
+    justification = "Pull-request merges require explicit per-merge human approval.",
+    match = ["gh pr merge 123", "gh pr merge --squash"],
+)
+
+# GitHub CLI also permits global options before and between subcommands, with
+# attached values that prefix rules cannot wildcard. Prompt for gh as a whole
+# so an option-prefixed pull-request merge cannot bypass human approval.
+prefix_rule(
+    pattern = ["gh"],
+    decision = "prompt",
+    justification = "GitHub CLI global options can hide pull-request merges, so gh invocations require review.",
+    match = [
+        "gh pr view 123",
+        "gh -R owner/repo pr merge 123",
+        "gh --repo=owner/repo pr merge 123",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm"],
+    decision = "prompt",
+    justification = "Deletion should be reviewed before leaving the workspace sandbox.",
+    match = ["rm file.txt", "rm -rf build"],
+)

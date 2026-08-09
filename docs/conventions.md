@@ -95,8 +95,8 @@ it points here.
   `GEMINI.md`, and `.github/copilot-instructions.md` are **symlinks** to it —
   edit only `AGENTS.md`.
 - **Vendored vs local skills:** the skills sync manages ONLY the directories
-  listed on the `# managed:` line of `.claude/skills/.SKILLS_PROVENANCE`. Any
-  other directory under `.claude/skills/` is a **local skill owned by this
+  listed on the `# managed:` line of `.agents/skills/.SKILLS_PROVENANCE`. Any
+  other directory under `.agents/skills/` is a **local skill owned by this
   repo** — create, edit, and delete it freely; `task sync:skills` and the
   `verify:skills*` drift checks never touch or report it. Never hand-edit the
   managed (vendored) skills — change them in harmon-devkit and bump the pin.

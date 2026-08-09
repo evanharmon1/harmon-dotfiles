@@ -16,10 +16,10 @@ config, toolchain, devcontainer, and dev environment — against the items below
       `ref` to the latest
       [harmon-devkit release](https://github.com/evanharmon1/harmon-devkit/releases)
       that ships the skill category layout, run `task sync:skills`, and commit
-      `.claude/skills/`. Until then the `verify:skills*` drift checks skip
+      `.agents/skills/` (also exposed to Claude at `.claude/skills/`). Until then the `verify:skills*` drift checks skip
       cleanly (CI + pre-push). **Pin bumps are a two-step:** edit `ref` in
       `.skills-sync.yaml`, then run `task sync:skills` and commit the refreshed
-      `.claude/skills/` in the same PR. Renovate surfaces a new release in the
+      `.agents/skills/` in the same PR. Renovate surfaces a new release in the
       Dependency Dashboard; approve it there to open the pin PR, then run the
       sync and push its output as a separate commit (do not amend Renovate's
       commit). Renovate cannot do the re-sync, so a ref-only commit fails the
