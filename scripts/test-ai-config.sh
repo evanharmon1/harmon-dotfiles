@@ -82,6 +82,9 @@ runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -- doctor' _ "
 runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -i first.png doctor -- "inspect these"' _ "$aliases_file")"
 [ "$runtime_args" = $'<--profile>\n<harmon-local>\n<-i>\n<first.png>\n<doctor>\n<-->\n<inspect these>' ] ||
     fail "Codex wrapper treated a later variadic image value as a subcommand"
+admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex --image=first.png doctor' _ "$aliases_file")"
+[ "$admin_args" = $'<--image=first.png>\n<doctor>' ] ||
+    fail "Codex wrapper treated an attached image value as variadic"
 for subcommand in login doctor completion plugin features; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
     [ "$admin_args" = "<$subcommand>" ] ||

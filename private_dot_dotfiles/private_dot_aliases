@@ -120,7 +120,7 @@ codex() {
             -a | --ask-for-approval)
             skip_value=true
             ;;
-        -i | --image | -i?* | --image=*) image_values=true ;;
+        -i | --image) image_values=true ;;
         --add-dir) add_dirs=true ;;
         --*=* | -*) ;;
         *) subcommand="$arg" ;;
