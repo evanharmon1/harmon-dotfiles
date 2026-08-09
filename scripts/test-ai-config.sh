@@ -20,7 +20,9 @@ for toml in \
     "$profile" \
     "$repo/private_dot_codex/agents/private_implementer.toml" \
     "$repo/private_dot_codex/agents/private_reviewer.toml"; do
-    yq '.' "$toml" >/dev/null || fail "invalid TOML: $toml"
+    # Force YAML output so yq versions without a TOML encoder can still parse
+    # and validate TOML input consistently on macOS and GitHub Actions.
+    yq -oy '.' "$toml" >/dev/null || fail "invalid TOML: $toml"
 done
 
 [ "$(yq '.model' "$profile")" = "gpt-5.6-sol" ] ||
