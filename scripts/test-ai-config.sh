@@ -83,6 +83,10 @@ if command -v codex >/dev/null 2>&1; then
     [ "$decision" = "prompt" ] || fail "git push should require approval, got $decision"
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git -C /tmp/project merge main | jq -r '.decision')"
     [ "$decision" = "prompt" ] || fail "option-prefixed git merge should require approval, got $decision"
+    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git -C/tmp/project merge main | jq -r '.decision')"
+    [ "$decision" = "prompt" ] || fail "attached short-option git merge should require approval, got $decision"
+    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git --git-dir=/tmp/project/.git push origin main | jq -r '.decision')"
+    [ "$decision" = "prompt" ] || fail "attached long-option git push should require approval, got $decision"
 else
     echo "SKIP: codex is unavailable; execpolicy parsing is covered on configured hosts"
 fi
