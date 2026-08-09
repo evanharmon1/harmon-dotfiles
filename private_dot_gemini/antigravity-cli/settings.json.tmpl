@@ -1,5 +1,9 @@
 {
   "model": "Gemini 3.1 Pro (High)",
+  "toolPermission": "proceed-in-sandbox",
+  "artifactReviewPolicy": "always-proceed",
+  "allowNonWorkspaceAccess": false,
+  "enableTerminalSandbox": true,
   "permissions": {
     "allow": [
       "command(task)",
@@ -53,6 +57,5 @@
     "{{ .chezmoi.homeDir }}/git/orgs/ponderousdev/ponderous-site",
     "{{ .chezmoi.homeDir }}/git/orgs/ponderousdev/lawnomator-site",
     "{{ .chezmoi.homeDir }}/git/orgs/ponderousdev/ponderous-docs"
-  ],
-  "dangerouslySkipPermissions": true
+  ]
 }
