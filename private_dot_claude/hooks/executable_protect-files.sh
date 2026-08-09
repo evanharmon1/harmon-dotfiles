@@ -46,6 +46,9 @@ resolved_parent="$(dirname -- "$resolved_path")"
 if [[ -d "$resolved_parent" ]]; then
     resolved_path="$(cd -- "$resolved_parent" && pwd -P)/$(basename -- "$resolved_path")"
 fi
+if [[ -e "$resolved_path" || -L "$resolved_path" ]]; then
+    resolved_path="$(realpath -- "$resolved_path")"
+fi
 codex_config="$(cd -- "$HOME" && pwd -P)/.codex/config.toml"
 if [[ "$resolved_path" == "$codex_config" ]]; then
     echo "protect-files: blocked write to '$file_path' (machine-level Codex config)" >&2

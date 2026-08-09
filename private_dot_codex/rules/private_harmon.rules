@@ -12,6 +12,28 @@ prefix_rule(
     match = ["git merge main", "git merge --continue"],
 )
 
+# Git permits global options before the operation. Since prefix rules match
+# exact argument positions, conservatively prompt for any option-prefixed Git
+# invocation rather than allow a protected operation such as merge to hide
+# behind `git -C <dir>` or another global option.
+prefix_rule(
+    pattern = ["git", [
+        "-C", "-c", "--config-env", "--exec-path", "--html-path",
+        "--man-path", "--info-path", "-p", "--paginate", "-P",
+        "--no-pager", "--no-replace-objects", "--bare", "--git-dir",
+        "--work-tree", "--namespace", "--literal-pathspecs",
+        "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
+        "--no-optional-locks", "--list-cmds", "--attr-source",
+    ]],
+    decision = "prompt",
+    justification = "Git global options can precede protected operations, so option-prefixed invocations require review.",
+    match = [
+        "git -C /tmp/project merge main",
+        "git -c user.name=bot push origin main",
+        "git --no-pager status",
+    ],
+)
+
 prefix_rule(
     pattern = ["gh", "pr", "merge"],
     decision = "prompt",

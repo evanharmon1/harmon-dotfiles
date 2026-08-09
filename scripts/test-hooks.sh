@@ -80,5 +80,13 @@ if ! printf '%s' '{"tool_input":{"file_path":"/tmp/project/.codex/config.toml"}}
     bash "$protect" >/dev/null 2>&1; then
     fail "protect-files blocked an ordinary repository-level Codex config"
 fi
+fake_home="$tmpdir/home"
+mkdir -p "$fake_home/.codex" "$tmpdir/project"
+touch "$fake_home/.codex/config.toml"
+ln -s "$fake_home/.codex/config.toml" "$tmpdir/project/config-link"
+if printf '{"tool_input":{"file_path":"%s"}}' "$tmpdir/project/config-link" |
+    HOME="$fake_home" bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files allowed a symlink write to the machine-level Codex config"
+fi
 
 echo "==> shared Claude/Codex hook adapters OK"

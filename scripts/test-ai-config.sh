@@ -70,11 +70,19 @@ for subcommand in login doctor completion plugin features; do
     [ "$admin_args" = "<$subcommand>" ] ||
         fail "Codex wrapper profiled administrative subcommand: $subcommand"
 done
+for prefix in '--enable hooks' '-c key=value' '--disable hooks'; do
+    admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex ${(z)2} doctor' _ "$aliases_file" "$prefix")"
+    case "$admin_args" in
+    *'<--profile>'*) fail "Codex wrapper profiled an option-prefixed administrative command: $prefix" ;;
+    esac
+done
 
 echo "==> validate Codex policy rules when the CLI is available"
 if command -v codex >/dev/null 2>&1; then
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git push origin main | jq -r '.decision')"
     [ "$decision" = "prompt" ] || fail "git push should require approval, got $decision"
+    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git -C /tmp/project merge main | jq -r '.decision')"
+    [ "$decision" = "prompt" ] || fail "option-prefixed git merge should require approval, got $decision"
 else
     echo "SKIP: codex is unavailable; execpolicy parsing is covered on configured hosts"
 fi

@@ -56,7 +56,8 @@ alias llmqc30='llm -m qc30'
 # Keep CLI defaults isolated from the desktop app and IDE. An explicit profile
 # flag still wins, which makes one-off testing and recovery straightforward.
 codex() {
-    local arg
+    local arg subcommand=""
+    local skip_value=false
     for arg in "$@"; do
         case "$arg" in
         -p | --profile | --profile=*) command codex "$@"; return ;;
@@ -64,8 +65,24 @@ codex() {
     done
 
     # Profiles configure agent sessions. Older Codex releases reject --profile
-    # for administrative commands, so leave those commands untouched.
-    case "${1:-}" in
+    # for administrative commands. Find the command after any leading global
+    # options (including options whose value is the following argument).
+    for arg in "$@"; do
+        if $skip_value; then
+            skip_value=false
+            continue
+        fi
+        case "$arg" in
+        -c | --config | --enable | --disable | --remote | --remote-auth-token-env | \
+            -i | --image | -m | --model | --local-provider | -s | --sandbox | \
+            -C | --cd | --add-dir | -a | --ask-for-approval)
+            skip_value=true
+            ;;
+        --*=* | -*) ;;
+        *) subcommand="$arg"; break ;;
+        esac
+    done
+    case "$subcommand" in
     login | logout | plugin | mcp-server | app-server | remote-control | app | \
         completion | update | doctor | sandbox | debug | apply | archive | \
         delete | unarchive | cloud | exec-server | features | help)
