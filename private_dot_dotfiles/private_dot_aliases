@@ -56,8 +56,9 @@ alias llmqc30='llm -m qc30'
 # Keep CLI defaults isolated from the desktop app and IDE. An explicit profile
 # flag still wins, which makes one-off testing and recovery straightforward.
 codex() {
-    local arg subcommand=""
+    local arg subcommand="" nested_command=""
     local skip_value=false
+    local add_dirs=false
     for arg in "$@"; do
         case "$arg" in
         -p | --profile | --profile=*) command codex "$@"; return ;;
@@ -68,26 +69,54 @@ codex() {
     # for administrative commands. Find the command after any leading global
     # options (including options whose value is the following argument).
     for arg in "$@"; do
+        if [ -n "$subcommand" ]; then
+            if [ "$subcommand" = debug ] && [ -z "$nested_command" ]; then
+                case "$arg" in
+                -*) continue ;;
+                *) nested_command="$arg"; break ;;
+                esac
+            fi
+            break
+        fi
         if $skip_value; then
             skip_value=false
             continue
         fi
+        if $add_dirs; then
+            case "$arg" in
+            exec | e | review | login | logout | mcp | plugin | mcp-server | \
+                app-server | remote-control | app | completion | update | doctor | \
+                sandbox | debug | apply | a | resume | archive | delete | \
+                unarchive | fork | cloud | exec-server | features | help)
+                add_dirs=false
+                ;;
+            -*) add_dirs=false ;;
+            *) continue ;;
+            esac
+        fi
         case "$arg" in
         -c | --config | --enable | --disable | --remote | --remote-auth-token-env | \
             -i | --image | -m | --model | --local-provider | -s | --sandbox | \
-            -C | --cd | --add-dir | -a | --ask-for-approval)
+            -C | --cd | -a | --ask-for-approval)
             skip_value=true
             ;;
+        --add-dir) add_dirs=true ;;
         --*=* | -*) ;;
-        *) subcommand="$arg"; break ;;
+        *) subcommand="$arg" ;;
         esac
     done
     case "$subcommand" in
     login | logout | plugin | mcp-server | app-server | remote-control | app | \
-        completion | update | doctor | sandbox | debug | apply | archive | \
+        completion | update | doctor | apply | archive | \
         delete | unarchive | cloud | exec-server | features | help)
         command codex "$@"
         return
+        ;;
+    debug)
+        if [ "$nested_command" != prompt-input ]; then
+            command codex "$@"
+            return
+        fi
         ;;
     esac
 

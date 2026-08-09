@@ -87,7 +87,7 @@
       "dependencyDashboardApproval": true,
       "dependencyDashboardCategory": "Agent skills",
       "prBodyNotes": [
-        "After approving this update, run `task sync:skills` and push the refreshed `.claude/skills/` as a separate commit; do not amend Renovate's commit."
+        "After approving this update, run `task sync:skills` and push the refreshed `.agents/skills/` as a separate commit; do not amend Renovate's commit."
       ]
     }
   ]

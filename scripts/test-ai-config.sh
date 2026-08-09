@@ -76,6 +76,17 @@ for prefix in '--enable hooks' '-c key=value' '--disable hooks'; do
     *'<--profile>'*) fail "Codex wrapper profiled an option-prefixed administrative command: $prefix" ;;
     esac
 done
+admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex --add-dir /tmp/a /tmp/b doctor' _ "$aliases_file")"
+case "$admin_args" in
+*'<--profile>'*) fail "Codex wrapper profiled an administrative command after multiple --add-dir values" ;;
+esac
+for runtime in 'sandbox echo ok' 'debug prompt-input'; do
+    runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex ${(z)2}' _ "$aliases_file" "$runtime")"
+    case "$runtime_args" in
+    $'<--profile>\n<harmon-local>\n'*) ;;
+    *) fail "Codex wrapper did not profile supported runtime command: $runtime" ;;
+    esac
+done
 
 echo "==> validate Codex policy rules when the CLI is available"
 if command -v codex >/dev/null 2>&1; then
