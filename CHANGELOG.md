@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.10.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.9.0...v0.10.0) (2026-08-09)
+
+
+### Features
+
+* **antigravity:** enable sandboxed autonomous mode ([9877e7b](https://github.com/evanharmon1/harmon-dotfiles/commit/9877e7b0aad0ed9ff68b6f530e1733461a7ef769))
+* **antigravity:** enable sandboxed autonomous mode ([b8ddac4](https://github.com/evanharmon1/harmon-dotfiles/commit/b8ddac4d6e9eaa24381b5f3e14a55a0ed412b733))
+
 ## [0.9.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.8.1...v0.9.0) (2026-08-08)
 
 
