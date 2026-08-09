@@ -68,6 +68,9 @@ runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex exec test' _ "
 explicit_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -ptest exec test' _ "$aliases_file")"
 [ "$explicit_args" = $'<-ptest>\n<exec>\n<test>' ] ||
     fail "Codex wrapper did not preserve an attached explicit profile"
+runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex debug prompt-input -- -ptest' _ "$aliases_file")"
+[ "$runtime_args" = $'<--profile>\n<harmon-local>\n<debug>\n<prompt-input>\n<-->\n<-ptest>' ] ||
+    fail "Codex wrapper treated option-delimited prompt text as a profile"
 for subcommand in login doctor completion plugin features; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
     [ "$admin_args" = "<$subcommand>" ] ||

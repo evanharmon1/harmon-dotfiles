@@ -88,5 +88,13 @@ if printf '{"tool_input":{"file_path":"%s"}}' "$tmpdir/project/config-link" |
     HOME="$fake_home" bash "$protect" >/dev/null 2>&1; then
     fail "protect-files allowed a symlink write to the machine-level Codex config"
 fi
+symlink_home="$tmpdir/symlink-home"
+mkdir -p "$symlink_home/.codex"
+touch "$tmpdir/codex-config-target"
+ln -s "$tmpdir/codex-config-target" "$symlink_home/.codex/config.toml"
+if printf '{"tool_input":{"file_path":"%s/.codex/config.toml"}}' "$symlink_home" |
+    HOME="$symlink_home" bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files allowed a direct write through a symlinked machine config"
+fi
 
 echo "==> shared Claude/Codex hook adapters OK"

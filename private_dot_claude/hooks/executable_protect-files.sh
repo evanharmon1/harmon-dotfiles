@@ -50,6 +50,9 @@ if [[ -e "$resolved_path" || -L "$resolved_path" ]]; then
     resolved_path="$(realpath -- "$resolved_path")"
 fi
 codex_config="$(cd -- "$HOME" && pwd -P)/.codex/config.toml"
+if [[ -e "$codex_config" || -L "$codex_config" ]]; then
+    codex_config="$(realpath -- "$codex_config")"
+fi
 if [[ "$resolved_path" == "$codex_config" ]]; then
     echo "protect-files: blocked write to '$file_path' (machine-level Codex config)" >&2
     exit 2

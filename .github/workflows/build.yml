@@ -38,11 +38,8 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           lint-tools: "true"
-      - name: Lint
-        run: task check
-      - run: task test:tasks
-      - run: task test:ci-results
-      - run: task test:release-title
+      - name: Verify
+        run: task verify
       - name: Skills drift check (vendored skills vs pinned harmon-devkit ref)
         run: task verify:skills
 
