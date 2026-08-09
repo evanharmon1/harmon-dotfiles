@@ -68,6 +68,15 @@ got="$(printf '%s' '{"cwd":"/tmp/codex-project"}' |
 
 echo "==> protect-files scopes Codex config protection to the machine"
 protect="$repo/private_dot_claude/hooks/executable_protect-files.sh"
+if [[ "$(uname -s)" == Darwin ]] &&
+    printf '%s' '{"tool_input":{"file_path":"/private/etc/codex/config.toml"}}' |
+    bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files allowed the physical macOS system Codex config path"
+fi
+if printf '%s' '{"tool_input":{"file_path":"codex/config.toml"}}' |
+    CLAUDE_PROJECT_DIR=/etc bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files allowed a cwd-relative system Codex config path"
+fi
 if printf '{"tool_input":{"file_path":"%s/.codex/config.toml"}}' "$HOME" |
     bash "$protect" >/dev/null 2>&1; then
     fail "protect-files allowed a direct write to the machine-level Codex config"
