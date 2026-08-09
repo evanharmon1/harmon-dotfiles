@@ -66,4 +66,15 @@ got="$(printf '%s' '{"cwd":"/tmp/codex-project"}' |
     bash "$repo/private_dot_codex/hooks/executable_claude-compat.sh" "$cwd_mock")"
 [ "$got" = "/tmp/codex-project" ] || fail "Codex Bash adapter lost the session cwd"
 
+echo "==> protect-files scopes Codex config protection to the machine"
+protect="$repo/private_dot_claude/hooks/executable_protect-files.sh"
+if printf '{"tool_input":{"file_path":"%s/.codex/config.toml"}}' "$HOME" |
+    bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files allowed a direct write to the machine-level Codex config"
+fi
+if ! printf '%s' '{"tool_input":{"file_path":"/tmp/project/.codex/config.toml"}}' |
+    bash "$protect" >/dev/null 2>&1; then
+    fail "protect-files blocked an ordinary repository-level Codex config"
+fi
+
 echo "==> shared Claude/Codex hook adapters OK"

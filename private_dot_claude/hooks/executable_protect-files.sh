@@ -3,7 +3,7 @@
 #
 # Blocks AI modification of sensitive or generated files: secrets, lockfiles,
 # git internals, dependency dirs, binary assets, terraform state, ansible vault,
-# and Claude's own managed settings. Exit 2 tells Claude Code to refuse the
+# and machine-level Claude/Codex managed settings. Exit 2 tells Claude Code to refuse the
 # tool call and surface the stderr message back to the model.
 set -euo pipefail
 
@@ -22,7 +22,6 @@ protected=(
     ".terraform/"
     ".tfstate"
     ".claude/settings.json"
-    ".codex/config.toml"
     "/etc/claude-code/"
     "/etc/codex/"
 )
@@ -33,6 +32,14 @@ for pattern in "${protected[@]}"; do
         exit 2
     fi
 done
+
+# Protect the user-level managed Codex config without blocking a repository's
+# version-controlled .codex/config.toml. Project config is an ordinary source
+# file; ~/.codex/config.toml controls every Codex session on the machine.
+if [[ "$file_path" == "$HOME/.codex/config.toml" ]]; then
+    echo "protect-files: blocked write to '$file_path' (machine-level Codex config)" >&2
+    exit 2
+fi
 
 # Suffix patterns — binary assets that shouldn't be hand-edited.
 case "$file_path" in
