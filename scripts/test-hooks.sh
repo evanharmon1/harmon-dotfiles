@@ -72,6 +72,10 @@ if printf '{"tool_input":{"file_path":"%s/.codex/config.toml"}}' "$HOME" |
     bash "$protect" >/dev/null 2>&1; then
     fail "protect-files allowed a direct write to the machine-level Codex config"
 fi
+if (cd "$HOME" && printf '%s' '{"tool_input":{"file_path":".codex/config.toml"}}' |
+    bash "$protect" >/dev/null 2>&1); then
+    fail "protect-files allowed a cwd-relative write to the machine-level Codex config"
+fi
 if ! printf '%s' '{"tool_input":{"file_path":"/tmp/project/.codex/config.toml"}}' |
     bash "$protect" >/dev/null 2>&1; then
     fail "protect-files blocked an ordinary repository-level Codex config"

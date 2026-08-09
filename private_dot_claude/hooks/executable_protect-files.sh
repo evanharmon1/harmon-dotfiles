@@ -34,9 +34,20 @@ for pattern in "${protected[@]}"; do
 done
 
 # Protect the user-level managed Codex config without blocking a repository's
-# version-controlled .codex/config.toml. Project config is an ordinary source
-# file; ~/.codex/config.toml controls every Codex session on the machine.
-if [[ "$file_path" == "$HOME/.codex/config.toml" ]]; then
+# version-controlled .codex/config.toml. Codex apply_patch paths can be relative
+# to the session cwd, so normalize an existing parent directory before comparing.
+resolved_path="$file_path"
+case "$resolved_path" in
+/*) ;;
+~/*) resolved_path="$HOME/${resolved_path#\~/}" ;;
+*) resolved_path="${CLAUDE_PROJECT_DIR:-$PWD}/$resolved_path" ;;
+esac
+resolved_parent="$(dirname -- "$resolved_path")"
+if [[ -d "$resolved_parent" ]]; then
+    resolved_path="$(cd -- "$resolved_parent" && pwd -P)/$(basename -- "$resolved_path")"
+fi
+codex_config="$(cd -- "$HOME" && pwd -P)/.codex/config.toml"
+if [[ "$resolved_path" == "$codex_config" ]]; then
     echo "protect-files: blocked write to '$file_path' (machine-level Codex config)" >&2
     exit 2
 fi
