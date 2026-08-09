@@ -62,6 +62,18 @@ codex() {
         -p | --profile | --profile=*) command codex "$@"; return ;;
         esac
     done
+
+    # Profiles configure agent sessions. Older Codex releases reject --profile
+    # for administrative commands, so leave those commands untouched.
+    case "${1:-}" in
+    login | logout | plugin | mcp-server | app-server | remote-control | app | \
+        completion | update | doctor | sandbox | debug | apply | archive | \
+        delete | unarchive | cloud | exec-server | features | help)
+        command codex "$@"
+        return
+        ;;
+    esac
+
     command codex --profile harmon-local "$@"
 }
 

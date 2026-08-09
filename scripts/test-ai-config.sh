@@ -55,6 +55,22 @@ echo "==> validate instruction and skill compatibility links"
 [ "$(cat "$repo/private_dot_agents/skills/symlink_standardize-repo")" = "../../.claude/skills/standardize-repo" ] ||
     fail "harmon-devkit standardize-repo compatibility link is wrong"
 
+echo "==> validate Codex profile wrapper"
+aliases_file="$repo/private_dot_dotfiles/private_dot_aliases"
+stub_dir="$(mktemp -d)"
+trap 'rm -rf "$stub_dir"' EXIT
+printf '#!/bin/sh\nprintf "<%%s>\\n" "$@"\n' >"$stub_dir/codex"
+chmod +x "$stub_dir/codex"
+
+runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex exec test' _ "$aliases_file")"
+[ "$runtime_args" = $'<--profile>\n<harmon-local>\n<exec>\n<test>' ] ||
+    fail "Codex runtime command did not receive the local profile"
+for subcommand in login doctor completion plugin features; do
+    admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
+    [ "$admin_args" = "<$subcommand>" ] ||
+        fail "Codex wrapper profiled administrative subcommand: $subcommand"
+done
+
 echo "==> validate Codex policy rules when the CLI is available"
 if command -v codex >/dev/null 2>&1; then
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git push origin main | jq -r '.decision')"
