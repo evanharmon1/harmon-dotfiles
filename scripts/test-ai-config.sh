@@ -65,6 +65,9 @@ chmod +x "$stub_dir/codex"
 runtime_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex exec test' _ "$aliases_file")"
 [ "$runtime_args" = $'<--profile>\n<harmon-local>\n<exec>\n<test>' ] ||
     fail "Codex runtime command did not receive the local profile"
+explicit_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex -ptest exec test' _ "$aliases_file")"
+[ "$explicit_args" = $'<-ptest>\n<exec>\n<test>' ] ||
+    fail "Codex wrapper did not preserve an attached explicit profile"
 for subcommand in login doctor completion plugin features; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex "$2"' _ "$aliases_file" "$subcommand")"
     [ "$admin_args" = "<$subcommand>" ] ||
@@ -76,6 +79,9 @@ for prefix in '--enable hooks' '-c key=value' '--disable hooks'; do
     *'<--profile>'*) fail "Codex wrapper profiled an option-prefixed administrative command: $prefix" ;;
     esac
 done
+admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex a task-id' _ "$aliases_file")"
+[ "$admin_args" = $'<a>\n<task-id>' ] ||
+    fail "Codex wrapper profiled the apply alias"
 admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex --add-dir /tmp/a /tmp/b doctor' _ "$aliases_file")"
 case "$admin_args" in
 *'<--profile>'*) fail "Codex wrapper profiled an administrative command after multiple --add-dir values" ;;

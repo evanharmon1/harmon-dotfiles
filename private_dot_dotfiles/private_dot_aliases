@@ -61,7 +61,7 @@ codex() {
     local add_dirs=false
     for arg in "$@"; do
         case "$arg" in
-        -p | --profile | --profile=*) command codex "$@"; return ;;
+        -p | -p?* | --profile | --profile=*) command codex "$@"; return ;;
         esac
     done
 
@@ -107,7 +107,7 @@ codex() {
     done
     case "$subcommand" in
     login | logout | plugin | mcp-server | app-server | remote-control | app | \
-        completion | update | doctor | apply | archive | \
+        completion | update | doctor | apply | a | archive | \
         delete | unarchive | cloud | exec-server | features | help)
         command codex "$@"
         return
