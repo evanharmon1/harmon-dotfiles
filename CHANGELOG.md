@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.11.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.11.0...v0.11.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* update claude settings for auto mode and unpin effort ([cb7895b](https://github.com/evanharmon1/harmon-dotfiles/commit/cb7895b1ce102c4237a5851a1e5b31a4447f195d))
+* update claude settings for auto mode and unpin effort ([b671530](https://github.com/evanharmon1/harmon-dotfiles/commit/b671530a639d0dc08bf990beb6328fe5ce00729a))
+
 ## [0.11.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.10.0...v0.11.0) (2026-08-09)
 
 
