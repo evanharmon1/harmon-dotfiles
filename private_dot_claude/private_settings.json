@@ -42,7 +42,7 @@
       "Bash(git push -f:*)",
       "Bash(git push --force:*)"
     ],
-    "defaultMode": "default"
+    "defaultMode": "auto"
   },
   "model": "claude-opus-4-8",
   "hooks": {
