@@ -14,7 +14,6 @@ Common issues in Harmon Dotfiles and how to fix them.
   - **Recreate the container** (preferred) — it picks up a fresh copy of the host's now-personal-only `~/.gitconfig`. Requires the host to have run `chezmoi apply` first.
   - **Edit the file in place** — delete just the `[credential "https://github.com"]`, `[credential "https://gist.github.com"]`, and both `[url "https://…"]` sections from the in-container `~/.gitconfig`. That is the whole fix; removing the reset lets the image's `~/.config/git/config` supply the helper again.
 - **Missing secrets in the container** — locally, the env-file is provided by a **1Password environment** mounted at `.devcontainer/devcontainer.env` (see [devcontainers.md](devcontainers.md)); on Coder/Codespaces it's seeded from host/workspace env by `.devcontainer/scripts/init-env.sh`. Note `init-env.sh` does **not** call `op` — if values are missing locally, check the 1Password environment is authorized and mounted at the right path.
-
 ## CI
 
 - **Required check missing on a PR** — ensure Build & Validate ran;

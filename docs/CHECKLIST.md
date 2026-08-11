@@ -1,10 +1,21 @@
 # Post-Generation Checklist — Harmon Dotfiles
 
+<!--
+AI AGENTS: This checklist is a human-maintained record for humans to check off.
+Do not check, uncheck, rewrite, remove, reorder, normalize, reconcile, or
+otherwise update its items based on repository state. Do not try to keep it
+consistent with code, configuration, tags, releases, or external services.
+Read-only inspection and reporting are allowed when requested, but never mutate
+checklist state based on the findings. Only edit a checklist item when the human
+user clearly and explicitly asks for that specific checklist update.
+-->
+
 Work through this after generating the repo from harmon-init. Delete items
 that don't apply, then keep this file as a record of what was configured.
 
-Run **`task status:setup`** at any point to audit setup completeness — GitHub
-config, toolchain, devcontainer, and dev environment — against the items below
+Run **`task status:setup`** at any point to audit setup completeness — local
+credentials (gh, Codex), GitHub config, toolchain, devcontainer, and dev
+environment — against the items below
 (✓ done · ✗ missing · ? unknown · – n/a).
 
 ## 1. Local setup
@@ -16,10 +27,12 @@ config, toolchain, devcontainer, and dev environment — against the items below
       `ref` to the latest
       [harmon-devkit release](https://github.com/evanharmon1/harmon-devkit/releases)
       that ships the skill category layout, run `task sync:skills`, and commit
-      `.agents/skills/` (also exposed to Claude at `.claude/skills/`). Until then the `verify:skills*` drift checks skip
+      `.agents/skills/` (also exposed to Claude at `.claude/skills/`) **and
+      `.claude/agents/`** (the manifest's `agents:` block vendors shared
+      subagents there at the same pinned ref). Until then the `verify:skills*` drift checks skip
       cleanly (CI + pre-push). **Pin bumps are a two-step:** edit `ref` in
       `.skills-sync.yaml`, then run `task sync:skills` and commit the refreshed
-      `.agents/skills/` in the same PR. Renovate surfaces a new release in the
+      `.agents/skills/` and `.claude/agents/` in the same PR. Renovate surfaces a new release in the
       Dependency Dashboard; approve it there to open the pin PR, then run the
       sync and push its output as a separate commit (do not amend Renovate's
       commit). Renovate cannot do the re-sync, so a ref-only commit fails the
@@ -31,14 +44,52 @@ config, toolchain, devcontainer, and dev environment — against the items below
 
 ## 2. GitHub repo settings
 
+- [ ] **Confirm draft pull requests are available on this repo** — every agent
+      PR opens as a draft and is promoted only by the readiness gate (AGENTS.md,
+      "Dev Loop"). GitHub restricts draft PRs on **private** repositories to its
+      paid plans, so on a private free-plan repo `gh pr create --draft` fails
+      outright and the whole lifecycle stops at its first step. Check the current
+      plan matrix in [GitHub's draft-PR
+      docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/changing-the-stage-of-a-pull-request);
+      if drafts are unavailable, make the repo public, upgrade the plan, or
+      decide deliberately not to run agent workflows here — do not "fix" it by
+      dropping `--draft`, which would make an open PR mean nothing again.
 - [ ] **Automated settings** — run `task setup:github` (idempotent, safe to
       re-run): enables **Dependabot alerts** and **private vulnerability
       reporting** when public. Do not add `dependabot.yml`: Renovate owns routine
       and vulnerability-remediation PRs; Dependabot owns advisory alerts.
 - [ ] Import the branch ruleset (see [architecture/branch-protection.md](architecture/branch-protection.md)) — do this once `build.yml` are on `main` so the required `verify`/`security` checks resolve. **Use the UI import:** Settings → Rules → Rulesets → **New ruleset ▸ Import a ruleset** → select `.github/Branch Protection Ruleset - Protect Main.json`. (Prefer the UI over `gh api … rulesets`: the API `POST` is not idempotent — re-running creates a duplicate ruleset — and currently rejects the `merge_queue` rule. To later change the ruleset, edit the existing one in the UI rather than re-importing.)
 
-- [ ] Install the [Renovate app](https://github.com/apps/renovate) on the repo
-- [ ] Install the [CodeRabbit app](https://github.com/apps/coderabbitai) on the repo (`.coderabbit.yaml` is pre-configured)
+- [ ] **Install and activate Renovate** — install the
+      [Renovate app](https://github.com/apps/renovate) for **Only select
+      repositories** and select this repo. In the Mend Developer Portal choose
+      the **Renovate** product and **Scan and Alert** mode. Do not choose **Scan
+      Only**: it puts Renovate in silent mode, which scans without creating
+      checks, issues (including the Dependency Dashboard), or update/remediation
+      PRs. This repo already has `renovate.json`; keep that configuration rather
+      than replacing it with a generic onboarding config.
+- [ ] **[human-only] Confirm CodeRabbit has no access** — for a repository that
+      previously used it, remove this repo from the CodeRabbit GitHub App
+      installation. Deleting `.coderabbit.yaml` and bot trust does not revoke
+      existing App access.
+- [ ] **[human-only] Connect Codex cloud review** — connect this repository in
+      ChatGPT Codex settings, grant private-repository access if applicable,
+      and confirm review activity is authored by GitHub actor ID `199175422`
+      (`chatgpt-codex-connector[bot]`, type `Bot`).
+- [ ] **[human-only] Disable Codex Automatic reviews** — turn **personal Auto
+      review** off and set this repository's **Auto code review** preference to
+      **Follow personal**. The draft-workbench lifecycle drives Codex with
+      explicit `@codex review` requests while the PR is draft; left on,
+      `gh pr ready` starts a *new* asynchronous review after the readiness gate,
+      and non-draft stops truthfully meaning "ready for a human". No API exposes
+      this setting, so it is a human-configured prerequisite the gate trusts on
+      the strength of this record — never report it as mechanically verified,
+      and re-check it here if Codex's settings change.
+- [ ] **[human-only] Any other automatic reviewer must review drafts** — if you
+      enable one (GitHub Copilot code review, for example), turn on its draft-review option.
+      A reviewer that skips drafts first reports *after* promotion, so the
+      readiness gate would hand a human a PR it had not actually reviewed.
+      Leave it off rather than run it blind to the workbench.
 - [ ] Actions secret: `CLAUDE_CODE_OAUTH_TOKEN` (claude-* workflows) — generate
       with `claude setup-token`; the value must start **`sk-ant-oat01-`** (an OAuth
       token, billed to your Claude subscription), **not** `sk-ant-api03-` (a raw API
@@ -86,6 +137,164 @@ config, toolchain, devcontainer, and dev environment — against the items below
       re-run with the full list to add a repo. Drives release-please, the claude-*
       workflows, and project-automation; blast-radius + rotation in
       docs/architecture/security.md.
+- [ ] GitHub Project: run `task setup:github-project` (needs
+      `gh auth refresh -s project`) to create the owner's default project (titled
+      `evanharmon1 Project`) and idempotently sync its `Status` pipeline and
+      `Size` number field — see
+      [project-management.md](project-management.md).
+      On a personal account it also creates Priority/Product/Domain/Layer/
+      Size as project fields (issue fields are org-only); status automation is a
+      separate follow-up — the board is set up, but issue/PR status isn't
+      auto-synced yet. `Domain` is seeded with `auth`/`billing`/`platform` only —
+      add this product's real domains in the Project UI, and matching `domain:`
+      labels in `scripts/setup-github-labels.sh`. Re-runs **append** any starter
+      option a single-select field is missing (so a value added by a later
+      harmon-init release lands on the next run) and never touch, reorder, or
+      delete the options you added.
+- [ ] Labels: run `task setup:github-labels` to seed this repo's starter label
+      families (concerns/source/workflow/layer/domain — see
+      [project-management.md](project-management.md)). Labels are per-repo, so run
+      it in each repo; org default labels (org Settings → Repository, UI-only) only
+      seed new repos.
+- [ ] **[human-only] Retire any legacy `agent:*` claim labels** — needed only
+      where `gh label list --limit 200` still shows the harness-named family
+      (`agent:claude-code`, `agent:gemini-cli`, …) a pre-registry harmon-init
+      seeded. **Pass an explicit `--limit` to every `gh label list`,
+      `gh issue list`, and `gh pr list` in this step**: all three default to 30,
+      the starter set alone is over 40 labels, and an unbounded read reports a
+      clean repo — or a finished migration — while legacy labels, in-flight
+      claims, and labelled pull requests remain.
+      `setup-github-labels` never deletes a label, so the old family
+      survives beside the registry-rendered `claim:*` one, and every reader
+      tolerates both — this is cleanup, not a fix for something broken.
+      **Rename, never re-create**: `gh label edit agent:claude-code --name
+      claim:claude --repo <owner/repo>` edits the label object in place, so every
+      issue and PR carrying it keeps it, where create-then-delete would silently
+      drop those associations. Map by **model family, not harness** —
+      `agent:gemini-cli` → `claim:gemini`, `agent:kimi-k2` → `claim:kimi`,
+      `agent:qwen-code` → `claim:qwen` — these three are fixed-family
+      harnesses, so the mapping is unconditional. `agent:github-copilot` is
+      **not**: Copilot is a broker (registry `family_constraint.kind:
+      "broker"`, default `mai`), so an old claim under that label may
+      actually have run GPT, Claude, or another brokered family — check the
+      claim/session record for which one before renaming, and rename to
+      `claim:<actual-family>` (only `claim:mai` when the record confirms
+      MAI). When the actual family can't be recovered: for a live claim,
+      settle it with its owner first rather than guess; for a
+      released/historical one, just delete the stale `agent:github-copilot`
+      label off that issue/PR instead of renaming it — a guessed family is
+      worse than none, since the claim label's whole meaning is the family.
+      Target names otherwise come from
+      `node scripts/agent-registry-labels.mjs suggest-claim`.
+      **Destination-collision procedure**: a rename whose target already
+      exists is rejected by GitHub (`gh label edit` errors: the destination
+      name is already in use — e.g. `claim:claude` already exists from a prior
+      `setup-github-labels` run). When that happens, migrate ASSOCIATIONS
+      instead of the label object: for every issue and PR carrying the old
+      label, add the destination label and remove the old one
+      (`gh issue edit <number> --add-label claim:claude --remove-label
+      agent:claude-code --repo <owner/repo>`; the same `--add-label
+      X --remove-label Y` pair works on `gh pr edit`), then delete the
+      now-empty old label (`gh label delete agent:claude-code --repo
+      <owner/repo> --yes`) once a re-read of `gh issue list --label
+      agent:claude-code --state all --limit 200` **and** the equivalent
+      `gh pr list` both return nothing — only then is it safe to delete; the
+      other checklist items below that reference this procedure reuse it
+      verbatim. Enumerate **`gh pr list` as well as `gh issue list`**
+      throughout, collision or not: labels apply to
+      pull requests too and `gh issue list` never returns them, so deleting the
+      legacy label afterwards would drop exactly the associations the re-labelling
+      missed — the loss this whole item exists to avoid. Check for in-flight
+      claims first — `gh issue list --label agent:… --state all --limit 200`
+      **and** `gh pr list --label agent:… --state all --limit 200`: a claim
+      record naming the old label will not release the renamed one, so settle or
+      amend those records in the same sitting. Re-read `gh label list --limit 200` afterwards — no `agent:*`
+      should remain.
+- [ ] **[human-only] Retire pre-2026-refresh `codex`/`copilot` agent labels** —
+      needed only where an explicit enumeration shows
+      `suggest:codex`/`claim:codex` or `suggest:copilot`/`claim:copilot`
+      still exist: `gh label list --repo <owner/repo> --limit 1000 --json
+      name --jq '.[].name' | grep -E '^(suggest|claim):(codex|copilot)$'`
+      (the default `gh label list --limit 200` paged listing can miss these
+      on a repo with many labels — use this enumeration, not the paged form,
+      everywhere in this item). harmon-init issue #751 renamed those families
+      to `gpt` and `mai` (Codex and Copilot are harnesses, not families — the
+      same harness/family split D9 already made elsewhere; see ADR 0005 D8).
+      A `setup-github-labels` re-run never deletes the old family, so it
+      survives beside the new registry-rendered one.
+
+      **`codex` → `gpt` is a fixed mapping** (Codex only ever ran GPT) —
+      **rename, never re-create**, the same way as the `agent:*` item above:
+      `gh label edit suggest:codex --name suggest:gpt --repo <owner/repo>`
+      (repeat for `claim:codex`), which preserves issue/PR associations
+      instead of dropping them.
+
+      **`copilot` is NOT a fixed mapping — apply the same broker caution as
+      the `agent:github-copilot` entry in the `agent:*` item above, not a
+      blanket rename to `mai`.** Copilot is a broker (registry
+      `family_constraint.kind: "broker"`, default `mai`): a `claim:copilot`
+      may have actually run GPT, Claude, or another brokered family, and
+      `suggest:copilot` only ever named a harness preference, never an MAI
+      one. For `claim:copilot`, follow the `agent:*` item's procedure exactly
+      — check the claim/session record for the actual family and rename to
+      `claim:<actual-family>` (only `claim:mai` when the record confirms
+      MAI); when unrecoverable, settle a live claim with its owner first, or
+      delete the stale label from a released/historical issue/PR instead of
+      guessing. For `suggest:copilot`, there is no rename to make: re-express
+      the intent by re-labelling each issue with whichever family it actually
+      meant, or drop the label, rather than mechanically renaming a harness
+      name into a family slot it never occupied.
+
+      **If the destination already exists** — a `setup-github-labels` re-run
+      already created `suggest:gpt`/`claim:mai` before this cleanup runs —
+      `gh label edit` is rejected the same way; use the **destination-collision
+      procedure from the `agent:*` item above** (add the new label to every
+      issue/PR carrying the old one, remove the old, then delete the old label
+      once empty) instead of trying to rename over it. Check for in-flight
+      claims first — `gh issue list --label claim:codex --state all --limit
+      1000` **and** `gh pr list --label claim:codex --state all --limit
+      1000` (repeat for `claim:copilot`, remembering the broker caution above
+      governs what you rename it to) — and settle or amend any that name the
+      old label before renaming it out from under them. Re-run the
+      enumeration above afterwards — it should return nothing.
+
+      **Also check for model-level labels naming the old family** —
+      `suggest:codex:<model>` / `claim:codex:<model>` /
+      `suggest:copilot:<model>` / `claim:copilot:<model>` (`suggest:codex:sol`,
+      `claim:copilot:code-1-flash`, …). Those are created on demand rather than
+      seeded, so the same paged-listing gap applies — enumerate with the
+      family prefix: `gh label list --repo <owner/repo> --limit 1000 --json
+      name --jq '.[].name' | grep -E '^(suggest|claim):(codex|copilot):'`.
+      Rename each `codex:<model>` label the same fixed-mapping way,
+      **preserving its model suffix** (`suggest:codex:sol` →
+      `suggest:gpt:sol` — the model slug is unchanged, only the family
+      segment moves), and run the same in-flight-claim check per label before
+      renaming it (`gh issue list --label suggest:codex:sol --state all
+      --limit 1000` / `gh pr list --label suggest:codex:sol --state all
+      --limit 1000`, one pair per label found). **`copilot:<model>` labels get
+      the same broker treatment as the family-level ones above** — determine
+      the actual family per label from its claim/session record and rename
+      preserving the suffix (`claim:copilot:code-1-flash` →
+      `claim:<actual-family>:code-1-flash`), or remove/re-express rather than
+      assume `mai`. **Collisions use the same destination-collision procedure
+      too** — a model-level label can already exist for the same reason a
+      family-level one can (an on-demand `suggest:gpt:sol` created before this
+      cleanup ran) — migrate associations from `suggest:codex:sol` to
+      `suggest:gpt:sol` and delete `suggest:codex:sol` once it carries no
+      issues or PRs, rather than renaming over the existing one. Re-run the
+      `grep` above afterwards — it should return nothing.
+- [ ] Project views: create the starter views (Board / Triage / Agent queue /
+      Planning / Mine) in the Project UI — Projects V2 has no view API,
+      so this is a one-time manual step. Filters/layouts are in
+      [project-management.md](project-management.md).
+- [ ] GitHub Project auto-add (**adds every issue to the board**): in the
+      Project's **Settings → Workflows**, turn on **"Auto-add to project"** and
+      point it at this repo (filter `is:issue`, `is:pr`) so *every* new issue and
+      PR lands on the board automatically, however it's created. GitHub's native
+      built-in — no Actions or tokens, and it's the reliable way to guarantee
+      coverage (the issue-form `projects:` key only covers form-created issues and
+      needs a static project number). See
+      [project-management.md](project-management.md).
 
 ## 3. Framework scaffolding (conventions-only template)
 

@@ -5,19 +5,24 @@ REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 PROJECT_NAME="$(basename "${REPO_ROOT}")"
 
-# Section filter: empty = show all, or "git", "gh", "code", "env"
+# Section filter: empty = show all, or "git", "gh", "creds", "code", "env"
 SECTION="${1:-}"
 
 # Temp directory for parallel data collection
 TMPDIR_STATUS="$(mktemp -d)"
 trap 'rm -rf "${TMPDIR_STATUS}"' EXIT
 
-NETWORK_TIMEOUT=5
+# Overridable so a test can drive the deadline path without waiting on it.
+NETWORK_TIMEOUT="${NETWORK_TIMEOUT:-5}"
 
 # ── Tool detection ──────────────────────────────────────────────────────────
 
+# NO_COLOR (https://no-color.org/) turns off gum styling as well as ANSI, which
+# makes the board's output plain, stable text — greppable, diffable, and
+# assertable by scripts/test-status.sh without matching around escape sequences
+# or box drawing.
 HAS_GUM=false
-command -v gum &>/dev/null && HAS_GUM=true
+[[ -z "${NO_COLOR:-}" ]] && command -v gum &>/dev/null && HAS_GUM=true
 
 # Network probes below are bounded so a hung `gh` call cannot wedge the board.
 # Stock macOS ships no `timeout` — it comes from coreutils, which also provides
@@ -89,7 +94,7 @@ should_show() {
 # ANSI only — no extra dependency. Detected here at top level because inside the
 # section's `| section_box` pipe, stdout reads as a non-TTY.
 USE_COLOR=false
-{ [ -t 1 ] || $HAS_GUM; } && USE_COLOR=true
+[[ -z "${NO_COLOR:-}" ]] && { [ -t 1 ] || $HAS_GUM; } && USE_COLOR=true
 
 # c SGR TEXT — wrap TEXT in an ANSI SGR sequence when color is enabled.
 c() {
@@ -161,6 +166,53 @@ has_cred() {
     jq -e --arg n "$2" 'any(.[]; .name == $n)' "$1" >/dev/null 2>&1
 }
 
+# has_scope LINE NAME — true if NAME is present as a quoted scope in a
+# `gh auth status` "Token scopes:" line (`… 'gist', 'project', 'repo'`).
+# Matching on the quotes is what keeps `project` from also matching
+# `read:project` (and vice versa) — the two are different grants and the
+# caller decides which ones satisfy it.
+has_scope() {
+    case "$1" in
+    *"'$2'"*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+# gh_target_host — the host gh will actually use for THIS repository.
+#
+# Narrowing `gh auth status --hostname` is only safe against the same host the
+# repo-aware calls use. Forcing github.com disowns a valid Enterprise login
+# (`gh auth login --hostname ghe.example.com`, no GH_HOST exported): the probe
+# exits non-zero, which this script reads as "not authenticated" and skips the
+# whole GitHub section — while `gh pr list` and `gh run list` would have worked
+# fine against that remote. So resolve it the way gh documents: GH_HOST is the
+# override for when a host "cannot be determined from repository context", which
+# means repository context comes first when GH_HOST is unset.
+#
+# Local and network-free — the remote URL is the context. github.com only as a
+# last resort, when there is no remote to read.
+gh_target_host() {
+    local url host=""
+    if [[ -n "${GH_HOST:-}" ]]; then
+        printf '%s' "${GH_HOST}"
+        return 0
+    fi
+    url="$(git config --get remote.origin.url 2>/dev/null || true)"
+    case "${url}" in
+    *://*)                 # scheme://[user@]host[:port]/path
+        host="${url#*://}" # drop the scheme
+        host="${host#*@}"  # drop any userinfo
+        host="${host%%/*}" # drop the path
+        host="${host%%:*}" # drop any port
+        ;;
+    *@*:*) # scp-like: user@host:owner/repo
+        host="${url#*@}"
+        host="${host%%:*}"
+        ;;
+    esac
+    printf '%s' "${host:-github.com}"
+}
+
 # ── Parallel data collection ────────────────────────────────────────────────
 
 PID_PRS=""
@@ -169,7 +221,100 @@ PID_TOKEI=""
 
 CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || echo "detached")"
 
-if should_show "gh" && gh auth status &>/dev/null 2>&1; then
+# Resolve auth once and keep the output: it is both the gate for the GitHub
+# section and the only place the token's scopes are reported, and re-running it
+# per use would spend an extra API call to learn the same thing. Captured with
+# `2>&1` because gh has moved this report between stdout and stderr across
+# versions, and bounded by run_timeout — the bare `gh auth status` calls it
+# replaces were the section's only unbounded network probes.
+GH_AUTH_FILE="${TMPDIR_STATUS}/auth.txt"
+: >"${GH_AUTH_FILE}"
+GH_AUTHED=false
+GH_AUTH_TIMEDOUT=false
+# Whether the bounded probe below actually ran. The credentials group reports the
+# validated answer when it did and falls back to a network-free local read when it
+# did not — see render_local_credentials. A flag rather than "is GH_AUTH_FILE
+# empty", because a failed probe legitimately leaves that file empty too.
+GH_AUTH_PROBED=false
+# The setup section needs this too — it reports the same credential's ability to
+# read the board, and used to run its own `gh auth status` to decide whether to
+# render at all. One probe, two consumers.
+#
+# Deliberately NOT extended to `SECTION == creds`: that section is invoked on its
+# own from the session-start hook, which already runs `status:gh` in the same
+# startup, and a second `gh auth status` there would be a net-new network call in
+# the one path whose whole budget argument is that it makes none.
+if should_show "gh" || [[ "${SECTION}" == "setup" ]]; then
+    GH_AUTH_PROBED=true
+    gh_auth_rc=0
+    # `gh auth status` reports every account on every host, and the scope line
+    # read below cannot tell them apart — so narrow it to one credential from
+    # both directions: --active (not a second, inactive account on this host)
+    # and --hostname (not an unrelated host's account, whose scopes say nothing
+    # about the API calls this repo makes). The host comes from the repository,
+    # not a github.com assumption — see gh_target_host.
+    gh_host="$(gh_target_host)"
+    run_timeout "${NETWORK_TIMEOUT}" gh auth status --active \
+        --hostname "${gh_host}" >"${GH_AUTH_FILE}" 2>&1 ||
+        gh_auth_rc=$?
+    if grep -qi 'unknown flag' "${GH_AUTH_FILE}" 2>/dev/null; then
+        # gh predates --active (added in 2.40). Fall back rather than read a
+        # usage error as a failed login — and keep --hostname, which is far
+        # older. Multi-account per host arrived WITH 2.40, so on a gh this old
+        # one host means one account and the narrowing is complete anyway.
+        gh_auth_rc=0
+        run_timeout "${NETWORK_TIMEOUT}" gh auth status \
+            --hostname "${gh_host}" >"${GH_AUTH_FILE}" 2>&1 ||
+            gh_auth_rc=$?
+    fi
+    # 124 is `timeout`'s own "deadline hit" code. Distinguished from a real
+    # failure because bounding this probe made a slow network indistinguishable
+    # from a missing login, and reporting "not authenticated" for a timeout
+    # sends the reader to fix the wrong thing.
+    case "${gh_auth_rc}" in
+    0) GH_AUTHED=true ;;
+    124) GH_AUTH_TIMEDOUT=true ;;
+    esac
+fi
+
+# The token's scope line, and how to give THIS credential Projects write access.
+# Derived once, because every call site below would otherwise guess — and a
+# remedy that cannot work is worse than none. `gh auth refresh` edits only the
+# STORED classic credential: it cannot touch an env-provided token (which
+# overrides the stored one, on github.com and Enterprise alike) and cannot add a
+# fine-grained or App token's permissions, which are not OAuth scopes at all.
+GH_SCOPES_LINE=""
+GH_REMEDY="run: gh auth refresh -s project"
+if [[ -s "${GH_AUTH_FILE}" ]]; then
+    GH_SCOPES_LINE="$(grep -i 'token scopes:' "${GH_AUTH_FILE}" 2>/dev/null || true)"
+    case "$(<"${GH_AUTH_FILE}")" in
+    *"(GH_TOKEN)"*)
+        GH_REMEDY="reissue GH_TOKEN with Projects write — an env token overrides gh auth refresh"
+        ;;
+    *"(GITHUB_TOKEN)"*)
+        GH_REMEDY="reissue GITHUB_TOKEN with Projects write — an env token overrides gh auth refresh"
+        ;;
+    *"(GH_ENTERPRISE_TOKEN)"*)
+        GH_REMEDY="reissue GH_ENTERPRISE_TOKEN with Projects write — an env token overrides gh auth refresh"
+        ;;
+    *"(GITHUB_ENTERPRISE_TOKEN)"*)
+        GH_REMEDY="reissue GITHUB_ENTERPRISE_TOKEN with Projects write — an env token overrides gh auth refresh"
+        ;;
+    *)
+        # Not an env token. A scope line with no scopes in it is a fine-grained
+        # PAT or an App installation token — a permission, granted at the source.
+        if [[ -n "${GH_SCOPES_LINE}" && "${GH_SCOPES_LINE}" != *"'"* ]]; then
+            GH_REMEDY="set its Projects permission where the token was issued"
+        fi
+        ;;
+    esac
+fi
+
+# `should_show "gh"` as well as the auth flag: the auth probe above now also runs
+# for the setup section, and these two lists are read only by the GitHub section.
+# Without the guard, `task status:setup` would spend two network calls fetching
+# data nothing displays.
+if [[ "${GH_AUTHED}" == true ]] && should_show "gh"; then
     run_timeout "${NETWORK_TIMEOUT}" gh pr list --limit 10 \
         --json number,title,headRefName \
         >"${TMPDIR_STATUS}/prs.json" 2>/dev/null &
@@ -224,7 +369,7 @@ if should_show "git"; then
         status_text="dirty (${changed} files)"
     fi
 
-    tag="$(git describe --tags --abbrev=0 2>/dev/null || echo "none")"
+    tag="$(git describe --tags --abbrev=0 --exclude="*-probe*" 2>/dev/null || echo "none")"
 
     {
         kv "Branch" "$CURRENT_BRANCH"
@@ -243,7 +388,9 @@ fi
 if should_show "gh"; then
     section_header "GitHub Status"
 
-    if ! gh auth status &>/dev/null 2>&1; then
+    if [[ "${GH_AUTH_TIMEDOUT}" == true ]]; then
+        echo "  (gh auth status timed out after ${NETWORK_TIMEOUT}s -- skipping)" | section_box
+    elif [[ "${GH_AUTHED}" != true ]]; then
         echo "  (gh not authenticated -- skipping)" | section_box
     else
         {
@@ -271,6 +418,71 @@ if should_show "gh"; then
                     "$checks_file"
             else
                 echo "  Recent CI runs: none"
+            fi
+
+            # ── Board writes ────────────────────────────────────────────────
+            # The claim lifecycle moves an issue's project `Status` (a claim
+            # sets In Progress, the PR stages advance it, the hand-back
+            # restores it), and that write needs a token scope `gh auth login`
+            # does not grant by default. Without it every board write exits 2
+            # ("could not verify") and no card moves — and each step handles
+            # that correctly on its own, so nothing escalates: the agent
+            # reports the issue claimed, the board says nothing was started,
+            # and neither is wrong from where it stands.
+            #
+            # `status:setup` has always checked this. It is repeated here
+            # because this section is what session-start orientation runs, and
+            # a tracking surface that has silently stopped tracking has to
+            # surface BEFORE a claim is made, not after a human notices the
+            # board is stale. The cost is nil: the scopes come from the auth
+            # probe above, not a second call.
+            #
+            # Reported in both directions on purpose. A check that prints only
+            # on failure is indistinguishable from a check that is not running
+            # — which is the very bug this one exists to catch.
+            # Gated on the board tooling itself, NOT on the presence of the
+            # track-work skill: `project_management: none` is the default and
+            # `use_skills_sync` is on, so the universal skill set (track-work
+            # included) is vendored into repos that have no board at all.
+            # Keying on the skill would demand the `project` scope from every
+            # one of them. setup-github-project.sh is generated only for
+            # `project_management: github`, which makes it a proxy for "this
+            # repo is configured to have a board".
+            #
+            # The accepted cost, deliberately chosen: a repo on
+            # `project_management: none` whose issues someone adds to a board by
+            # hand gets no session-start warning, and learns from the claim's own
+            # exit 2 instead. Nothing on disk can distinguish that repo from one
+            # that simply opted out — board membership is remote state — so the
+            # gate can only pick which error to make. A red line in every
+            # opted-out repo, every session, is the worse one: it is universal
+            # rather than conditional, and a check that cries wolf everywhere
+            # stops being read where it matters.
+            if [[ -f scripts/setup-github-project.sh ]]; then
+                echo ""
+                if [[ -z "${GH_SCOPES_LINE}" ]]; then
+                    checkline unknown "Project board writes" \
+                        "could not read token scopes from gh auth status"
+                elif [[ "${GH_SCOPES_LINE}" != *"'"* ]]; then
+                    # A fine-grained PAT or App token carries permissions, not
+                    # OAuth scopes, and gh reports the line with no scopes in
+                    # it. Such a token may well be able to write Projects — so
+                    # this is genuinely unknown rather than a failure. The
+                    # generated bot credential is exactly this case.
+                    checkline unknown "Project board writes" \
+                        "no OAuth scopes reported (fine-grained or App token) — ${GH_REMEDY}"
+                elif has_scope "${GH_SCOPES_LINE}" project; then
+                    checkline ok "Project board writes" "token has 'project'"
+                elif has_scope "${GH_SCOPES_LINE}" read:project; then
+                    # Called out separately because it is the state most easily
+                    # mistaken for working: `--show` reads the card fine, so the
+                    # board looks reachable right up to the write that moves it.
+                    checkline no "Project board writes" \
+                        "'read:project' is read-only — claims cannot move the board; ${GH_REMEDY}"
+                else
+                    checkline no "Project board writes" \
+                        "token lacks 'project' — claims cannot move the board; ${GH_REMEDY}"
+                fi
             fi
         } | section_box
     fi
@@ -356,6 +568,199 @@ if should_show "env"; then
     } | section_box
 fi
 
+# ── Local credentials ───────────────────────────────────────────────────────
+# The logins the Dev Loop gates on, read from LOCAL state only — no API call and
+# no network — so this renders in any auth state and costs nothing.
+#
+# It is a section of its own AND a group inside the setup audit, from this one
+# function so the probes are written once. Two callers, two reasons:
+#
+#   * `task status:creds` — the session-start hook runs it alongside status:git
+#     and status:gh, so a missing login is reported when a session opens rather
+#     than only on the explicit `task status:setup` a distracted session skips.
+#     That is the whole point: the audit it used to live in is network-heavy and
+#     excluded from the default board, while these probes are not.
+#   * `task status:setup` — rendered BEFORE the gh gate there rather than inside
+#     it. That gate skips the ENTIRE remaining audit when gh is logged out, so a
+#     credentials group living there would surface a missing codex login only
+#     after the reader had fixed gh and re-run: two round trips to learn what one
+#     run can say, which is the interruption this group exists to remove.
+#
+# `should_show` also puts it on the bare `task status` board, alongside every
+# other local section. The setup audit stays off that board because it is
+# network-heavy; this group is not, so the reason to exclude it does not apply.
+#
+# Every probe here is bounded by the short LOCAL bound (3s), never by
+# NETWORK_TIMEOUT — nothing in it may reach the network, or the session-start
+# path inherits a cost its budget was not derived for.
+render_local_credentials() {
+    # Not-installed is tested FIRST because it makes every other branch
+    # meaningless: with no gh on PATH the shared probe above exits 127, which
+    # lands in the same "not authenticated" bucket as a real logout and would
+    # prescribe `gh auth login` — a command the reader does not have. Same
+    # distinction the Codex check below draws, and the same remedy style as the
+    # 1Password and direnv lines further down.
+    if ! command -v gh >/dev/null 2>&1; then
+        checkline no "GitHub CLI (gh)" "brew install gh"
+    elif [[ "${GH_AUTH_PROBED}" == true ]]; then
+        # Reuses the single bounded probe from the top of this script instead of
+        # calling `gh auth status` again, and inherits its distinction between a
+        # deadline and a missing login — telling an authenticated reader to run
+        # `gh auth login` because GitHub was slow sends them to fix the wrong
+        # thing. The setup section's skip line stays as it is: it explains the
+        # absence of everything after it, which this line does not.
+        if [[ "${GH_AUTH_TIMEDOUT}" == true ]]; then
+            checkline unknown "GitHub CLI (gh)" \
+                "auth probe timed out after ${NETWORK_TIMEOUT}s"
+        elif [[ "${GH_AUTHED}" == true ]]; then
+            checkline ok "GitHub CLI (gh)" "authenticated to $(gh_target_host)"
+        else
+            checkline no "GitHub CLI (gh)" "gh auth login"
+        fi
+    else
+        # Standalone `status:creds`: nothing probed the API, and this section is
+        # not allowed to. `gh auth token` resolves the credential gh would use
+        # from local config and the environment WITHOUT calling GitHub, which
+        # answers the only question this line exists to answer — is there a login
+        # at all. Its validity is `status:gh`'s to report, and the wording below
+        # says so rather than claiming an authentication that was never checked.
+        #
+        # `2>&1 >/dev/null` — in that order — captures STDERR while sending
+        # stdout to /dev/null. The order is load-bearing and not interchangeable
+        # with `>/dev/null 2>&1`: this command's stdout IS the token, so the
+        # value must never enter a variable, and only its diagnostic goes into
+        # one. Nothing captured here is ever printed either way.
+        #
+        # Non-zero is then classified rather than assumed to mean logged out,
+        # the same distinction the Codex probe below draws: a locked keychain or
+        # an unreadable hosts.yml also exits non-zero, and `gh auth login` cannot
+        # repair either. Only gh's documented no-credential wording earns that
+        # remedy; everything else is unknown.
+        gh_token_rc=0
+        gh_token_err="$(run_timeout 3 gh auth token \
+            --hostname "$(gh_target_host)" 2>&1 >/dev/null)" || gh_token_rc=$?
+        case "${gh_token_rc}" in
+        0)
+            checkline ok "GitHub CLI (gh)" \
+                "credential stored for $(gh_target_host) (not validated)"
+            ;;
+        124) checkline unknown "GitHub CLI (gh)" "credential probe timed out" ;;
+        *)
+            case "$(printf '%s' "${gh_token_err}" | tr '[:upper:]' '[:lower:]')" in
+            *"no oauth token"* | *"not logged in"*)
+                checkline no "GitHub CLI (gh)" "gh auth login"
+                ;;
+            *)
+                checkline unknown "GitHub CLI (gh)" \
+                    "credential probe failed (exit ${gh_token_rc}) — check the gh CLI's config"
+                ;;
+            esac
+            ;;
+        esac
+    fi
+
+    # Codex gates `task challenge` and `task review` only where the repo opted
+    # into second-model review, and scripts/codex-review.sh is that opt-in's
+    # marker on disk — the template renders it only under `use_codex_review`.
+    # Same each-script-is-its-own-marker rule the GitHub configuration checks
+    # below use, and read off the filesystem rather than .copier-answers.yml:
+    # nothing else in this script reads that file, and a generated repo may keep
+    # it somewhere else. `codex login status` reads local credential state, so
+    # the bound here is the short local one (as with `op account list`), never
+    # NETWORK_TIMEOUT.
+    if [ -f scripts/codex-review.sh ]; then
+        if command -v codex >/dev/null 2>&1; then
+            # The exit code is the primary signal, but it cannot tell "no
+            # credentials" from "the CLI could not run": a malformed config.toml
+            # also exits non-zero, and `codex login` cannot repair that. So keep
+            # the documented logged-out phrase as the only thing that earns the
+            # login remedy, and report every other failure as unknown rather than
+            # sending the reader to re-authenticate a session that was never the
+            # problem.
+            #
+            # Captured with 2>&1 because the shipped CLI writes BOTH verdicts to
+            # stderr and leaves stdout empty — reading stdout alone would silently
+            # demote every genuine logout to "unknown". Folding the streams also
+            # picks up unrelated stderr chatter (a models-cache ERROR line appears
+            # on some installs while the command still exits 0), which is exactly
+            # why the match is on the phrase and the verdict on the exit code,
+            # never on stderr being non-empty. The captured text is only ever
+            # matched, never printed.
+            codex_rc=0
+            codex_out="$(run_timeout 3 codex login status 2>&1)" || codex_rc=$?
+            case "${codex_rc}" in
+            0) checkline ok "Codex CLI" "logged in" ;;
+            124) checkline unknown "Codex CLI" "login status timed out" ;;
+            *)
+                case "${codex_out}" in
+                *"Not logged in"*) checkline no "Codex CLI" "codex login" ;;
+                *) checkline unknown "Codex CLI" \
+                    "login status failed (exit ${codex_rc}) — check the codex CLI's config" ;;
+                esac
+                ;;
+            esac
+        else
+            checkline no "Codex CLI" \
+                "brew install --cask codex, or npm install -g @openai/codex"
+        fi
+    else
+        checkline na "Codex CLI" "no second-model review configured"
+    fi
+
+    # Claude Code is the agent this repo's Dev Loop is written for, and a logged
+    # out CLI stops it at the first `claude` invocation. `claude auth status
+    # --json` reads STORED credential state: it answers identically with every
+    # egress pointed at a dead port, so it belongs in this group rather than
+    # behind NETWORK_TIMEOUT.
+    #
+    # Not-installed reads n/a rather than missing, which is the one place this
+    # group departs from the gh and Codex lines above. Those two have a marker on
+    # disk for "this repo expects it" — codex-review.sh is rendered only under
+    # `use_codex_review`, and gh backs the whole GitHub half of the template.
+    # There is no equivalent marker here: the template ships .claude/ to every
+    # repo whether or not its author drives it with Claude Code, so an absent CLI
+    # cannot be distinguished from a deliberate choice of a different agent, and
+    # a red ✗ prescribing an install to somebody who chose Codex is noise they
+    # cannot act on.
+    if ! command -v claude >/dev/null 2>&1; then
+        checkline na "Claude Code CLI" "claude CLI not installed"
+    else
+        # The verdict is the `loggedIn` field, not the exit code: a logged-out
+        # CLI is a normal, successful report, and a `claude` too old for
+        # `auth status` exits non-zero with no field at all — which is unknown,
+        # not logged out. Whitespace is stripped so the match survives either
+        # JSON formatting, and stderr is discarded because only the field is
+        # read. The captured text is only ever matched, never printed.
+        claude_rc=0
+        claude_out="$(run_timeout 3 claude auth status --json 2>/dev/null)" ||
+            claude_rc=$?
+        case "$(printf '%s' "${claude_out}" | tr -d ' \n\t')" in
+        *'"loggedIn":true'*) checkline ok "Claude Code CLI" "logged in" ;;
+        *'"loggedIn":false'*) checkline no "Claude Code CLI" "claude auth login" ;;
+        *)
+            case "${claude_rc}" in
+            124) checkline unknown "Claude Code CLI" "auth status timed out" ;;
+            *) checkline unknown "Claude Code CLI" \
+                "auth status reported nothing readable (exit ${claude_rc})" ;;
+            esac
+            ;;
+        esac
+    fi
+
+    # Hand this group's tallies to the setup summary (see the caller there).
+    # Guarded, and deliberately last: with `pipefail` set, a failed write here
+    # would become the whole pipeline's status and `set -e` would take the script
+    # down over a status board's bookkeeping.
+    printf '%s %s %s %s\n' \
+        "${SETUP_OK}" "${SETUP_NO}" "${SETUP_UNKNOWN}" "${SETUP_NA}" \
+        >"${TMPDIR_STATUS}/cred-counts" 2>/dev/null || true
+}
+
+if should_show "creds"; then
+    section_header "Local Credentials"
+    render_local_credentials | section_box
+fi
+
 # ── Setup Completeness ──────────────────────────────────────────────────────
 # Audits the repo against docs/CHECKLIST.md — which GitHub-side configuration
 # the template expects has actually been applied. Network-heavy, so it is NOT
@@ -388,7 +793,31 @@ if [[ "${SECTION}" == "setup" ]]; then
         fi
     } | section_box
 
-    if ! gh auth status &>/dev/null 2>&1; then
+    # Rendered here as a group inside the audit (see render_local_credentials
+    # above for why it is also its own section, and why it sits BEFORE the gh
+    # gate below).
+    #
+    # Its own { } group means its own copy of the SETUP_* counters: checkline
+    # mutates them inside the subshell that `| section_box` creates, so they
+    # cannot reach the summary at the end of this section through a variable.
+    # They are handed across that boundary in a file instead (written at the end
+    # of the group, folded in at the summary), the same way the fan-out phase
+    # below returns its results. The plumbing is worth it — a summary reading
+    # "100% · 0 missing" directly under a red ✗ Codex CLI line on the same screen
+    # is a worse defect than the file is.
+    {
+        subhead "Local credentials"
+        render_local_credentials
+    } | section_box
+
+    # Reuses the single bounded probe above rather than making a second,
+    # unbounded `gh auth status` call to learn the same thing. Sharing that probe
+    # means sharing its distinctions too: bounding it made a slow network look
+    # exactly like a missing login, and telling an authenticated user to run
+    # `gh auth login` because GitHub was slow sends them to fix the wrong thing.
+    if [[ "${GH_AUTH_TIMEDOUT}" == true ]]; then
+        echo "  (gh auth status timed out after ${NETWORK_TIMEOUT}s -- skipping)" | section_box
+    elif [[ "${GH_AUTHED}" != true ]]; then
         echo "  (gh not authenticated -- run 'gh auth login')" | section_box
     else
         d="${TMPDIR_STATUS}"
@@ -452,8 +881,13 @@ if [[ "${SECTION}" == "setup" ]]; then
             # PM setup surface — audit the results of the setup:github-* tasks the
             # repo actually ships (each script is the marker it opted in).
             if [ -f scripts/setup-github-labels.sh ]; then
-                (run_timeout "${NETWORK_TIMEOUT}" gh label list -R "${OWNER}/${REPO}" --json name \
-                    >"${d}/labels.json" 2>/dev/null || echo '[]' >"${d}/labels.json") &
+                # The REST endpoint with --paginate, not `gh label list`: the
+                # check below compares against the WHOLE starter set, so any
+                # fixed page cap (gh's default 30, or any --limit) can drop a
+                # real label on a label-heavy repo and report it as missing.
+                # One name per line — --paginate emits a document per page.
+                (run_timeout "${NETWORK_TIMEOUT}" gh api "repos/${OWNER}/${REPO}/labels" --paginate --jq '.[].name' \
+                    >"${d}/labels.txt" 2>/dev/null || : >"${d}/labels.txt") &
             fi
             if [ -f scripts/setup-github-issue-types.sh ]; then
                 (run_timeout "${NETWORK_TIMEOUT}" gh api "orgs/${OWNER}/issue-types" --paginate \
@@ -646,7 +1080,8 @@ if [[ "${SECTION}" == "setup" ]]; then
                         checkline unknown "CodeRabbit app" "config present; install unconfirmed"
                     fi
                 else
-                    checkline na "CodeRabbit app" "no .coderabbit.yaml"
+                    checkline unknown "CodeRabbit app access" \
+                        "no config; confirm repo is excluded from the App installation"
                 fi
                 if jq -e '.data.repository' "${d}/projects.json" >/dev/null 2>&1; then
                     proj_count="$(jq -r '(.data.repository.projectsV2.nodes // []) | length' \
@@ -659,13 +1094,58 @@ if [[ "${SECTION}" == "setup" ]]; then
                         checkline no "GitHub Project linked" "link a Project v2 to the repo"
                     fi
                 else
-                    checkline unknown "GitHub Project linked" "needs read:project scope"
+                    checkline unknown "GitHub Project linked" \
+                        "unreadable — ${GH_REMEDY}"
                 fi
                 if [ -f scripts/setup-github-labels.sh ]; then
-                    if jq -e 'any(.[]?; .name == "needs-triage")' "${d}/labels.json" >/dev/null 2>&1; then
-                        checkline ok "Starter labels" "seeded"
-                    else
+                    # The expected set is read out of the setup script's own
+                    # `name|color|description` table rather than probed with one
+                    # sentinel label: a repo seeded before the set grew (a new
+                    # layer:/domain: value, say) has the sentinel and is missing
+                    # the rest, and a single probe would call that green.
+                    # The foreman:* arming table is opt-in (--foreman, passed
+                    # only when the repo uses foreman — the wrapper taskfile is
+                    # its render-time marker), so expect it only there or a
+                    # non-foreman repo reports 11 permanently-missing labels.
+                    #
+                    # The suggest:/claim:/foreman:<adapter> families are NOT
+                    # literal `name|color|desc` lines in the setup script — it
+                    # renders them from the agent registry — so parse the same
+                    # renderer here too, or this check would silently ignore
+                    # every registry-driven label and call an unsynced repo green.
+                    # If the registry ships but node is missing we CANNOT enumerate
+                    # those labels, so the inventory is incomplete: report unknown
+                    # rather than grading the reduced set as "all seeded".
+                    registry_incomplete=0
+                    if [ -f scripts/agent-registry-labels.mjs ] && ! command -v node >/dev/null 2>&1; then
+                        registry_incomplete=1
+                    fi
+                    want_labels="$(
+                        sed -n -E 's/^([A-Za-z0-9:._-]+)\|[0-9A-Fa-f]{6}\|.*/\1/p' scripts/setup-github-labels.sh
+                        if [ -f scripts/agent-registry-labels.mjs ] && command -v node >/dev/null 2>&1; then
+                            node scripts/agent-registry-labels.mjs all 2>/dev/null |
+                                sed -n -E 's/^([A-Za-z0-9:._-]+)\|[0-9A-Fa-f]{6}\|.*/\1/p'
+                        fi
+                    )"
+                    if [ ! -f taskfiles/foreman.yml ]; then
+                        want_labels="$(printf '%s\n' "${want_labels}" | grep -v '^foreman:')"
+                    fi
+                    have_labels="$(cat "${d}/labels.txt" 2>/dev/null || true)"
+                    want_count=0
+                    missing_count=0
+                    for want in ${want_labels}; do
+                        want_count=$((want_count + 1))
+                        printf '%s\n' "${have_labels}" | grep -qxF "${want}" ||
+                            missing_count=$((missing_count + 1))
+                    done
+                    if [ "${registry_incomplete}" -eq 1 ]; then
+                        checkline unknown "Starter labels" "node unavailable — registry labels unchecked"
+                    elif [ -z "${have_labels}" ] || [ "${want_count}" -eq 0 ]; then
                         checkline no "Starter labels" "run task setup:github-labels"
+                    elif [ "${missing_count}" -eq 0 ]; then
+                        checkline ok "Starter labels" "all ${want_count} seeded"
+                    else
+                        checkline no "Starter labels" "${missing_count}/${want_count} missing — run task setup:github-labels"
                     fi
                 fi
                 if [ -f scripts/setup-github-issue-types.sh ]; then
@@ -679,13 +1159,41 @@ if [[ "${SECTION}" == "setup" ]]; then
                     fi
                 fi
                 if [ -f scripts/setup-github-issue-fields.sh ]; then
-                    field_names="$(jq -r '(if type == "object" then (.issue_fields // []) elif type == "array" then . else [] end) | map(.name) | join(",")' "${d}/issue-fields.json" 2>/dev/null || echo "")"
-                    if [ -z "${field_names}" ]; then
+                    # One `name<TAB>data_type` per line, not a joined string:
+                    # `gh api --paginate` writes one JSON document per page, so jq
+                    # runs per page and any single-line delimiter trick breaks at a
+                    # page boundary.
+                    field_rows="$(jq -r '(if type == "object" then (.issue_fields // []) elif type == "array" then . else [] end) | .[] | "\(.name)\t\(.data_type // "")"' "${d}/issue-fields.json" 2>/dev/null || echo "")"
+                    # Every non-built-in field setup-github-issue-fields.sh creates
+                    # must be present AND of the right type: an org set up before
+                    # Domain and Layer joined the set already has Product, and one
+                    # that happens to own a text field named `Domain` can never get
+                    # the taxonomy options (GitHub cannot change a field's data
+                    # type in place). Reporting either as done would hide exactly
+                    # what the setup script warns about. The retired Agent field is
+                    # deliberately NOT wanted here: the setup script no longer
+                    # creates it, so requiring it would report a permanent false
+                    # failure on every fresh org (#662).
+                    missing_fields=""
+                    wrong_fields=""
+                    for want in Product:text Domain:single_select Layer:single_select; do
+                        wname="${want%%:*}"
+                        wtype="${want##*:}"
+                        htype="$(printf '%s\n' "${field_rows}" | awk -F'\t' -v n="${wname}" '$1 == n { print $2; exit }')"
+                        if ! printf '%s\n' "${field_rows}" | cut -f1 | grep -qxF "${wname}"; then
+                            missing_fields="${missing_fields}${missing_fields:+, }${wname}"
+                        elif [ -n "${htype}" ] && [ "${htype}" != "${wtype}" ]; then
+                            wrong_fields="${wrong_fields}${wrong_fields:+, }${wname} is ${htype}"
+                        fi
+                    done
+                    if [ -z "${field_rows}" ]; then
                         checkline unknown "Org issue fields" "needs admin:org (public preview)"
-                    elif printf '%s' "${field_names}" | grep -q 'Agent'; then
-                        checkline ok "Org issue fields" "Product + Agent"
+                    elif [ -n "${wrong_fields}" ]; then
+                        checkline no "Org issue fields" "wrong type: ${wrong_fields} — rename/delete, then re-run task setup:github-issue-fields"
+                    elif [ -z "${missing_fields}" ]; then
+                        checkline ok "Org issue fields" "Product + Domain + Layer"
                     else
-                        checkline no "Org issue fields" "run task setup:github-issue-fields"
+                        checkline no "Org issue fields" "missing ${missing_fields} — run task setup:github-issue-fields"
                     fi
                 fi
                 if [ "${has_release_wf}" = 1 ]; then
@@ -744,6 +1252,35 @@ if [[ "${SECTION}" == "setup" ]]; then
 
             # Summary — MUST stay in this { } group so the counters are in scope
             # (the surrounding pipe to section_box runs a subshell).
+            #
+            # Fold in the local-credentials group first. It tallied in a
+            # different subshell, so its counts arrive through a file rather than
+            # through these variables. Anything other than four plain integers —
+            # absent, truncated, unreadable — means "no counts to add", which
+            # leaves the summary reading exactly as it did before this existed
+            # rather than corrupting it with a partial read.
+            cred_ok=0
+            cred_no=0
+            cred_unknown=0
+            cred_na=0
+            read -r cred_ok cred_no cred_unknown cred_na \
+                <"${TMPDIR_STATUS}/cred-counts" 2>/dev/null || true
+            for cred_n in "${cred_ok}" "${cred_no}" "${cred_unknown}" "${cred_na}"; do
+                case "${cred_n}" in
+                "" | *[!0-9]*)
+                    cred_ok=0
+                    cred_no=0
+                    cred_unknown=0
+                    cred_na=0
+                    break
+                    ;;
+                esac
+            done
+            SETUP_OK=$((SETUP_OK + cred_ok))
+            SETUP_NO=$((SETUP_NO + cred_no))
+            SETUP_UNKNOWN=$((SETUP_UNKNOWN + cred_unknown))
+            SETUP_NA=$((SETUP_NA + cred_na))
+
             echo ""
             setup_total=$((SETUP_OK + SETUP_NO + SETUP_UNKNOWN))
             setup_pct=0

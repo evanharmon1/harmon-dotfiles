@@ -17,7 +17,8 @@ it points here.
   major bump.
 - **Feature branches only.** Direct commits to `main` are blocked by the
   `guard:no-commit-to-main` pre-commit hook and the branch ruleset. Land changes
-  via a PR; code-owner review and the `verify` + `security`  checks are required.
+  via a PR; code-owner review and the `verify` + `security`
+  checks are required.
 - **Never bypass hooks** (`--no-verify` is forbidden) — fix the underlying issue.
 - Run **`task verify`** before pushing; the pre-push hook runs secret scanning
   (and type/IaC checks where applicable).
@@ -30,8 +31,12 @@ it points here.
   `yaml:lint`).
 - Pipeline order is **`check → build → validate → test → security`**, with
   `verify` (the definition-of-done gate — check + validate + test) and
-  `ci` (full — verify + security) as the aggregates. `check` is the fast
-  inner-loop/hook gate.
+  `ci` (full — verify + security) as the aggregates. `check` is the
+  fast inner-loop/hook gate.
+- **`task ci` mirrors CI** — every check the build workflow _gates on_ that can
+  run locally belongs there. The one exception is a check that needs **CI-only
+  infrastructure**: document it in `AGENTS.md` as an exception instead of faking
+  it locally.
 - **`lint:*` and `check` are read-only gates** — they report and fail, never
   modify files. All auto-fixing lives in **`task format`**, **`task format:file
   -- <path>`**, and **`task fix`** (= format then lint). Pre-commit hooks run the
@@ -59,7 +64,7 @@ it points here.
 
 - **YAML:** 2-space indent, linted by yamllint. Use whichever extension
   (`.yml` or `.yaml`) each tool conventionally uses (e.g. `Taskfile.yml`,
-  `.coderabbit.yaml`) — don't normalize extensions repo-wide.
+  `.yamllint.yml`) — don't normalize extensions repo-wide.
 - **Markdown:** markdownlint — ATX headings, no duplicate headings, emphasis and
   strong markers consistent within a file; line-length and first-line-heading
   rules are off.
@@ -100,6 +105,14 @@ it points here.
   repo** — create, edit, and delete it freely; `task sync:skills` and the
   `verify:skills*` drift checks never touch or report it. Never hand-edit the
   managed (vendored) skills — change them in harmon-devkit and bump the pin.
+- **Vendored vs local agents:** the same rule, one directory over. The
+  `agents:` block in `.skills-sync.yaml` vendors harmon-devkit's shared
+  subagents into `.claude/agents/`, and the sync manages only the files on the
+  `# managed:` line of `.claude/agents/.AGENTS_PROVENANCE`. Any other `.md`
+  there is a local agent this repo owns, and the sync never touches it. Agents
+  are pinned by the **same `source.ref` as the skills** — a shared agent is thin
+  and defers to a skill by reading it, so two pins that could disagree would
+  leave an agent following a procedure that no longer exists.
 - **Doc filenames are kebab-case** (`branch-protection.md`, `ci-cd.md`). The
   conventional uppercase project files keep their names: `README.md`,
   `AGENTS.md`, `DESIGN.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,

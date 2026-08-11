@@ -14,7 +14,28 @@ plus an aggregate **`verify`** job; branch protection requires `verify` +
 ## Workflows
 
 - `build.yml` — on push/PR to `main`: lint, security, then the aggregate **`verify`** job. Security always runs gitleaks + dependency audit + Semgrep CE SAST.
-- `claude-plan` / `claude-implement` / `claude-review` — `@claude …` on issues and PRs.
+- `claude-plan` / `claude-implement` / `claude-review` — **mention-only**: an
+  explicit `@claude` mention naming `plan`, `implement`, or `review` in a
+  comment or review from a sender on the `claude_authorized_members` allowlist. There is no
+  label trigger and no open/assign trigger; the retired `claude-plan`,
+  `claude-implement`, and `claude-review` labels are gone, because a label or an
+  assignment carries no actor the allowlist can check on every path. Each run
+  applies `claim:claude` to the target once the sender gate passes and removes it
+  in an `always()` cleanup step, which covers the failure, step-timeout and
+  cancellation paths. It is not a guarantee: a release whose DELETE fails leaves
+  the marker in place and turns the job **red** on purpose (a masked failure
+  would be permanent, since the next run reads the surviving claim and refuses),
+  and runner loss, a force-cancel, or the job cap firing can strand the label
+  with no cleanup at all. A stranded `claim:claude` blocks further mentions on
+  that target until someone removes it by hand.
+- `claim-release.yml` — on `issues closed` and on `pull_request closed`
+  **unmerged**, releases the claim markers an agent session left on an issue
+  (assignee, `claim:*` label — or a legacy `agent:*` one, both of which
+  `release-claim.sh` accepts — and the `Claiming —` comment's supersede). It
+  holds `issues: write` and parses attacker-writable comment bodies, so it
+  always checks out the **default branch** and never a PR head. It only wires
+  events to `release-claim.sh` in the vendored `track-work` skill, so it
+  no-ops until you have run `task sync:skills`.
 - `release.yml` — release-please maintains the rolling release PR.
 
 ## Authentication
