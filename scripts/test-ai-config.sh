@@ -51,9 +51,22 @@ echo "==> validate instruction and skill compatibility links"
     fail "Codex AGENTS.md link does not target the shared global guidance"
 [ "$(cat "$repo/private_dot_claude/symlink_CLAUDE.md")" = "../.agents/AGENTS.md" ] ||
     fail "Claude CLAUDE.md link does not target the shared global guidance"
-[ -L "$repo/.claude/skills" ] || fail "repository Claude skills path is not a symlink"
-[ "$(readlink "$repo/.claude/skills")" = "../.agents/skills" ] ||
-    fail "repository Claude skills path does not target .agents/skills"
+# Repository skills follow the same direction as the deployed ones below:
+# .claude/skills is the real home the sync vendors into, and .agents/skills
+# holds per-skill compatibility links that scripts/link-agent-skills.sh owns.
+# (This used to be one directory symlink pointing the other way; harmon-init
+# v4.27.0 ships link-agent-skills.sh, which requires this direction, and it is
+# now what `task sync:skills` and `task verify` run.)
+[ -d "$repo/.claude/skills" ] && [ ! -L "$repo/.claude/skills" ] ||
+    fail "repository Claude skills path is not a real directory"
+for skill in "$repo"/.claude/skills/*/; do
+    [ -d "$skill" ] || continue
+    name="$(basename "${skill%/}")"
+    [ -L "$repo/.agents/skills/$name" ] ||
+        fail "missing portable compatibility link for skill: $name"
+    [ "$(readlink "$repo/.agents/skills/$name")" = "../../.claude/skills/$name" ] ||
+        fail "portable compatibility link for $name targets the wrong path"
+done
 [ "$(cat "$repo/private_dot_agents/skills/symlink_open-pr")" = "../../.claude/skills/open-pr" ] ||
     fail "open-pr compatibility link is wrong"
 [ "$(cat "$repo/private_dot_agents/skills/symlink_rebase")" = "../../.claude/skills/rebase" ] ||

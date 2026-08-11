@@ -16,6 +16,18 @@
 # general lint escape hatch.
 set -euo pipefail
 
+# Binary detection below shells out to `file`. Without it that test silently
+# never matches, so every tracked binary is scanned as text and reports bogus
+# trailing-whitespace/EOF-newline failures — hundreds of them in a repo with
+# committed assets, with nothing pointing at the real cause. Fail loudly here
+# instead of degrading into noise.
+if ! command -v file >/dev/null 2>&1; then
+    echo "lint-hygiene: required tool 'file' not found on PATH" >&2
+    echo "  needed to tell binary files from text before hygiene checks" >&2
+    echo "  install it (Debian/Ubuntu: apt-get install file) and re-run" >&2
+    exit 1
+fi
+
 errors=0
 warn() {
     echo "FAIL: $*" >&2
@@ -96,6 +108,41 @@ for f in "${files[@]}"; do
         warn "$f: merge conflict markers detected"
     fi
 
+    # --- Claude trigger-phrase adjacency (issue #725) ---
+    # Doc text gets quoted into issues, PR bodies, and comments, where the
+    # claude-* workflows' contains() gates match the literal mention+subcommand
+    # string (case-insensitively) and start a real run. Rendered copy is what
+    # gets pasted, and rendering strips markup — backticks, bold markers, link
+    # brackets — and joins folded/wrapped lines, so any decoration between the
+    # tokens can reconstruct the trigger. The scan is a BEST-EFFORT
+    # approximation of the common accidental forms, deliberately not a
+    # markdown renderer: squeeze whitespace, drop markdown link targets
+    # ("](url)" — the one markup whose inner text hides the gap), then flag
+    # the mention followed by a subcommand across a short gap of
+    # space/punctuation/ASCII symbols, case-insensitively (the workflows'
+    # contains() is case-insensitive; backtick and friends are Unicode
+    # SYMBOLS, not [[:punct:]], under BSD grep's UTF-8 tables, hence the
+    # explicit chars). Prose words between the tokens — including non-ASCII
+    # prose, which falls outside the gap class — never reconstruct and always
+    # pass. A rare safe-but-flagged phrasing (e.g. a comma right between the
+    # tokens) is rewritten, not exempted; residual exotic markup is accepted
+    # scope, adjudicated against this comment rather than an implied
+    # completeness claim. Excluded
+    # paths carry the phrases FUNCTIONALLY: the workflow trigger definitions,
+    # vendored skills (fixed upstream in harmon-devkit), and this scan plus
+    # its regression fixtures.
+    case "$f" in
+    .github/workflows/claude-*.yml | template/.github/workflows/claude-*.yml.jinja | .claude/skills/* | \
+        scripts/lint-hygiene.sh | template/scripts/lint-hygiene.sh | \
+        scripts/test-lint-hygiene.sh | template/scripts/test-lint-hygiene.sh) ;;
+    *)
+        if tr -s '[:space:]' ' ' <"$f" | sed -E 's/\]\([^)]*\)//g' |
+            grep -qiE '@claude[[:space:][:punct:]`$+<=>^|~]{1,20}(plan|implement|review)'; then
+            warn "$f: Claude trigger phrase reconstructable from rendered copy (mention + subcommand across markup/whitespace, any case) — quoted into a comment this starts a workflow; put prose words between the tokens"
+        fi
+        ;;
+    esac
+
     # --- Private key detection ---
     # Skip self (any copy of this script) to avoid matching the pattern string.
     case "$f" in
@@ -111,6 +158,29 @@ for f in "${files[@]}"; do
     if file "$f" 2>/dev/null | grep -q 'CRLF'; then
         warn "$f: CRLF line endings detected (use LF)"
     fi
+
+    # --- ansible_managed outside a template source ---
+    # `ansible_managed` is injected by the template module only. In a .yaml/.yml
+    # task or playbook (e.g. an ansible.builtin.copy `content:` block) it is
+    # UNDEFINED at runtime and aborts the play — a class of bug that lint/render
+    # checks miss because they never execute the play. Template SOURCES (where it
+    # IS valid) are exempt: .j2 by extension, and anything under a templates/ dir
+    # — the template module processes any file as Jinja2 regardless of extension
+    # (e.g. templates/prometheus.yml). Inert in repos without an ansible/ tree.
+    case "$f" in
+    */templates/*) : ;; # Ansible template source — ansible_managed is valid here
+    ansible/*.yml | ansible/*.yaml | */ansible/*.yml | */ansible/*.yaml)
+        # Match a Jinja opener ({{ or {%, with optional -/+ trim marker) followed
+        # by the ansible_managed token anywhere in the expression — covers
+        # first-token, mid-expression banners ({{ '# ' ~ ansible_managed }}), and
+        # {% set %} statements. Word boundaries on both sides avoid matching a
+        # different variable (my_ansible_managed, ansible_managed_by). Multiline
+        # expressions aren't caught — the --check dry-run is the gate for those.
+        if grep -En '\{[{%][-+]?([^}]*[^[:alnum:]_])?ansible_managed([^[:alnum:]_]|$)' "$f" >/dev/null 2>&1; then
+            warn "$f: 'ansible_managed' used outside a template source — undefined at runtime in copy: content etc.; use the template module or a static comment"
+        fi
+        ;;
+    esac
 
     # --- JSON syntax check ---
     case "$f" in

@@ -13,8 +13,16 @@ Thumbs.db
 *~
 # VS Code: commit the curated shared project config, ignore everything else
 # (extensions auto-write machine-specific files into .vscode/). The broad ignore
-# MUST come before the `!` whitelist — later rules win in .gitignore.
+# MUST come before the `!` whitelist — later rules win in .gitignore. `!/.vscode/`
+# re-includes the DIRECTORY first: a global excludesFile with a bare `.vscode/`
+# is common, and git never descends into an ignored directory, so without it the
+# file-level whitelist below silently does nothing for those users. Anchored with
+# a leading slash so it only re-includes the ROOT .vscode/ — an unanchored
+# `!.vscode/` would also un-ignore nested ones (e.g. packages/foo/.vscode/ in a
+# monorepo) whose machine-specific files the root-anchored `.vscode/*` above
+# does not cover.
 .vscode/*
+!/.vscode/
 !.vscode/settings.json
 !.vscode/extensions.json
 !.vscode/tasks.json
@@ -39,6 +47,13 @@ node_modules/
 
 # Git worktrees
 .worktrees/
+# Agent-tool worktree isolation dir. A registered worktree is recorded as a
+# gitlink with no `.gitmodules` entry, so leaving it untracked-but-unignored
+# dirties `git status` and lets any tool that stages with `git add -A` commit a
+# submodule-shaped entry that later clones cannot resolve. Anchored by its
+# embedded slash (git anchors any pattern containing a non-trailing `/`), so it
+# matches only the repository-root `.claude/`.
+.claude/worktrees/
 
 # Design handoff bundles (Claude Design exports) live as specs/ subdirectories
 # while being implemented and are deleted at sign-off — never committed.
