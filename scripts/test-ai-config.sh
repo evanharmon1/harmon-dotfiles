@@ -16,9 +16,8 @@ fail() {
 test_tmp="$(mktemp -d)"
 trap 'rm -rf "$test_tmp"' EXIT
 mkdir -p "$test_tmp/home" "$test_tmp/config" "$test_tmp/data" \
-    "$test_tmp/cache" "$test_tmp/state" "$test_tmp/opencode"
-cp "$opencode_config" "$opencode_tui" "$test_tmp/opencode/"
-staged_opencode="$test_tmp/opencode"
+    "$test_tmp/cache" "$test_tmp/state" "$test_tmp/config/opencode"
+cp "$opencode_config" "$opencode_tui" "$test_tmp/config/opencode/"
 
 opencode_test() {
     HOME="$test_tmp/home" \
@@ -114,8 +113,7 @@ done
     fail "harmon-devkit standardize-repo compatibility link is wrong"
 if command -v opencode >/dev/null 2>&1; then
     resolved_config="$(
-        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
-            opencode_test debug config
+        opencode_test debug config
     )" || fail "OpenCode rejected its managed configuration"
     [ "$(printf '%s' "$resolved_config" | jq -r '.share')" = "disabled" ] ||
         fail "OpenCode did not resolve sharing as disabled"
@@ -125,8 +123,7 @@ if command -v opencode >/dev/null 2>&1; then
         fail "OpenCode did not resolve the managed subagent depth"
 
     plan_config="$(
-        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
-            opencode_test debug agent plan
+        opencode_test debug agent plan
     )" || fail "OpenCode rejected its built-in plan agent"
     [ "$(printf '%s' "$plan_config" | jq -r '[.permission[] | select(.permission == "edit" and .pattern == "*")][-1].action')" = "deny" ] ||
         fail "global OpenCode permissions made the plan agent writable"
@@ -134,15 +131,13 @@ if command -v opencode >/dev/null 2>&1; then
         fail "OpenCode plan shell does not require approval"
 
     build_config="$(
-        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
-            opencode_test debug agent build
+        opencode_test debug agent build
     )" || fail "OpenCode rejected its built-in build agent override"
     [ "$(printf '%s' "$build_config" | jq -r '[.permission[] | select(.permission == "bash" and .pattern == "*")][-1].action')" = "ask" ] ||
         fail "OpenCode build shell does not require approval by default"
 
     general_config="$(
-        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
-            opencode_test debug agent general
+        opencode_test debug agent general
     )" || fail "OpenCode rejected its built-in general subagent override"
     [ "$(printf '%s' "$general_config" | jq -r '[.permission[] | select(.permission == "bash" and .pattern == "*")][-1].action')" = "ask" ] ||
         fail "OpenCode general subagent shell does not require approval"
