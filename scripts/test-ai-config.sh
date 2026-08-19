@@ -1,20 +1,42 @@
 #!/usr/bin/env bash
-# Validate the paired Claude/Codex configuration without touching $HOME.
+# Validate personal AI harness configuration without touching $HOME.
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel)"
 profile="$repo/private_dot_codex/private_harmon-local.config.toml"
+opencode_dir="$repo/dot_config/opencode"
+opencode_config="$opencode_dir/opencode.jsonc"
+opencode_tui="$opencode_dir/tui.jsonc"
 
 fail() {
     echo "TEST FAIL: $*" >&2
     exit 1
 }
 
-echo "==> parse Claude and Codex configuration"
+test_tmp="$(mktemp -d)"
+trap 'rm -rf "$test_tmp"' EXIT
+mkdir -p "$test_tmp/home" "$test_tmp/config" "$test_tmp/data" \
+    "$test_tmp/cache" "$test_tmp/state" "$test_tmp/opencode"
+cp "$opencode_config" "$opencode_tui" "$test_tmp/opencode/"
+staged_opencode="$test_tmp/opencode"
+
+opencode_test() {
+    HOME="$test_tmp/home" \
+        XDG_CONFIG_HOME="$test_tmp/config" \
+        XDG_DATA_HOME="$test_tmp/data" \
+        XDG_CACHE_HOME="$test_tmp/cache" \
+        XDG_STATE_HOME="$test_tmp/state" \
+        command opencode "$@"
+}
+
+echo "==> parse AI harness configuration"
 jq -e . "$repo/private_dot_claude/private_settings.json" >/dev/null ||
     fail "Claude settings are not valid JSON"
 jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
     fail "Codex hooks are not valid JSON"
+# Keep managed JSONC in the strict JSON subset for portable local validation.
+jq -e . "$opencode_config" >/dev/null || fail "OpenCode config is not strict JSON"
+jq -e . "$opencode_tui" >/dev/null || fail "OpenCode TUI config is not strict JSON"
 
 for toml in \
     "$profile" \
@@ -37,6 +59,21 @@ done
     fail "local Codex profile must load up to 64 KiB of project guidance"
 [ "$(jq -r '.model' "$repo/private_dot_claude/private_settings.json")" = "claude-opus-4-8" ] ||
     fail "Claude must default to Opus 4.8"
+[ "$(jq -r '.share' "$opencode_config")" = "disabled" ] ||
+    fail "OpenCode personal default must disable session sharing"
+[ "$(jq -r 'if .snapshot == true then "true" else "false" end' "$opencode_config")" = "true" ] ||
+    fail "OpenCode personal default must enable snapshots"
+[ "$(jq -r 'if (.subagent_depth | type) == "number" then .subagent_depth else -1 end' "$opencode_config")" = "1" ] ||
+    fail "OpenCode personal default must limit subagent depth"
+[ "$(jq -r '.model // ""' "$opencode_config")" = "" ] ||
+    fail "OpenCode must remain provider and model neutral"
+[ "$(jq -r '.attention.enabled | type' "$opencode_tui")" = "boolean" ] &&
+    [ "$(jq -r '.attention.notifications | type' "$opencode_tui")" = "boolean" ] &&
+    [ "$(jq -r '.attention.sound | type' "$opencode_tui")" = "boolean" ] &&
+    [ "$(jq -r '.attention.enabled' "$opencode_tui")" = "true" ] &&
+    [ "$(jq -r '.attention.notifications' "$opencode_tui")" = "true" ] &&
+    [ "$(jq -r '.attention.sound' "$opencode_tui")" = "true" ] ||
+    fail "OpenCode attention notifications and sounds must be enabled"
 [ "$(yq '.sandbox_mode' "$repo/private_dot_codex/agents/private_reviewer.toml")" = "read-only" ] ||
     fail "Codex reviewer must be mechanically read-only"
 if grep -Eq 'session-start-context|post-edit-format|enforce-conventional-commits' \
@@ -51,6 +88,8 @@ echo "==> validate instruction and skill compatibility links"
     fail "Codex AGENTS.md link does not target the shared global guidance"
 [ "$(cat "$repo/private_dot_claude/symlink_CLAUDE.md")" = "../.agents/AGENTS.md" ] ||
     fail "Claude CLAUDE.md link does not target the shared global guidance"
+[ "$(cat "$opencode_dir/symlink_AGENTS.md")" = "../../.agents/AGENTS.md" ] ||
+    fail "OpenCode AGENTS.md link does not target the shared global guidance"
 # Repository skills follow the same direction as the deployed ones below:
 # .claude/skills is the real home the sync vendors into, and .agents/skills
 # holds per-skill compatibility links that scripts/link-agent-skills.sh owns.
@@ -73,11 +112,49 @@ done
     fail "rebase compatibility link is wrong"
 [ "$(cat "$repo/private_dot_agents/skills/symlink_standardize-repo")" = "../../.claude/skills/standardize-repo" ] ||
     fail "harmon-devkit standardize-repo compatibility link is wrong"
+if command -v opencode >/dev/null 2>&1; then
+    resolved_config="$(
+        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
+            opencode_test debug config
+    )" || fail "OpenCode rejected its managed configuration"
+    [ "$(printf '%s' "$resolved_config" | jq -r '.share')" = "disabled" ] ||
+        fail "OpenCode did not resolve sharing as disabled"
+    [ "$(printf '%s' "$resolved_config" | jq -r '.snapshot')" = "true" ] ||
+        fail "OpenCode did not resolve snapshots as enabled"
+    [ "$(printf '%s' "$resolved_config" | jq -r '.subagent_depth')" = "1" ] ||
+        fail "OpenCode did not resolve the managed subagent depth"
+
+    plan_config="$(
+        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
+            opencode_test debug agent plan
+    )" || fail "OpenCode rejected its built-in plan agent"
+    [ "$(printf '%s' "$plan_config" | jq -r '[.permission[] | select(.permission == "edit" and .pattern == "*")][-1].action')" = "deny" ] ||
+        fail "global OpenCode permissions made the plan agent writable"
+    [ "$(printf '%s' "$plan_config" | jq -r '[.permission[] | select(.permission == "bash" and .pattern == "*")][-1].action')" = "ask" ] ||
+        fail "OpenCode plan shell does not require approval"
+
+    build_config="$(
+        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
+            opencode_test debug agent build
+    )" || fail "OpenCode rejected its built-in build agent override"
+    [ "$(printf '%s' "$build_config" | jq -r '[.permission[] | select(.permission == "bash" and .pattern == "*")][-1].action')" = "ask" ] ||
+        fail "OpenCode build shell does not require approval by default"
+
+    general_config="$(
+        OPENCODE_CONFIG="$staged_opencode/opencode.jsonc" OPENCODE_CONFIG_DIR="$staged_opencode" \
+            opencode_test debug agent general
+    )" || fail "OpenCode rejected its built-in general subagent override"
+    [ "$(printf '%s' "$general_config" | jq -r '[.permission[] | select(.permission == "bash" and .pattern == "*")][-1].action')" = "ask" ] ||
+        fail "OpenCode general subagent shell does not require approval"
+
+else
+    echo "SKIP: opencode is unavailable; native config loading is covered on configured hosts"
+fi
 
 echo "==> validate Codex profile wrapper"
 aliases_file="$repo/private_dot_dotfiles/private_dot_aliases"
-stub_dir="$(mktemp -d)"
-trap 'rm -rf "$stub_dir"' EXIT
+stub_dir="$test_tmp/bin"
+mkdir -p "$stub_dir"
 printf '#!/bin/sh\nprintf "<%%s>\\n" "$@"\n' >"$stub_dir/codex"
 chmod +x "$stub_dir/codex"
 
@@ -107,6 +184,7 @@ for subcommand in login doctor completion plugin features; do
     [ "$admin_args" = "<$subcommand>" ] ||
         fail "Codex wrapper profiled administrative subcommand: $subcommand"
 done
+
 for prefix in '--enable hooks' '-c key=value' '--disable hooks'; do
     admin_args="$(PATH="$stub_dir:$PATH" zsh -c 'source "$1"; codex ${(z)2} doctor' _ "$aliases_file" "$prefix")"
     case "$admin_args" in
@@ -146,4 +224,4 @@ else
     echo "SKIP: codex is unavailable; execpolicy parsing is covered on configured hosts"
 fi
 
-echo "==> Claude/Codex configuration OK"
+echo "==> AI harness configuration OK"

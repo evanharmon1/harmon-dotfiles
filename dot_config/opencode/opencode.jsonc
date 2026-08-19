@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "snapshot": true,
+  "subagent_depth": 1,
+  "permission": {
+    "bash": {
+      "*": "ask"
+    }
+  }
+}
