@@ -39,7 +39,7 @@ Files follow chezmoi's [source state attributes](https://www.chezmoi.io/referenc
 - **Shell config**: `private_dot_zshrc.tmpl` is the main zsh config (oh-my-zsh,
   starship, zoxide, mise). It sources `~/.dotfiles/.aliases`, `.var`, `.functions`.
 - **Shell customizations**: `private_dot_dotfiles/` splits aliases, variables, and functions into separate files.
-- **App configs**: `dot_config/` holds configs for starship, ghostty, karabiner, gh, aichat, and llm.
+- **App configs**: `dot_config/` holds configs for starship, ghostty, karabiner, gh, aichat, llm, and OpenCode.
 - **macOS app configs**: `private_Library/` holds `~/Library/Application Support/` configs (ghostty, aichat, llm).
 - **OS-conditional ignoring**: `.chezmoiignore` excludes macOS-only paths on non-Darwin and Linux-only XDG paths on non-Linux.
 

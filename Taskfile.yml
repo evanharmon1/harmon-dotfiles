@@ -358,7 +358,7 @@ tasks:
       - ./scripts/codex-gate.sh status
 
   test:ai-config:
-    desc: Validate Claude/Codex config, profiles, rules, agents, and symlinks
+    desc: Validate Claude, Codex, and OpenCode config, rules, and symlinks
     cmds:
       - ./scripts/test-ai-config.sh
 
