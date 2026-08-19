@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.12.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.11.1...v0.12.0) (2026-08-19)
+
+
+### Features
+
+* **claude:** archive session transcripts on SessionEnd ([eefdb2c](https://github.com/evanharmon1/harmon-dotfiles/commit/eefdb2cbd6d39d795ed325905c195de49f132c24))
+* **claude:** archive session transcripts on SessionEnd ([798daa3](https://github.com/evanharmon1/harmon-dotfiles/commit/798daa343cbd59aca871fc60f300710a6a2fbc33))
+* **opencode:** add personal baseline config ([6201768](https://github.com/evanharmon1/harmon-dotfiles/commit/620176841e60dc0ac6f35b5aa57fdf5270f162df))
+* **opencode:** add personal baseline config ([91188fb](https://github.com/evanharmon1/harmon-dotfiles/commit/91188fb719cc6554a88deba8917f6ae51a9517a7))
+
 ## [0.11.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.11.0...v0.11.1) (2026-08-10)
 
 
