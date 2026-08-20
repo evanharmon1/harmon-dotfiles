@@ -4,6 +4,12 @@
   "artifactReviewPolicy": "always-proceed",
   "allowNonWorkspaceAccess": false,
   "enableTerminalSandbox": true,
+  "statusLine": {
+    "type": "command",
+    "command": "{{ .chezmoi.homeDir }}/.gemini/antigravity-cli/statusline.sh",
+    "enabled": true,
+    "stack_with_default": false
+  },
   "permissions": {
     "allow": [
       "command(task)",
