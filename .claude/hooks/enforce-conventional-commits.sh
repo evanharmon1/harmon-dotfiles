@@ -48,8 +48,8 @@ for seg in segments:
         import re
         parsed_messages = []
         for m in messages:
-            if m.startswith("$(cat <<"):
-                m = re.sub(r"^\$\(cat\s+<<['\"]?[A-Za-z0-9_]+['\"]?\s*\n", "", m)
+            if m.startswith("$(cat <" + "<"):
+                m = re.sub(r"^\$\(cat\s+<" + r"<[\"\x27]?[A-Za-z0-9_]+[\"\x27]?\s*\n", "", m)
                 m = re.sub(r"\n[A-Za-z0-9_]+\s*\)$", "", m)
             parsed_messages.append(m)
         print("\n\n".join(parsed_messages))

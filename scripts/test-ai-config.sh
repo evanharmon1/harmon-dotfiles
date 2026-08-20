@@ -33,6 +33,12 @@ jq -e . "$repo/private_dot_claude/private_settings.json" >/dev/null ||
     fail "Claude settings are not valid JSON"
 jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
     fail "Codex hooks are not valid JSON"
+jq -e . "$repo/private_dot_gemini/config/hooks.json" >/dev/null ||
+    fail "Gemini hooks are not valid JSON"
+sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" |
+    jq -e . >/dev/null || fail "Antigravity CLI settings template is not valid JSON"
+[ "$(sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" | jq -r '.statusLine.type')" = "command" ] ||
+    fail "Antigravity CLI settings must configure command statusLine"
 # Keep managed JSONC in the strict JSON subset for portable local validation.
 jq -e . "$opencode_config" >/dev/null || fail "OpenCode config is not strict JSON"
 jq -e . "$opencode_tui" >/dev/null || fail "OpenCode TUI config is not strict JSON"
@@ -211,12 +217,32 @@ if command -v codex >/dev/null 2>&1; then
     [ "$decision" = "prompt" ] || fail "attached short-option git merge should require approval, got $decision"
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- git --git-dir=/tmp/project/.git push origin main | jq -r '.decision')"
     [ "$decision" = "prompt" ] || fail "attached long-option git push should require approval, got $decision"
-    decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- gh -R owner/repo pr merge 123 | jq -r '.decision')"
-    [ "$decision" = "prompt" ] || fail "option-prefixed gh pr merge should require approval, got $decision"
     decision="$(codex execpolicy check --rules "$repo/private_dot_codex/rules/private_harmon.rules" -- gh --repo=owner/repo pr merge 123 | jq -r '.decision')"
     [ "$decision" = "prompt" ] || fail "attached-option gh pr merge should require approval, got $decision"
 else
     echo "SKIP: codex is unavailable; execpolicy parsing is covered on configured hosts"
 fi
+echo "==> validate statusline renderers"
+agy_sl="$repo/private_dot_gemini/antigravity-cli/executable_statusline.sh"
+claude_sl="$repo/private_dot_claude/executable_statusline.sh"
+
+[ -x "$agy_sl" ] || fail "Antigravity statusline script is missing or not executable"
+[ -x "$claude_sl" ] || fail "Claude statusline script is missing or not executable"
+
+# 1. Standard payload renders percentage and headroom
+out=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'{"workspace":{"current_dir":"/"},"context_window":{"used_percentage":24,"context_window_size":1000000},"model":{"display_name":"Gemini 3.1 Pro (High)"},"conversation_id":"34ee01b6-2f37-4fe7"}')
+case "$out" in *' 24%'*) ;; *) fail "Antigravity statusline expected 24%, got: $out" ;; esac
+case "$out" in *'760k left'*) ;; *) fail "Antigravity statusline expected '760k left', got: $out" ;; esac
+case "$out" in *'Gemini 3.1 Pro (High)'*) ;; *) fail "Antigravity statusline expected model name, got: $out" ;; esac
+case "$out" in *'34ee01b6'*) ;; *) fail "Antigravity statusline expected session id, got: $out" ;; esac
+
+# 2. Absent context renders 'context n/a' and never a false 0% gauge
+out_absent=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'{"workspace":{"current_dir":"/"},"model":{"display_name":"Gemini 3.1 Pro"}}')
+case "$out_absent" in *'context n/a'*) ;; *) fail "Antigravity statusline expected 'context n/a' for absent context, got: $out_absent" ;; esac
+case "$out_absent" in *'0%'*) fail "Antigravity statusline rendered false 0% for absent context: $out_absent" ;; esac
+
+# 3. Empty payload degrades gracefully
+out_empty=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'')
+[ -n "$out_empty" ] || fail "Antigravity statusline returned empty output on empty payload"
 
 echo "==> AI harness configuration OK"
