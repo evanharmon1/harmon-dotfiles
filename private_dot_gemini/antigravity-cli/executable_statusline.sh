@@ -4,7 +4,7 @@
 # Gives each local session a compact four-line status line:
 #
 #   📁 ~/git/my-project  🌿 main  PR #512 ✓  ▪ session name  · a1b2c3d4
-#   🧠 ▕████░░░░░░░░░░░░▏ 24%  760k left  🤖 Gemini 3.1 Pro (High) · medium · ⚡ · 💭  📟 v2.0.0
+#   🧠 ▕████░░░░░░░░░░░░▏ 24%  760k left  🤖 Gemini 3.7 Flash (High) · medium · ⚡ · 💭  📟 v2.0.0
 #   💰 $0.43  ✎ +120/-45  ⏱ 11m session
 #   🚦 5h ▕█░░░░░░▏ ⧖ 2h13m   ·   7d ▕░░░░░░░▏ ⧖ 4d20h
 #
