@@ -39,6 +39,8 @@ sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/a
     jq -e . >/dev/null || fail "Antigravity CLI settings template is not valid JSON"
 [ "$(sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" | jq -r '.statusLine.type')" = "command" ] ||
     fail "Antigravity CLI settings must configure command statusLine"
+[ "$(sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" | jq -r '.model')" = "Gemini 3.7 Flash (High)" ] ||
+    fail "Antigravity CLI settings must configure default model Gemini 3.7 Flash (High)"
 # Keep managed JSONC in the strict JSON subset for portable local validation.
 jq -e . "$opencode_config" >/dev/null || fail "OpenCode config is not strict JSON"
 jq -e . "$opencode_tui" >/dev/null || fail "OpenCode TUI config is not strict JSON"
@@ -230,10 +232,10 @@ claude_sl="$repo/private_dot_claude/executable_statusline.sh"
 [ -x "$claude_sl" ] || fail "Claude statusline script is missing or not executable"
 
 # 1. Standard payload renders percentage and headroom
-out=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'{"workspace":{"current_dir":"/"},"context_window":{"used_percentage":24,"context_window_size":1000000},"model":{"display_name":"Gemini 3.1 Pro (High)"},"conversation_id":"34ee01b6-2f37-4fe7"}')
+out=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'{"workspace":{"current_dir":"/"},"context_window":{"used_percentage":24,"context_window_size":1000000},"model":{"display_name":"Gemini 3.7 Flash (High)"},"conversation_id":"34ee01b6-2f37-4fe7"}')
 case "$out" in *' 24%'*) ;; *) fail "Antigravity statusline expected 24%, got: $out" ;; esac
 case "$out" in *'760k left'*) ;; *) fail "Antigravity statusline expected '760k left', got: $out" ;; esac
-case "$out" in *'Gemini 3.1 Pro (High)'*) ;; *) fail "Antigravity statusline expected model name, got: $out" ;; esac
+case "$out" in *'Gemini 3.7 Flash (High)'*) ;; *) fail "Antigravity statusline expected model name, got: $out" ;; esac
 case "$out" in *'34ee01b6'*) ;; *) fail "Antigravity statusline expected session id, got: $out" ;; esac
 
 # 2. Absent context renders 'context n/a' and never a false 0% gauge
