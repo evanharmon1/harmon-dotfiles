@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.15.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.14.0...v0.15.0) (2026-08-21)
+
+
+### Features
+
+* add agy settings to disable feedback survey ([dfc747c](https://github.com/evanharmon1/harmon-dotfiles/commit/dfc747cd5d6fa2c37d5b72d8aa37a860065287de))
+* add agy settings to disable feedback survey ([ac36d44](https://github.com/evanharmon1/harmon-dotfiles/commit/ac36d44295289d20ba24c78f6884531fb4c80c75))
+* add pnpm global install setup ([cbf8fb7](https://github.com/evanharmon1/harmon-dotfiles/commit/cbf8fb7df8769a7041fda91c9950bf9fec5f7586))
+* add pnpm global install setup ([3fbce9a](https://github.com/evanharmon1/harmon-dotfiles/commit/3fbce9a17fe8b8ff0657ce79506e553ba6526507))
+
 ## [0.14.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.13.0...v0.14.0) (2026-08-21)
 
 
