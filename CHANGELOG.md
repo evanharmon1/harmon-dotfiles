@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.14.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.13.0...v0.14.0) (2026-08-21)
+
+
+### Features
+
+* **antigravity:** enable stack_with_default for gemini CLI settings ([c240f96](https://github.com/evanharmon1/harmon-dotfiles/commit/c240f96bfd7421a4ab26f8a8000b143c5f25faef))
+* **antigravity:** enable stack_with_default for gemini CLI settings ([9550830](https://github.com/evanharmon1/harmon-dotfiles/commit/9550830fc5800361498f8711d33103253716489c))
+
 ## [0.13.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.12.0...v0.13.0) (2026-08-21)
 
 
