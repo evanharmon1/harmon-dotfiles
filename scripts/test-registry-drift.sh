@@ -101,9 +101,14 @@ fi
 
 # ── 3. provisioning script ─────────────────────────────────────────────────
 if [ -f "$labels_script" ]; then
-    # It must delegate to the renderer, not carry a forkable hand-list.
-    grep -q 'agent-registry-labels.mjs' "$labels_script" ||
-        fail "$labels_script does not render its agent labels from the registry (missing agent-registry-labels.mjs call) — hand-listed labels fork from agent-registry.json"
+    # It must delegate to a renderer, not carry a forkable hand-list. The
+    # delegation is via the label-registry renderer, which spawns
+    # agent-registry-labels.mjs for the agent families (source: agent-registry
+    # in label-registry.json) — so the literal call this script once made
+    # moved one level down, and the behavioral run below is what proves the
+    # agent labels still come out.
+    grep -Eq 'label-registry-render\.mjs|agent-registry-labels\.mjs' "$labels_script" ||
+        fail "$labels_script does not render its labels from a registry (no label-registry-render.mjs or agent-registry-labels.mjs call) — hand-listed labels fork from the registries"
     # No hardcoded agent:* / suggest:* / claim:* / foreman:<family> selector
     # lines (the leading `word:` of a `name|color|desc` label line).
     if grep -Eq '^agent:[a-z0-9-]+\|' "$labels_script"; then
@@ -119,13 +124,16 @@ if [ -f "$labels_script" ]; then
     # running it observes what would really be provisioned. --foreman exercises
     # both renderer modes regardless of whether this profile arms Foreman.
     stub_dir="$(mktemp -d)"
+    emitted_file="$stub_dir/emitted"
     cat >"$stub_dir/gh" <<'STUB'
 #!/usr/bin/env bash
-[ "$1" = label ] && { shift 2; printf '%s\n' "$1"; exit 0; }
+[ "$1" = label ] && { shift 2; printf '%s\n' "$1" >>"$STUB_EMITTED"; exit 0; }
 exit 0
 STUB
     chmod +x "$stub_dir/gh"
-    emitted="$(PATH="$stub_dir:$PATH" bash "$labels_script" --repo drift/check --foreman 2>/dev/null | sort -u)"
+    STUB_EMITTED="$emitted_file" PATH="$stub_dir:$PATH" \
+        bash "$labels_script" --repo drift/check --foreman >/dev/null 2>&1
+    emitted="$(sort -u "$emitted_file")"
     rm -rf "$stub_dir"
     missing="$(comm -23 <(printf '%s\n' "$names" | sort -u) <(printf '%s\n' "$emitted"))"
     if [ -n "$missing" ]; then

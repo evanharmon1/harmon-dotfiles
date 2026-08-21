@@ -6,9 +6,11 @@
 # because only project number fields sum in view group headers (issue-field
 # columns can group/filter/sort, not sum). The other metadata on an ORGANIZATION
 # are org-level ISSUE fields (Priority/Effort are GitHub built-ins, left at
-# their defaults; setup-github-issue-fields.sh adds Product, Domain, and
-# Layer); on a personal account (no org issue fields) this script creates
-# Priority/Product/Domain/Layer as project fields too.
+# their defaults; setup-github-issue-fields.sh adds Product); on a personal
+# account (no org issue fields) this script creates Priority/Product as
+# project fields too. Domain and Layer are deliberately NOT fields — the
+# `domain:`/`layer:` labels (setup-github-labels.sh) are their only surface
+# (#875).
 #
 # Safe to re-run and safe to run from every repo the owner controls: it looks the
 # project up by title, so the first run creates it and later runs just reconcile
@@ -54,6 +56,18 @@ for tool in gh jq; do
         exit 1
     fi
 done
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# Task buffers stdout in grouped mode. Keep legacy progress and the visual
+# outcome on one live stream so their chronology cannot be reversed.
+exec 1>&2
+OUTPUT_FD=2
+# shellcheck source=scripts/lib/output.sh
+. "$script_dir/lib/output.sh"
+
+action_banner setup "GitHub Project" "Board, delivery pipeline, and planning fields"
+kv "Owner" "$owner"
+kv "Project" "$title"
 
 # ── Scope preflight ─────────────────────────────────────────────────────────
 # Every mutation below needs the 'project' scope, which `gh auth login` does not
@@ -242,14 +256,20 @@ fi
 # at all, and the workflows' title-lookup fallback resolves to that same
 # half-reconciled board. Reconciliation is additive and re-runnable, so the
 # remedy for a partial run is to re-run this script either way.
+org_variable_problem=""
 if [ "$owner_type" = "Organization" ]; then
     echo "==> Recording project id in the ORG_PROJECT_ID org variable"
     if ! gh variable set ORG_PROJECT_ID --org "$owner" --visibility all --body "$project_id"; then
+        org_variable_problem="ORG_PROJECT_ID was not written"
         echo "WARNING: could not set the ORG_PROJECT_ID org variable (needs org admin)." >&2
         echo "         Set it by hand: gh variable set ORG_PROJECT_ID --org \"$owner\" --body \"$project_id\"" >&2
+        checkline unknown "Organization variable" "ORG_PROJECT_ID was not written; set it manually"
+    else
+        checkline ok "Organization variable" "ORG_PROJECT_ID points to project #$project_number"
     fi
 else
     echo "==> Owner is a user account — skipping ORG_PROJECT_ID (no user-level variable scope; personal status automation is a separate follow-up)"
+    checkline na "Organization variable" "not available for personal accounts"
 fi
 
 # ── Snapshot current fields (reused for existence checks; re-read immediately
@@ -309,6 +329,9 @@ incompatible=""
 # Fields that are missing a starter option but have no room left for it.
 at_capacity=""
 
+# Fields that vanished between the discovery snapshot and their guarded write.
+disappeared=""
+
 # GitHub's cap on options in one single-select field.
 max_options=50
 
@@ -344,6 +367,19 @@ report_incompatible() {
     fi
 }
 
+finish_project() {
+    if [ -n "$incompatible" ] || [ -n "$at_capacity" ] || [ -n "$disappeared" ] ||
+        [ -n "$org_variable_problem" ]; then
+        checkline unknown "Project" "#$project_number / $title: reconciliation needs attention"
+        output_summary "Project reconciliation"
+        output_warning "GitHub Project needs attention; resolve the warnings above and re-run"
+    else
+        checkline ok "Project" "#$project_number / $title"
+        output_summary "Project reconciliation"
+        output_done "GitHub Project is ready"
+    fi
+}
+
 # append_options NAME STARTERS — reconcile one existing single-select field: add
 # whatever starter option it lacks, keep everything else exactly as it is, and
 # write nothing when there is nothing to add. Used for Status and the custom
@@ -361,6 +397,7 @@ append_options() {
     refresh_fields
     if [ -z "$(field_id "$name")" ]; then
         echo "    WARNING: field '$name' disappeared while this script was running — skipping" >&2
+        disappeared="${disappeared}${disappeared:+, }$name"
         return 0
     fi
     existing=$(existing_options "$name")
@@ -478,13 +515,12 @@ create_number "Size"
 # Other metadata: on an ORGANIZATION these are org-level ISSUE fields (durable —
 # the value is on the issue, shared across every project; see
 # docs/project-management.md). Priority is a GitHub built-in;
-# setup-github-issue-fields.sh adds Product, Domain, and Layer. A personal
-# account has no org issue fields, so fall back to creating them as project
-# fields here.
+# setup-github-issue-fields.sh adds Product. A personal account has no org
+# issue fields, so fall back to creating them as project fields here.
 if [ "$owner_type" = "Organization" ]; then
-    echo "==> Other metadata are org issue fields (Priority/Effort built-ins, left at their defaults; run setup-github-issue-fields.sh for Product/Domain/Layer)"
+    echo "==> Other metadata are org issue fields (Priority/Effort built-ins, left at their defaults; run setup-github-issue-fields.sh for Product)"
     report_incompatible
-    echo "==> Done — project #$project_number: $title"
+    finish_project
     exit 0
 fi
 
@@ -501,24 +537,9 @@ create_text "Product"
 # the `Status: Agent Queue` lane; the live claim is a `claim:*` label written
 # by the agent itself. A single-select field could carry neither answer without
 # duplicating the label vocabulary (docs/project-management.md, ADR 0005 D4).
-# Domain (what part of the product) and Layer (which slice of the stack) mirror
-# the `domain:` / `layer:` label families in setup-github-labels.sh — keep the
-# lists in step. Domain is a starter set; real domains come from your product's
-# entities. create_single_select only ever ADDS to an existing field, so options
-# you add in the Project UI survive every re-run — and a starter value added by a
-# later harmon-init release lands on the next one, the same way a new
-# `domain:`/`layer:` label does.
-create_single_select "Domain" '[
-  {"name":"auth","color":"PURPLE","description":"Authentication and authorization"},
-  {"name":"billing","color":"GREEN","description":"Billing and payments"},
-  {"name":"platform","color":"GRAY","description":"CI, build, test infra, and tooling in this repo"}
-]'
-create_single_select "Layer" '[
-  {"name":"ui","color":"BLUE","description":"Components, styling, interaction, tokens, a11y. No data change"},
-  {"name":"logic","color":"GREEN","description":"Business rules, handlers, calculation"},
-  {"name":"data","color":"YELLOW","description":"Schema, indexes, validators, migrations"},
-  {"name":"integration","color":"ORANGE","description":"External boundary: webhooks, API clients, credentials"}
-]'
+# There is likewise deliberately no Domain or Layer field (#875) — same
+# reasoning as Agent: the `domain:`/`layer:` labels in setup-github-labels.sh
+# are the only surface now. See docs/project-management.md, "Label or field?".
 
 report_incompatible
-echo "==> Done — project #$project_number: $title"
+finish_project

@@ -37,6 +37,9 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
     [ -n "${STUB_SCOPES:-}" ] && echo "  - Token scopes: ${STUB_SCOPES}"
     exit 0
 fi
+if [ "$1" = "variable" ] && [ "$2" = "set" ]; then
+    exit "${STUB_VARIABLE_RC:-0}"
+fi
 q=""
 for a in "$@"; do case "$a" in query=*) q="${a#query=}" ;; esac; done
 case "$q" in
@@ -48,7 +51,7 @@ case "$q" in
         cat "$STUB_FIELDS_FILE"
     fi
     ;;
-*repositoryOwner*__typename*) echo '{"data":{"repositoryOwner":{"__typename":"User","id":"U_1"}}}' ;;
+*repositoryOwner*__typename*) printf '{"data":{"repositoryOwner":{"__typename":"%s","id":"U_1"}}}\n' "${STUB_OWNER_TYPE:-User}" ;;
 *projectsV2*) echo '{"data":{"repositoryOwner":{"projectsV2":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"P_1","number":7,"title":"Test Project"}]}}}}' ;;
 *ProjectV2Field*) printf '%s\n' "$q" >>"$MUTATIONS"; echo '{"data":{}}' ;;
 *) echo "fake gh: unexpected query: $q" >&2; exit 1 ;;
@@ -64,6 +67,7 @@ MUTATIONS="$tmp/mutations"
 STUB_FIELDS_FILE="$tmp/fields.json"
 STUB_FIELDS_FILE2="$tmp/fields2.json"
 export MUTATIONS STUB_FIELDS_FILE STUB_FIELDS_FILE2
+export STUB_OWNER_TYPE STUB_VARIABLE_RC
 
 # run_with FIELDS_JSON — run the script against that project snapshot.
 run_with() {
@@ -100,22 +104,42 @@ complete='{"data":{"node":{"fields":{"nodes":[
    {"id":"p1","name":"Urgent","color":"RED","description":""},
    {"id":"p2","name":"High","color":"ORANGE","description":""},
    {"id":"p3","name":"Medium","color":"YELLOW","description":""},
-   {"id":"p4","name":"Low","color":"GRAY","description":""}]},
- {"id":"F_dom","name":"Domain","dataType":"SINGLE_SELECT","options":[
-   {"id":"d1","name":"auth","color":"PURPLE","description":"Authentication and authorization"},
-   {"id":"d2","name":"billing","color":"GREEN","description":"Billing and payments"},
-   {"id":"d3","name":"platform","color":"GRAY","description":"CI, build, test infra, and tooling in this repo"}]},
- {"id":"F_lay","name":"Layer","dataType":"SINGLE_SELECT","options":[
-   {"id":"l1","name":"ui","color":"BLUE","description":"Components, styling, interaction, tokens, a11y. No data change"},
-   {"id":"l2","name":"logic","color":"GREEN","description":"Business rules, handlers, calculation"},
-   {"id":"l3","name":"data","color":"YELLOW","description":"Schema, indexes, validators, migrations"},
-   {"id":"l4","name":"integration","color":"ORANGE","description":"External boundary: webhooks, API clients, credentials"}]}
+   {"id":"p4","name":"Low","color":"GRAY","description":""}]}
 ]}}}}'
 
 echo "==> a re-run against an already-synced project writes nothing"
 run_with "$complete"
 [ "$(updates)" = 0 ] || fail "expected no mutations on an unchanged project, got $(updates)"
 grep -q "leaving it as-is" "$tmp/out" || fail "expected 'leaving it as-is' output"
+grep -q "DONE: GitHub Project is ready" "$tmp/out" || fail "expected an explicit ready outcome"
+
+echo "==> visual progress stays on one ordered stream under Task grouping"
+printf '%s' "$complete" >"$STUB_FIELDS_FILE"
+rm -f "$tmp_seen"
+: >"$MUTATIONS"
+NO_COLOR=1 "$script" --owner someuser --title "Test Project" \
+    >"$tmp/stdout" 2>"$tmp/stderr" || fail "ordered-stream run exited non-zero"
+[ ! -s "$tmp/stdout" ] || fail "action progress leaked onto Task's buffered stdout"
+banner_line="$(grep -n '== SETUP :: GitHub Project ==' "$tmp/stderr" | cut -d: -f1 || true)"
+progress_line="$(grep -n "Resolving owner 'someuser'" "$tmp/stderr" | cut -d: -f1 || true)"
+done_line="$(grep -n 'DONE: GitHub Project is ready' "$tmp/stderr" | cut -d: -f1 || true)"
+[ -n "$banner_line" ] && [ -n "$progress_line" ] && [ -n "$done_line" ] ||
+    fail "ordered stream is missing its banner, progress, or final outcome"
+[ "$banner_line" -lt "$progress_line" ] && [ "$progress_line" -lt "$done_line" ] ||
+    fail "action stream did not preserve banner -> progress -> outcome chronology"
+
+echo "==> a failed ORG_PROJECT_ID write degrades the final outcome"
+STUB_OWNER_TYPE=Organization
+STUB_VARIABLE_RC=19
+run_with "$complete"
+grep -q "ORG_PROJECT_ID was not written" "$tmp/out" ||
+    fail "expected the failed org-variable write in the outcome rows"
+grep -q "WARN: GitHub Project needs attention" "$tmp/out" ||
+    fail "expected a warning final outcome after the org-variable write failed"
+! grep -q "DONE: GitHub Project is ready" "$tmp/out" ||
+    fail "failed org-variable write claimed the project was ready"
+STUB_OWNER_TYPE=User
+STUB_VARIABLE_RC=0
 
 echo "==> the retired Agent field is never created"
 # The fixture above deliberately has no Agent field, so any mutation naming one
@@ -126,24 +150,24 @@ case "$(cat "$MUTATIONS")" in
 esac
 
 echo "==> a field missing a starter option gains ONLY that option"
-# Domain lacks `billing` and carries an owner-added `crm`.
+# Priority lacks `Low` and carries an owner-added `Critical`.
 partial=$(printf '%s' "$complete" | jq -c '
     .data.node.fields.nodes |= map(
-        if .name == "Domain" then
-            .options = [ .options[] | if .name == "billing"
-                then {id: "d9", name: "crm", color: "PINK", description: "owner added"}
+        if .name == "Priority" then
+            .options = [ .options[] | if .name == "Low"
+                then {id: "p9", name: "Critical", color: "PINK", description: "owner added"}
                 else . end ]
         else . end)')
 run_with "$partial"
 [ "$(updates)" = 1 ] || fail "expected exactly 1 update mutation, got $(updates)"
 mut=$(cat "$MUTATIONS")
 case "$mut" in
-*'{name:"billing"'*) : ;;
+*'{name:"Low"'*) : ;;
 *) fail "the appended option should be sent WITHOUT an id" ;;
 esac
 
 echo "==> every pre-existing option is re-sent WITH its id (identity preserved)"
-for pair in 'd1:auth' 'd9:crm' 'd3:platform'; do
+for pair in 'p1:Urgent' 'p9:Critical' 'p3:Medium'; do
     case "$mut" in
     *"{id:\"${pair%%:*}\",name:\"${pair##*:}\""*) : ;;
     *) fail "existing option '${pair##*:}' lost its id '${pair%%:*}' — item values would be cleared" ;;
@@ -152,17 +176,17 @@ done
 
 echo "==> an owner-added option survives the append"
 case "$mut" in
-*'name:"crm"'*) : ;;
-*) fail "owner-added option 'crm' was dropped from the replacement list" ;;
+*'name:"Critical"'*) : ;;
+*) fail "owner-added option 'Critical' was dropped from the replacement list" ;;
 esac
 
 echo "==> a field of the wrong data type is warned about, never appended to"
 wrong=$(printf '%s' "$complete" | jq -c '
     .data.node.fields.nodes |= map(
-        if .name == "Domain" then {id: .id, name: .name, dataType: "TEXT"} else . end)')
+        if .name == "Priority" then {id: .id, name: .name, dataType: "TEXT"} else . end)')
 run_with "$wrong"
 [ "$(updates)" = 0 ] || fail "a wrong-typed field must not receive an option update"
-grep -q "already exists as TEXT" "$tmp/out" || fail "expected a data-type warning for Domain"
+grep -q "already exists as TEXT" "$tmp/out" || fail "expected a data-type warning for Priority"
 
 echo "==> a non-single-select Status warns and is skipped, never aborting the run"
 # Status is reconciled by its own call site rather than create_single_select, so
@@ -180,25 +204,41 @@ grep -q "field 'Status' already exists as TEXT" "$tmp/out" ||
     fail "expected a data-type warning naming Status and its actual type"
 grep -q "Status (is TEXT, wanted SINGLE_SELECT)" "$tmp/out" ||
     fail "expected Status in the end-of-run incompatible summary"
+grep -q "WARN: GitHub Project needs attention" "$tmp/out" ||
+    fail "expected a warning final outcome for incomplete reconciliation"
+! grep -q "DONE: GitHub Project is ready" "$tmp/out" ||
+    fail "incomplete reconciliation claimed the project was ready"
 
 echo "==> a field at the option cap warns instead of attempting an oversized write"
 capped=$(printf '%s' "$complete" | jq -c '
     .data.node.fields.nodes |= map(
-        if .name == "Domain" then
-            .options = ([ .options[] | select(.name != "billing") ]
-                + [ range(0; 48) | {id: "x\(.)", name: "custom\(.)", color: "GRAY", description: ""} ])
+        if .name == "Priority" then
+            .options = ([ .options[] | select(.name != "Low") ]
+                + [ range(0; 47) | {id: "x\(.)", name: "custom\(.)", color: "GRAY", description: ""} ])
         else . end)')
 run_with "$capped"
 [ "$(updates)" = 0 ] || fail "an over-capacity append must be skipped, not attempted"
-grep -q "cannot fit billing" "$tmp/out" || fail "expected a capacity warning naming the missing option"
+grep -q "cannot fit Low" "$tmp/out" || fail "expected a capacity warning naming the missing option"
+grep -q "WARN: GitHub Project needs attention" "$tmp/out" ||
+    fail "expected a warning final outcome at the option cap"
+
+echo "==> a field deleted during reconciliation cannot produce a ready outcome"
+without_status=$(printf '%s' "$complete" | jq -c '
+    .data.node.fields.nodes |= map(select(.name != "Status"))')
+run_with "$complete" "$without_status"
+grep -q "field 'Status' disappeared" "$tmp/out" || fail "expected a concurrent-disappearance warning"
+grep -q "WARN: GitHub Project needs attention" "$tmp/out" ||
+    fail "expected a warning final outcome after a field disappeared"
+! grep -q "DONE: GitHub Project is ready" "$tmp/out" ||
+    fail "a skipped field reconciliation claimed the project was ready"
 
 echo "==> an option added after the startup snapshot survives the append"
 # The re-read immediately before the write is what saves it: the replacement is
 # built from the fresh list, not the stale one.
 concurrent=$(printf '%s' "$partial" | jq -c '
     .data.node.fields.nodes |= map(
-        if .name == "Domain" then
-            .options += [{id: "d42", name: "raced-in", color: "BLUE", description: "added concurrently"}]
+        if .name == "Priority" then
+            .options += [{id: "p42", name: "raced-in", color: "BLUE", description: "added concurrently"}]
         else . end)')
 run_with "$partial" "$concurrent"
 mut=$(cat "$MUTATIONS")

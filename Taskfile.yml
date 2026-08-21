@@ -68,17 +68,23 @@ tasks:
       - task: test:agent-registry
       - task: test:registry-drift
       - task: test:registry-docs
+      - task: test:label-registry
       - task: test:tasks
       - task: test:ci-results
       - task: test:hooks
       - task: test:ai-config
+      - task: test:output
       - task: test:status
+      - task: test:gh-scopes
       - task: test:meta-install
       - task: test:codex-review
       - task: test:lint-hygiene
       - task: test:release-title
+      - task: test:setup-github
       - task: test:setup-github-project
       - task: test:sync-devkit-release
+      - task: test:worktree
+      - task: test:session-cleanup
       - task: test
 
   # ── Quality Checks ────────────────────────────────────────────
@@ -238,6 +244,16 @@ tasks:
     cmds:
       - ./scripts/test-agent-registry.sh
 
+  test:worktree:
+    desc: Behavioral test for worktree:new / worktree:rm (create → verify hooks → remove, in a throwaway fixture repo)
+    cmds:
+      - ./scripts/test-worktree.sh
+
+  test:session-cleanup:
+    desc: Behavioral test for audit:session-artifacts / clean:branches / clean:worktree-records (evidence-gated deletion + negative controls, in a throwaway fixture repo)
+    cmds:
+      - ./scripts/test-session-cleanup.sh
+
   test:agent-instructions-size:
     desc: Unit-test the non-blocking AGENTS.md size advisory
     cmds:
@@ -265,6 +281,17 @@ tasks:
     cmds:
       - ./scripts/test-registry-docs.sh
 
+  test:label-registry:
+    # COPIER_ANSWERS_FILE tells the verbatim-twin script which tracker this
+    # repo rendered — the linear project-management document shares the GitHub
+    # one's path and must not be held to the label-taxonomy markers. Same
+    # env-not-argument reasoning as test:registry-docs above.
+    desc: Bind label provisioning, the docs taxonomy table, and the status inventory to the label registry
+    env:
+      COPIER_ANSWERS_FILE: ".copier-answers.yml"
+    cmds:
+      - ./scripts/test-label-registry.sh
+
   test:tasks:
     desc: Guard the Taskfile itself (compiles; setup tasks are safe no-ops)
     cmds:
@@ -275,10 +302,20 @@ tasks:
     cmds:
       - ./scripts/test-ci-results.sh
 
+  test:output:
+    desc: Unit-test shared color/Unicode fallbacks and spinner cleanup
+    cmds:
+      - ./scripts/test-output.sh
+
   test:status:
     desc: Unit-test the status board-writes + local-credential checks (stubbed CLIs, no network)
     cmds:
       - ./scripts/test-status.sh
+
+  test:gh-scopes:
+    desc: Unit-test the gh scope refresh task's refusals and post-refresh verification (stubbed gh, no network)
+    cmds:
+      - ./scripts/test-setup-gh-scopes.sh
 
   test:meta-install:
     desc: Unit-test the .meta sidecar installer's ~-expansion and refusals
@@ -304,6 +341,11 @@ tasks:
     desc: Unit-test shared Claude/Codex hook adapters and Taskfile delegation
     cmds:
       - ./scripts/test-hooks.sh
+
+  test:setup-github:
+    desc: Unit-test repository-setting outcomes and failure propagation (stubbed gh, no network)
+    cmds:
+      - ./scripts/test-setup-github.sh
 
   test:setup-github-project:
     desc: Unit-test the GitHub Project field reconciliation (stubbed gh, no network)
@@ -373,16 +415,7 @@ tasks:
   security:secrets:
     desc: Scan for leaked secrets (gitleaks)
     cmds:
-      - |
-        if [ -z "$GITHUB_STEP_SUMMARY" ]; then
-          gitleaks detect --no-banner --redact --source .
-        else
-          rc=0
-          gitleaks detect --no-banner --redact --source . \
-            --report-format json --report-path /tmp/harmon-dotfiles-gitleaks.json || rc=$?
-          node scripts/summarize-gitleaks.mjs /tmp/harmon-dotfiles-gitleaks.json
-          exit $rc
-        fi
+      - ./scripts/gitleaks-scan.sh
 
   security:audit:
     desc: Dependency audit
@@ -464,31 +497,37 @@ tasks:
     vars:
       REPO: "evanharmon1/harmon-dotfiles"
     cmds:
-      - gh api "repos/{{.REPO}}/vulnerability-alerts" --method PUT
-      # Private vulnerability reporting is a public-repo-only feature; harmon-init
-      # creates repos --private, so guard on visibility to avoid a 404 that would
-      # abort the task. Applies cleanly if the repo is later made public.
-      - |
-        if [ "$(gh api "repos/{{.REPO}}" --jq '.private')" = "false" ]; then
-          gh api "repos/{{.REPO}}/private-vulnerability-reporting" --method PUT
-        else
-          echo "Skipping private vulnerability reporting ({{.REPO}} is private; public-repo-only feature)."
-        fi
-
+      - ./scripts/setup-github.sh --repo "{{.REPO}}"
   setup:github-project:
     desc: >-
       Idempotently create/sync the owner's GitHub Project V2 board + Status
       pipeline + Size number field (on a personal account also the other
-      metadata fields). Requires `gh auth refresh -s project`.
+      metadata fields). Requires the Projects scopes — `task setup:gh-scopes`.
     cmds:
       - ./scripts/setup-github-project.sh --owner "evanharmon1" --title "evanharmon1 Project"
+
+  setup:gh-scopes:
+    desc: >-
+      OPERATOR / DEV PROFILE ONLY: refresh your interactive gh login so it
+      carries every scope this repo needs (refuses against a GH_TOKEN env
+      credential and without a TTY; verifies the grant landed). Bot containers
+      must reissue GH_TOKEN instead.
+    # Load-bearing, not cosmetic. This Taskfile sets `output: group` globally,
+    # which pipes every task's stdout — so the script's own `[ -t 1 ]` guard saw
+    # a pipe and refused with "no TTY" even in a real terminal, making the
+    # documented entry point impossible to use. `interactive: true` tells Task
+    # to skip output grouping and attach the task to the terminal, which is what
+    # both the guard and the browser device-code flow it protects require.
+    interactive: true
+    cmds:
+      - ./scripts/setup-gh-scopes.sh
 
   setup:github-labels:
     desc: Idempotently create/update this repo's starter labels. Requires `gh` with repo write.
     vars:
       REPO: "evanharmon1/harmon-dotfiles"
     cmds:
-      - ./scripts/setup-github-labels.sh --repo "{{.REPO}}"
+      - ./scripts/setup-github-labels.sh --repo "{{.REPO}}" --release-please
   # ── Release ────────────────────────────────────────────────────
   # Releases are intentional via release-please (.github/workflows/release.yml):
   # merge the rolling release PR to cut a release. release:init seeds the first
@@ -548,45 +587,95 @@ tasks:
     cmds:
       - ./scripts/check-changelog-coverage.sh "$TAG"
 
+  # ── Worktrees ──────────────────────────────────────────────────
+  # One blessed entrypoint for parallel/isolated work, so anything that calls it
+  # (a second agent session, a terminal multiplexer, a human) gets the same
+  # ready tree instead of rediscovering the setup and the breakers.
+  # See docs/conventions.md § Worktrees.
+  worktree:new:
+    desc: "Create a ready linked worktree (usage: task worktree:new -- <name> [--branch b] [--base ref] [--no-install])"
+    cmds:
+      - ./scripts/worktree-new.sh {{.CLI_ARGS}}
+
+  worktree:rm:
+    desc: "Remove a linked worktree and prune its gitlink debris (usage: task worktree:rm -- <name> [--force])"
+    cmds:
+      - ./scripts/worktree-rm.sh {{.CLI_ARGS}}
+
   # ── Clean ──────────────────────────────────────────────────────
   clean:
     desc: Remove build artifacts and caches
     cmds:
       - rm -rf .task
 
+  # ── Session cleanup ────────────────────────────────────────────
+  # audit:* reports, clean:* acts — and deletion only ever runs on positive
+  # evidence (a PR merged into the default branch at exactly the local tip,
+  # or verified-fresh ancestry into the remote default), because squash-merge
+  # makes ancestry blind to delivered branches. Every deletion is a guarded
+  # compare-and-delete against the verified tip. Dry run by default; never a
+  # force flag; never touches a worktree or a remote branch.
+  audit:session-artifacts:
+    desc: "Report session leftovers (unpushed branches, gone upstreams vs merged PRs, other worktrees, review sidecars) — mutates nothing"
+    cmds:
+      - ./scripts/audit-session-artifacts.sh
+
+  clean:branches:
+    desc: "Delete local branches only on positive merge evidence (dry run; 'task clean:branches -- --delete' to act)"
+    cmds:
+      - ./scripts/clean-branches.sh {{.CLI_ARGS}}
+
+  clean:remote-refs:
+    desc: Prune remote-tracking refs whose remote branch is gone, on every remote (git fetch --all --prune)
+    cmds:
+      - git fetch --all --prune
+
+  clean:worktree-records:
+    desc: Prune stale worktree admin records only — pins a detached commit before its record goes (human settles the pin); never removes a worktree directory
+    cmds:
+      - ./scripts/clean-worktree-records.sh
+
   # ── Status ─────────────────────────────────────────────────────
   status:
     desc: Project status dashboard
+    interactive: true
     cmds:
       - ./scripts/status.sh
 
   status:git:
     desc: Git status section
+    interactive: true
     cmds:
       - ./scripts/status.sh git
 
   status:gh:
     desc: GitHub status section
+    interactive: true
     cmds:
       - ./scripts/status.sh gh
 
   status:creds:
-    desc: Local credential section (gh, Codex, Claude Code logins — local probes, no network)
+    desc: Credential section (gh, Codex, Claude Code logins + gh token scopes — local probes plus one bounded scope check; STATUS_NO_NETWORK=1 skips it)
+    interactive: true
     cmds:
       - ./scripts/status.sh creds
 
   status:code:
     desc: Codebase stats section
+    interactive: true
     cmds:
       - ./scripts/status.sh code
 
   status:env:
     desc: Environment info section
+    interactive: true
     cmds:
       - ./scripts/status.sh env
 
+
   status:setup:
     desc: Setup completeness audit (GitHub, toolchain, devcontainer, dev env)
+    interactive: true
     cmds:
       - ./scripts/status.sh setup
 
