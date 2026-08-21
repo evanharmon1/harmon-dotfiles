@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.13.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.12.0...v0.13.0) (2026-08-21)
+
+
+### Features
+
+* **antigravity:** add statusline renderer and settings ([98d1dca](https://github.com/evanharmon1/harmon-dotfiles/commit/98d1dcadb1832f68950cfd73dd2e07c912142c45))
+* **antigravity:** add statusline renderer and settings ([baf5679](https://github.com/evanharmon1/harmon-dotfiles/commit/baf56793dec49b1b041fdf7bb96a0562227f5322))
+* **antigravity:** switch agy CLI to always-proceed with a deny block ([20a4683](https://github.com/evanharmon1/harmon-dotfiles/commit/20a46836b39e7c835444d91d3a16289565d52d9d))
+* **antigravity:** switch agy CLI to always-proceed with a deny block ([374f08c](https://github.com/evanharmon1/harmon-dotfiles/commit/374f08c1f786a959cb71649d70db8a330ec23465))
+
 ## [0.12.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.11.1...v0.12.0) (2026-08-19)
 
 
