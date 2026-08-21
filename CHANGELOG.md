@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.16.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.15.0...v0.16.0) (2026-08-21)
+
+
+### Features
+
+* **antigravity:** set Gemini 3.7 Flash (High) as default model ([feb322a](https://github.com/evanharmon1/harmon-dotfiles/commit/feb322a5679c3ac69f2d477ec3f40b17e7c16f95))
+* **antigravity:** set Gemini 3.7 Flash (High) as default model ([592db3e](https://github.com/evanharmon1/harmon-dotfiles/commit/592db3e3b722cbf7369ff828ec40491228e991fc))
+
 ## [0.15.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.14.0...v0.15.0) (2026-08-21)
 
 
