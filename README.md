@@ -33,45 +33,78 @@ This repo is part of **harmon-platform** — my custom development platform with
 - [go-task](https://taskfile.dev/) (task runner)
 - [uv](https://docs.astral.sh/uv/) (runs the pinned Semgrep CE baseline)
 
-### Bootstrap
+### Usage
 
-Install required software to run other project installers and task runners
-`task bootstrap`
+```bash
+task bootstrap   # one-time machine setup (Homebrew)
+task install     # Brewfile deps + lefthook git hooks
+task verify      # confirm everything passes
+```
 
-### Install
+Or open the repo in the devcontainer (VS Code "Reopen in Container", or a
+[Coder](https://coder.com) workspace).
 
-Install required dependencies
-`task install`
+New here? Start with [docs/guides/onboarding.md](docs/guides/onboarding.md) and the
+post-generation [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-## Usage
+## Project Structure
 
-TODO: project usage
+```text
+.
+├── .claude/             # Claude Code settings + skills
+├── .github/             # Workflows, templates, CODEOWNERS, branch ruleset
+├── docs/                # Documentation (see docs/README.md)
+├── scripts/             # Repo utility scripts (hygiene, status, summaries)
+├── specs/               # Specifications
+├── tests/               # Tests
+├── AGENTS.md            # AI agent guidance (CLAUDE.md/GEMINI.md symlink here)
+├── DESIGN.md            # Design / UX intent (AI-facing)
+├── Taskfile.yml         # Task runner — single source of truth for commands
+├── lefthook.yml         # Git hooks (delegate to Taskfile tasks)
+└── todo.md              # Scratch todos (gitignored)
+```
 
-### Task Runner
+## Commands
 
-[Taskfile.yml](./Taskfile.yml)
+`task` (or `task menu`) shows the interactive picker. Key targets:
 
-### Verify
+| Command | What it does |
+|---|---|
+| `task check` | Fast gate: all linters, in parallel |
+| `task verify` | Definition-of-done gate: check + validate + tests |
+| `task fix` | Auto-format, then lint |
+| `task test` | Run tests (see [docs/architecture/tests.md](docs/architecture/tests.md)) |
+| `task security` | Free local baseline: Semgrep CE + gitleaks + dependency audit |
+| `task security:sast` / `security:sca` | Semgrep CE / package-manager dependency audit |
+| `task security:sast:snyk` / `security:sca:snyk` | Optional Snyk second-opinion scans (manual or explicitly scheduled) |
+| `task challenge` / `task review` | Codex second-model reviews: adversarial / verification checkpoint (advisory, local-only) |
+| `task codex:gate:enable` | Automatic Claude → Codex stop-gate for this repo + machine (also `:disable` / `:status`) |
+| `task release:patch` | Tag + GitHub release (also `:minor` / `:major`) |
+| `task status` | Project status dashboard (also `status:git`/`:gh`/`:creds`/`:code`/`:env`) |
+| `task status:creds` | Credential logins (gh, Codex, Claude Code) + the gh token's scopes — local probes plus one bounded 3s scope check (`STATUS_NO_NETWORK=1` skips it); also run at session start |
+| `task status:setup` | Setup audit: local credentials, GitHub config, toolchain, devcontainer, dev env |
 
-`task check` runs the fast lint gate. `task verify` is the definition-of-done
-gate (check + validation + tests), and `task ci` adds the complete security
-baseline to mirror CI locally.
+## Testing
 
-#### Security
+See [docs/architecture/tests.md](docs/architecture/tests.md). Tests live in `tests/`; CI runs the
+same `task` targets as local hooks.
 
-`task security` — Semgrep CE + gitleaks secret scan + dependency audit. Optional
-Snyk second opinions remain available through `task security:sast:snyk` and
-`task security:sca:snyk`.
+## CI/CD
 
-#### Linting, formatting & conventions
+| Workflow | Purpose |
+|---|---|
+| `build.yml` | lint, security → aggregate `verify` gate |
+| `claude-plan/implement/review.yml` | Mention-only: an `@claude` mention naming `plan`/`implement`/`review` from an authorized sender; each run holds `claim:claude` |
+| `release.yml` | release-please maintains a release PR; merging it cuts the release |
 
-Git hooks (managed by [lefthook](https://lefthook.dev/), `lefthook.yml`) and CI
-delegate to the same Taskfile targets. Config lives in `.editorconfig`,
-`.shellcheckrc`, `.yamllint`, `.markdownlint.json`, `commitlint.config.mjs`, and
-`.gitleaks.toml`.
+Branch protection: `main` requires a PR with code-owner approval and the
+`verify` + `security` checks (importable ruleset in `.github/`; see
+[docs/architecture/branch-protection.md](docs/architecture/branch-protection.md)).
+**Releases are intentional** — release-please keeps a rolling release PR from
+conventional commits; merging it cuts the tag, GitHub release, and CHANGELOG.
+Nothing auto-releases on a normal merge. `task release:*` stays as a manual
+override.
 
-### Building, Deploying, & CI/CD
+## License
 
-## Todo File
-
-[todo.md](./todo.md)
+See [LICENSE](LICENSE).

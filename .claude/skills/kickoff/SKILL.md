@@ -30,8 +30,18 @@ commands otherwise:
 - Otherwise run `git status -sb`, `git log --oneline -5`,
   `gh pr list --limit 10`, and `gh issue list --limit 10`.
 
-Keep this bounded — if `gh` hangs or is unauthenticated, note it and move on
-rather than blocking the session start.
+Separately, as a credential preflight, check
+`task --list-all 2>/dev/null | grep -q 'status:creds'`. Where present, run
+`task status:creds`. The same untrusted-branch caution applies — on an
+untrusted branch, skip this probe rather than run it. There is no raw
+fallback for it: if the target is absent, note "no creds probe available" in
+the report and move on.
+
+Keep all of this bounded — if `gh`, `task status:git`, `task status:gh`, or
+`task status:creds` hangs or is unauthenticated, note it and move on rather
+than blocking the session start. A missing or failed creds probe is a
+**report item, never a kickoff blocker** — kickoff proceeds either way and the
+summary says what couldn't be checked.
 
 **Sweep for stale claims.** The claim `/claim` makes has no owner once its
 session ends: `/shepherd` stops before the merge, `/wrap` leaves an open PR
@@ -45,8 +55,8 @@ that made the claim:
 gh issue list --repo <owner/repo> --assignee @me --state all --limit 200 \
   --json number,title,state,labels,url
 # ...and by marker, because a claim can outlive its assignee. `gh issue list
-# --label` is exact-match (no prefix), so enumerate the claude-family claim
-# labels the repo actually carries — family-level, model-pinned, and legacy —
+# --label` is exact-match (no prefix), so enumerate every live claim namespace
+# label the repo actually carries — family-level, model-pinned, and legacy —
 # and query each. This must be a CHECKED read: a bare `for lbl in $(gh label
 # list ...)` runs zero iterations and falsely reports a clean sweep on an
 # expired token or rate limit, hiding the marker-only claim this exists to find
@@ -55,13 +65,14 @@ gh issue list --repo <owner/repo> --assignee @me --state all --limit 200 \
 # current assignee), so this sweep is the only backstop — do not skip it on a
 # failed enumeration, surface it:
 if ! claim_labels="$(gh label list --repo <owner/repo> --limit 1000 --json name -q \
-    '.[].name | select(. == "claim:claude" or startswith("claim:claude:") or . == "agent:claude-code")')"; then
+    '.[].name | select(startswith("claim:") or startswith("agent:"))')"; then
   echo "warning: could not list claim labels — the marker-only sweep is INCOMPLETE; retry or check auth" >&2
 fi
-for lbl in $claim_labels; do
+while IFS= read -r lbl; do
+  [ -n "$lbl" ] || continue
   gh issue list --repo <owner/repo> --label "$lbl" --state all --limit 200 \
     --json number,title,state,assignees,url
-done
+done <<<"$claim_labels"
 ```
 
 **Query both, and union the results.** `/wrap` runs its cleanup as separate
@@ -86,9 +97,11 @@ claim comment survives its own release — and where the issue was already
 assigned to you, `/wrap` correctly leaves that assignment in place too. Both
 markers then persist forever, and treating the comment alone as current would
 make every future `/kickoff` re-report the same long-released claim. So the
-comment counts only when **no later `Claim released —` comment supersedes it**.
+comment counts only when it is the **latest trusted `Claiming —` comment after
+the latest trusted `Claim released —` comment**. A newer trusted claim record
+supersedes an earlier refresh record without releasing the active claim.
 Prefer the live markers (`claim:*` label, card at `In Progress`); fall back to
-the comment only after checking what follows it.
+that one current comment only after checking what follows it.
 
 Report what survives that test as loose ends and point at `/wrap` for the
 release commands. Do not clear anything here: this step orients, it does not
@@ -126,6 +139,21 @@ context even after compaction.
 ## 5. Summarize
 
 Finish with 3–5 orientation bullets: current branch, clean/dirty tree,
-notable open PRs or issues, and the suggested next step. If implementation
-work is coming, suggest `/claim` next — it sanity-checks the issue and
-claims it, and `/implement` expects that claim to already exist.
+notable open PRs or issues, credential readiness, and the suggested next
+step. If implementation work is coming, suggest `/claim` next — it
+sanity-checks the issue and claims it, and `/implement` expects that claim to
+already exist.
+
+**Credential readiness bullet.** Summarize what `task status:creds` found:
+what is logged in, what is missing or unknown, and the remedy the status
+output itself named (e.g. `gh auth login`, `codex login`,
+`claude auth login`). Preserve the probe's own distinctions rather than
+flattening them — "credential stored (not validated)" is not the same as
+authenticated, `n/a` (not configured, or the CLI is absent) is not the same
+as missing, and `unknown` is not the same as logged out. Quote the remedy
+from the status output, not from memory. If the probe was skipped (untrusted
+branch) or unavailable (target absent) or it failed, say so in this bullet —
+that is the report item. This covers whether a login exists,
+not what it is permitted to do: no line here establishes a token's **scopes**.
+Whether a specific issue needs permissions the CI credential lacks is
+`/claim`'s per-issue preflight vetting, not this probe's.

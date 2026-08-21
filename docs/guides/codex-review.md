@@ -45,16 +45,20 @@ primary agent to adjudicate — the protocol and the loop caps live in AGENTS.md
    request itself and promotes a draft only on a current-head result from the
    configured login — fail-closed, with bounded attempts.
 
-6. **Then disable Codex Automatic reviews** — personal Auto review off, and the
-   repository's Auto code review preference set to **Follow personal**. Codex
-   triggers a cloud review on three events: opening a PR for review, marking a
-   draft ready, and an explicit `@codex review`. Only the third is usable here:
-   the PR is a draft for the whole automated lifecycle, so the first never
-   fires, and the second fires *after* the readiness gate — starting a new
-   asynchronous review at the exact moment "non-draft" is supposed to mean the
-   automated work is done. No API reports this setting, so it is a
-   human-configured prerequisite recorded in docs/CHECKLIST.md; the readiness
-   gate trusts that record and must never claim it was mechanically verified.
+6. **Then disable Codex Automatic reviews** — personal Auto review off, the
+   repository's Auto code review preference set to **Follow personal**, and its
+   review **Trigger** set to Follow personal too (an "On every push" trigger
+   sits dormant while Auto review is off and arms the moment the personal
+   toggle changes). Codex triggers a cloud review on three events: opening a
+   PR for review, marking a draft ready, and an explicit `@codex review`. Only
+   the third is usable here: the PR is a draft for the whole automated
+   lifecycle, so the first never fires, and the second fires *after* the
+   readiness gate — starting a new asynchronous review at the exact moment
+   "non-draft" is supposed to mean the automated work is done. Record the
+   three knobs under docs/CHECKLIST.md's [human-only] item; once recorded it
+   is settled configuration — nothing in the lifecycle gates on it, and the
+   one thing worth reporting later is an unsolicited Codex review, the
+   signature of the knobs drifting back on.
 
 ## Manual reviews
 
@@ -147,13 +151,18 @@ Two things not to change when backgrounding:
   mid-loop is risky — an uncommitted fix under `--uncommitted` narrows the
   re-run to just that fix, and the clean pass then attests to the fix rather
   than to the whole change. Bare `task challenge` covers both halves, so it is
-  the right thing to re-run. Committing each round's fixes first is still
-  tidier (it keeps the committed half authoritative and shrinks what Codex has
-  to reconcile), but the loop's exit condition no longer depends on your
-  remembering to.
+  the right thing to re-run — and it is why commit boundaries never change what
+  a round sees.
+
+  Commit anyway, and push: each adjudicated round ends in one conventional
+  commit pushed to the branch, which the Dev Loop makes the rule rather than a
+  tidiness preference. It also keeps the committed half authoritative and
+  shrinks what Codex has to reconcile. What it does not do is decide the exit
+  condition — that is still the adjudicated rounds, whatever the tree looked
+  like when each one ran.
 - **The runner.** Background `task challenge` itself, not
   `/codex:adversarial-review --background`: the slash command calls Codex
-  directly, so it never receives the P0/P1/P2 scale that
+  directly, so it never receives the P0/P1/P2/P3 scale that
   `scripts/codex-review.sh` writes into the prompt. Fine for an interactive
   spot-check; it cannot establish the adjudicated-clean rounds this loop gates
   on.
@@ -231,11 +240,15 @@ task check      # fast inner loop while editing
 task verify     # definition-of-done gate
 task challenge  # adversarial second model — adjudicate, fix, re-challenge
                 # until TWO CONSECUTIVE rounds adjudicate to zero P0/P1
-                # (any round with no findings at all ends it), ≤4 rounds
-task review     # verification checkpoint — same convergence rule, ≤4 rounds
+                # (a round with no findings ends it once the level's
+                # min_rounds floor is met), under the challenge cap
+                # resolved from .devflow.toml
+task review     # verification checkpoint — same convergence rule, under its
+                # own resolved review cap
 task ci         # full CI mirror
 # → open a DRAFT PR, then shepherd it: watch CI + reviews, settle the deferred
-#   P2s, adjudicate → fix → push, ≤4 rounds (independent of the loops above)
+#   P2s, adjudicate → fix → push, under the shepherd cap (independent of the
+#   loops above)
 # → readiness gate passes → gh pr ready (the handoff to a human)
 # → merging stays a human decision
 ```
@@ -244,6 +257,15 @@ The full staged loop — including the PR-shepherding rounds and the readiness
 gate that ends them — is defined in AGENTS.md ("Dev Loop"). The PR is a
 **draft** for every stage above: it is the agent's workbench, and promoting it
 is the one signal that the automated work is finished.
+
+The caps are not written down here, or in AGENTS.md. They live in
+[`.devflow.toml`](../../.devflow.toml) as `rigor` levels, and **AGENTS.md alone
+defines how a change resolves one** — restating that chain here would only give
+it a second place to drift from, and which inputs are even available depends on
+how the repository is set up. `challenge`, `review`, and the `min_rounds` floor vary by level; the
+shepherd cap is fixed, because it bounds other people's findings rather than
+self-generated work. Announce the resolved caps — the floor included — when
+you enter the loop.
 
 If Codex cloud review is connected to the repo, PRs
 get a cloud pass too: inline comments only for high-priority findings, a
@@ -263,9 +285,12 @@ down to
 P2; what counts is the **adjudicated** column of your adjudication table, not
 the label Codex attached. The second such round *is* the confirmation, so no
 extra run is owed after it. Two cases exit faster still. A round with **no
-findings at all** ends the stage on the spot, whenever it comes — an empty
-round is exactly the older "clean re-run" exit, so neither a trivial change
-nor a clean post-fix re-run pays for a confirmation pass. And a **capped
+findings at all** ends the stage on the spot **once the level's `min_rounds`
+floor is met** (1 wherever a level does not set it) — an empty round is exactly
+the older "clean re-run" exit, so neither a trivial change nor a clean
+post-fix re-run pays for a confirmation pass, and a floor of 2 only delays
+that shortcut, never the other two exits, which run at least two rounds by
+construction. And a **capped
 final round** that adjudicates to zero P0/P1 ends the stage by itself: the
 confirmation it would otherwise owe is a run the cap forbids, and escalation
 at the cap is reserved for P0/P1 findings that persist — a clean last round
@@ -283,16 +308,35 @@ along the way was individually defensible.
 The **scaffolding damper** is what replaces the cap as the first line of
 defense. At round 2 — the earliest round that can show the pattern — say on
 the table, for each finding, whether its subject exists only because an earlier
-round of the same stage added it. Where it does, adjudicate it with one of two
-dispositions written down: delete the scaffolding, or state that the code is
-in scope and why the change needs it. A deletion does not re-score the round
+round of the same stage added it. Where it does, adjudicate it with one of
+three dispositions written down: delete the scaffolding, restructure it to
+invariants, or state that the code is in scope and why the change needs it.
+
+**Restructuring to invariants** is deletion by abstraction, and it is the
+disposition to reach for when plain deletion is unavailable. Some artifacts —
+specs, policy documents, AGENTS.md itself — accrete procedure-prose that
+earlier rounds legitimately demanded, so it cannot just be dropped without
+dropping the obligation with it. Instead, replace the attackable procedure with
+the universally-quantified property it was approximating, delegate the
+mechanism to the implementation surface that can actually be tested, and carry
+the round's attack scenarios across as required test cases. The wording seam
+the next round would have attacked is gone, and the obligation survives as a
+property plus its tests rather than as prose. Three rounds of trust-rule
+whack-a-mole in the 2026-08-13/14 spec session ended in exactly one such
+restructure. It shares deletion's accounting: it does not re-score the round
+that raised the findings, and it must be named on the table and in the commit
+message, because "the procedure is gone" and "the requirement is gone" look
+identical in a diff and are not the same thing.
+
+A deletion does not re-score the round
 that flagged the code — the finding keeps its adjudicated priority there, and
 it is the **next** round, reviewing the tree without it, that finds nothing
 left to re-raise and counts toward convergence. Reflexively hardening the
 previous round's fix is the failure mode; naming it on the table is the
 check.
 
-Two things do not move. The **4-round cap** per stage stands, and persistent
+Two things do not move. The **per-stage cap** stands — whatever rigor level
+resolved it — and persistent
 P0/P1 disagreement at the cap is escalated rather than iterated on. And the
 deferred-P2 chain is a **precondition** of the exit, not a casualty of it:
 every P2 open at convergence must already be in the sidecar below, so
@@ -312,11 +356,68 @@ silently drop one:
 | `P0` | Breaks correctness, security, or data integrity in ordinary use, or breaks an existing contract | Yes |
 | `P1` | A real defect or materially wrong design decision with a plausible trigger | Yes |
 | `P2` | Worth knowing, not merge-blocking: hardening, unlikely edge cases, maintainability, non-critical test gaps | No |
+| `P3` | Cosmetic or purely informational: a naming or wording choice that will mislead a reader, an observation with no defect behind it. The no-style-nits rule still binds — P3 is the floor for findings worth stating, not a licence to report nits | No |
 
 The scale lives in the prompt that `scripts/codex-review.sh` builds — not in
 the Codex CLI's own priority labels, which are an undocumented convention
 that can change. Keeping the definition local means the gate still means what
 it says when Codex's output format moves.
+
+That prompt reaches the **local** tasks only. Codex **cloud** review runs on
+its own instructions and has been seen badging a finding off this scale (a
+real `P3` on `harmon-init#918`, before P3 was defined here). So the scale
+closes with a property rather than a list.
+
+**A label is a hypothesis; the adjudicated severity is the verdict.** This
+holds for every finding from every reviewer, and P3 is not an exception to it:
+
+- The severity that counts is the one **you** adjudicate on evidence, never
+  the one the reviewer wrote. That is already how P0 and P1 are handled; the
+  scale just makes it explicit at the bottom too.
+- **Adjudication alone decides deferral.** The sidecar records what is
+  *deferred*, so an entry is owed only for a finding that is both unresolved
+  and carried forward: one fixed in place leaves nothing to defer, and one
+  adjudicated genuinely cosmetic leaves nothing to carry. What the badge may
+  never do is skip the adjudication that decides which of those it is — the
+  `P3` on harmon-init#918 was a real parsing defect, so this is an observed
+  failure mode, not a hypothetical one.
+- A badge **off** the scale, or absent entirely, starts at **at least a P2**.
+  A future `P4` is triaged, never dropped for being unrecognized.
+
+Nothing in that depends on which reviewer produced the badge, so no
+provenance rule is needed: an under-labelled finding is caught by adjudicating
+it, wherever it came from.
+
+**The mechanism belongs to the shepherd stage, not to this prose.** How a
+cloud finding is answered depends on the surface it landed on, and `AGENTS.md`
+is the authority — it carries both procedures, because a repository can answer
+`use_codex_review` yes and `use_skills_sync` no, which renders this guide with
+no vendored checker at all. Follow whichever of the two applies to your
+checkout; nothing below overrides it.
+
+**Where the pinned checker is vendored**
+(`.claude/skills/shepherd/assets/check-codex-cloud-review.sh`), its exit codes
+are the contract. Two things about it are worth knowing because they are not
+symmetric:
+
+- An **inline** finding is classified independently of its badge and is
+  answered by a trusted in-thread reply, so an inline cloud P3 is on the
+  ordinary reply path with everything else.
+- A badged finding stated **outside** an inline thread has no reply linkage,
+  and `settle` currently refuses a badge it does not recognize as `p[0-2]`.
+  So an unfixed, non-inline cloud P3 has no way to be recorded as settled
+  *by that checker*: fix it and push (which starts a fresh-head cycle and
+  resolves it), or if it genuinely needs no change, report the blocker and
+  leave the PR draft. That gap is being fixed upstream in
+  evanharmon1/harmon-devkit#530 and re-pinned here; it is a limitation of the
+  current pin, not a rule.
+
+**Where it is not vendored**, that limitation does not exist to work around:
+`AGENTS.md`'s checker-absent procedure governs, and a non-inline finding is
+answered and its disposition recorded on the pull request in the ordinary way.
+Do not import the paragraph above into that configuration — leaving a PR draft
+indefinitely over a `settle` call your checkout has no way to make would be
+the wrong reading.
 
 P2s are **reported, adjudicated, and deferred**, never suppressed: they carry
 to the PR-shepherd stage, where they are fixed, declined with reasoning, or

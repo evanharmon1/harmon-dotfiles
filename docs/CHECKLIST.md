@@ -78,13 +78,17 @@ environment — against the items below
       (`chatgpt-codex-connector[bot]`, type `Bot`).
 - [ ] **[human-only] Disable Codex Automatic reviews** — turn **personal Auto
       review** off and set this repository's **Auto code review** preference to
-      **Follow personal**. The draft-workbench lifecycle drives Codex with
+      **Follow personal** — and its review **Trigger** to Follow personal too,
+      since an "On every push" trigger sits dormant while Auto review is off
+      and arms across every Follow-personal repo at once the moment the
+      personal toggle changes. The draft-workbench lifecycle drives Codex with
       explicit `@codex review` requests while the PR is draft; left on,
       `gh pr ready` starts a *new* asynchronous review after the readiness gate,
-      and non-draft stops truthfully meaning "ready for a human". No API exposes
-      this setting, so it is a human-configured prerequisite the gate trusts on
-      the strength of this record — never report it as mechanically verified,
-      and re-check it here if Codex's settings change.
+      and non-draft stops truthfully meaning "ready for a human". Ticking this
+      item records that all three knobs are set; once recorded it is settled
+      configuration — nothing in the lifecycle gates on it — and the one thing
+      worth reporting later is an unsolicited Codex review, the signature of
+      the knobs drifting back on.
 - [ ] **[human-only] Any other automatic reviewer must review drafts** — if you
       enable one (GitHub Copilot code review, for example), turn on its draft-review option.
       A reviewer that skips drafts first reports *after* promotion, so the
@@ -142,28 +146,43 @@ environment — against the items below
       `evanharmon1 Project`) and idempotently sync its `Status` pipeline and
       `Size` number field — see
       [project-management.md](project-management.md).
-      On a personal account it also creates Priority/Product/Domain/Layer/
-      Size as project fields (issue fields are org-only); status automation is a
-      separate follow-up — the board is set up, but issue/PR status isn't
-      auto-synced yet. `Domain` is seeded with `auth`/`billing`/`platform` only —
-      add this product's real domains in the Project UI, and matching `domain:`
-      labels in `scripts/setup-github-labels.sh`. Re-runs **append** any starter
-      option a single-select field is missing (so a value added by a later
-      harmon-init release lands on the next run) and never touch, reorder, or
-      delete the options you added.
+      On a personal account it also creates Priority/Product/Size as project
+      fields (issue fields are org-only; there is deliberately no Domain or
+      Layer field — see [project-management.md](project-management.md), "Label
+      or field?"); status automation is a separate follow-up — the board is set
+      up, but issue/PR status isn't auto-synced yet. Re-runs **append** any
+      starter option a single-select field is missing (so a value added by a
+      later harmon-init release lands on the next run) and never touch,
+      reorder, or delete the options you added.
+- [ ] **Upgrading from a release before harmon-init#875?**
+      If this repo's board still carries `Domain`/`Layer` fields from an
+      earlier release, they are not deleted automatically.
+      Retiring them is a deliberate, irreversible operator step — see
+      [project-management.md](project-management.md), "Migrating a board that
+      still has one."
 - [ ] Labels: run `task setup:github-labels` to seed this repo's starter label
-      families (concerns/source/workflow/layer/domain — see
-      [project-management.md](project-management.md)). Labels are per-repo, so run
-      it in each repo; org default labels (org Settings → Repository, UI-only) only
-      seed new repos.
+      families from `label-registry.json`      (see the generated taxonomy table in
+      [project-management.md](project-management.md)) — grow `domain:` values
+      there as the product's own problem-space vocabulary and `area:` values as
+      its solution-space subsystems; both starter lists are a floor. `layer:`
+      is product-independent and normally needs no edits. Labels are per-repo,
+      so run it in each repo; org default labels (org Settings → Repository,
+      UI-only) only seed new repos.
+- [ ] **After a `copier update` that adds label families** (e.g. `tier:*` /
+      `method:*`), re-run `task setup:github-labels` to provision the new
+      labels here — it is additive and never deletes, so existing labels and
+      the issues they sit on are untouched — then classify open issues with the
+      added families.
 - [ ] **[human-only] Retire any legacy `agent:*` claim labels** — needed only
-      where `gh label list --limit 200` still shows the harness-named family
+      where `gh label list --limit 1000` still shows the harness-named family
       (`agent:claude-code`, `agent:gemini-cli`, …) a pre-registry harmon-init
-      seeded. **Pass an explicit `--limit` to every `gh label list`,
-      `gh issue list`, and `gh pr list` in this step**: all three default to 30,
-      the starter set alone is over 40 labels, and an unbounded read reports a
-      clean repo — or a finished migration — while legacy labels, in-flight
-      claims, and labelled pull requests remain.
+      seeded. **Start with an explicit `--limit 1000` on every `gh label list`,
+      `gh issue list`, and `gh pr list` in this step**: all three default to 30.
+      If any list returns exactly 1000 entries (`--json name --jq length` for
+      labels; `--json number --jq length` for issues and PRs), treat it as capped:
+      double the limit and re-run until the count is below the cap before any
+      rename or delete. Otherwise a clean-looking result can leave legacy
+      labels, in-flight claims, or labelled pull requests unseen.
       `setup-github-labels` never deletes a label, so the old family
       survives beside the registry-rendered `claim:*` one, and every reader
       tolerates both — this is cleanup, not a fix for something broken.
@@ -197,7 +216,7 @@ environment — against the items below
       X --remove-label Y` pair works on `gh pr edit`), then delete the
       now-empty old label (`gh label delete agent:claude-code --repo
       <owner/repo> --yes`) once a re-read of `gh issue list --label
-      agent:claude-code --state all --limit 200` **and** the equivalent
+      agent:claude-code --state all --limit 1000` **and** the equivalent
       `gh pr list` both return nothing — only then is it safe to delete; the
       other checklist items below that reference this procedure reuse it
       verbatim. Enumerate **`gh pr list` as well as `gh issue list`**
@@ -205,10 +224,10 @@ environment — against the items below
       pull requests too and `gh issue list` never returns them, so deleting the
       legacy label afterwards would drop exactly the associations the re-labelling
       missed — the loss this whole item exists to avoid. Check for in-flight
-      claims first — `gh issue list --label agent:… --state all --limit 200`
-      **and** `gh pr list --label agent:… --state all --limit 200`: a claim
+      claims first — `gh issue list --label agent:… --state all --limit 1000`
+      **and** `gh pr list --label agent:… --state all --limit 1000`: a claim
       record naming the old label will not release the renamed one, so settle or
-      amend those records in the same sitting. Re-read `gh label list --limit 200` afterwards — no `agent:*`
+      amend those records in the same sitting. Re-read `gh label list --limit 1000` afterwards — no `agent:*`
       should remain.
 - [ ] **[human-only] Retire pre-2026-refresh `codex`/`copilot` agent labels** —
       needed only where an explicit enumeration shows
@@ -217,9 +236,10 @@ environment — against the items below
       name --jq '.[].name' | grep -E '^(suggest|claim):(codex|copilot)$'`
       (the default `gh label list --limit 200` paged listing can miss these
       on a repo with many labels — use this enumeration, not the paged form,
-      everywhere in this item). harmon-init issue #751 renamed those families
-      to `gpt` and `mai` (Codex and Copilot are harnesses, not families — the
-      same harness/family split D9 already made elsewhere; see ADR 0005 D8).
+      everywhere in this item). harmon-init issue #751 replaced those
+      harness-named families with model-family vocabulary: Codex maps to `gpt`;
+      Copilot is a broker that defaults to `mai`, but each association must use
+      the actual family recovered by the procedure below.
       A `setup-github-labels` re-run never deletes the old family, so it
       survives beside the new registry-rendered one.
 

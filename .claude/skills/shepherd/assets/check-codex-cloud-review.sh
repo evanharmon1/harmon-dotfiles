@@ -15,6 +15,11 @@
 #   2  indeterminate — malformed, changed head, usage error, or a
 #      current-head verdict whose shape cannot be classified
 #
+# `settle` records the disposition of a badged finding that lives OUTSIDE an
+# inline thread — a top-level conversation comment or a review body — because
+# those two surfaces carry no reply linkage, so the in-thread adjudication path
+# can never reach them and `check` would report `findings` for them forever.
+#
 # `reserve` creates the state a cycle runs on; `reap` is the other half of that
 # lifecycle. Nothing else removes a state file — a shepherded PR is still open
 # when its session stops, so a cycle can never reap its own state, and without
@@ -31,6 +36,7 @@ Usage:
   check-codex-cloud-review.sh reserve --state FILE --repo OWNER/REPO --pr N --head SHA --attempt 1|2
   check-codex-cloud-review.sh attach --state FILE --trigger-id N
   check-codex-cloud-review.sh check --state FILE --actor-id N [--actor-login LOGIN] [--timeout-min N] [--now ISO8601]
+  check-codex-cloud-review.sh settle --state FILE --actor-id N --surface comment|review --id N --disposition declined|filed --note TEXT [--covers N] [--now ISO8601]
   check-codex-cloud-review.sh show --state FILE
   check-codex-cloud-review.sh reap --root DIR [--budget-sec N]
 
@@ -83,6 +89,11 @@ timeout_min=15
 timeout_min_set=0
 timeout_min_adopted=0
 now=
+surface=
+target_id=
+disposition=
+note=
+covers=
 lock_dir=
 reap_entries=
 reap_lock=
@@ -91,7 +102,7 @@ reap_deadline_epoch=
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-    --state | --root | --repo | --pr | --head | --attempt | --trigger-id | --actor-id | --actor-login | --timeout-min | --budget-sec | --now)
+    --state | --root | --repo | --pr | --head | --attempt | --trigger-id | --actor-id | --actor-login | --timeout-min | --budget-sec | --now | --surface | --id | --disposition | --note | --covers)
         [ "$#" -ge 2 ] || usage
         case "$1" in
         --state) state_file=$2 ;;
@@ -109,6 +120,11 @@ while [ "$#" -gt 0 ]; do
             ;;
         --budget-sec) reap_budget_sec=$2 ;;
         --now) now=$2 ;;
+        --surface) surface=$2 ;;
+        --id) target_id=$2 ;;
+        --disposition) disposition=$2 ;;
+        --covers) covers=$2 ;;
+        --note) note=$2 ;;
         esac
         shift 2
         ;;
@@ -226,8 +242,34 @@ resolve_timeout_min() {
 persist_adopted_timeout() {
     [ "$timeout_min_adopted" = 1 ] || return 0
     payload=$(jq --argjson timeout_min "$timeout_min" \
-        '.timeout_min = $timeout_min' "$state_file")
+        '.version = 2 | .timeout_min = $timeout_min' "$state_file")
     write_state "$state_file" "$payload"
+}
+
+now_utc() {
+    if [ -n "$now" ]; then
+        valid_time "$now" || die "--now must be an ISO-8601 UTC second"
+        printf '%s' "$now"
+    else
+        date -u '+%Y-%m-%dT%H:%M:%SZ'
+    fi
+}
+
+# A disposition is recorded against the exact text it answered, so an edited
+# finding stops being settled. The body is hashed in its JSON-ENCODED form:
+# command substitution strips trailing newlines, and the encoded string keeps
+# them (and every other whitespace edit) inside the value being hashed. The
+# edit timestamp rides along where the surface exposes one — reviews expose
+# only `submitted_at`, so for them the body hash is the whole of the evidence.
+# `cksum` rather than a digest tool: it is POSIX, ships everywhere this helper
+# already runs, and this is change detection between two co-operating reads of
+# the same API, not a defence against a forged body.
+content_fingerprint() {
+    body_json=$1
+    edited_at=$2
+    body_sum=$(printf '%s' "$body_json" | cksum | tr ' ' '-') ||
+        die "cannot fingerprint a review body"
+    printf '%s|%s' "$edited_at" "$body_sum"
 }
 
 # Fetch the PR and print its head SHA, distinguishing three outcomes the
@@ -301,11 +343,38 @@ write_state() {
     fi
 }
 
+# Every field `settle` writes is validated here, not just the pair that
+# identifies the target. A settlement is the record that a human adjudicated a
+# finding, so an entry missing its disposition or its note is not a weaker
+# record — it is no record at all, and honouring one would let `check` report
+# clean with nothing behind it. Corrupted or hand-reconstructed state must
+# reach the malformed-state refusal instead.
+#
+# Version 2 added `settled`. A version-1 file is read as if it were empty and
+# is REWRITTEN as version 2 by the next command that writes it, so an in-flight
+# cycle survives the upgrade. A version this helper has never heard of is
+# refused outright rather than read optimistically: an unknown field could carry
+# exactly the evidence a newer writer expects this one to honour.
 read_state() {
     [ -f "$state_file" ] || die "state file does not exist: $state_file"
+    state_version=$(jq -r 'select(type == "object") | .version | tostring' \
+        "$state_file" 2>/dev/null) || die "malformed state file: $state_file"
+    case "$state_version" in
+    1 | 2) ;;
+    *) die "state file is version $state_version, which this helper does not understand: $state_file" ;;
+    esac
     jq -e '
       type == "object" and
-      (.version == 1) and
+      (.version == 1 or .version == 2) and
+      (.settled == null or ((.settled | type == "array") and
+        (.settled | all(type == "object" and
+          ((.surface == "comment") or (.surface == "review")) and
+          (.id | type == "number") and
+          ((.disposition == "declined") or (.disposition == "filed")) and
+          (.note | type == "string") and ((.note | length) > 0) and
+          (.content_fingerprint | type == "string") and
+          ((.content_fingerprint | length) > 0) and
+          (.settled_at | type == "string"))))) and
       (.repo | type == "string") and
       (.pr | type == "number") and
       (.head | type == "string") and
@@ -431,11 +500,15 @@ codex_verdict_defs=$(
           def clean_sentence:
             "codex review: didn't find any major issues.";
           def body_text: (.body // "");
+          # `first // ""`, never `[0]`: jq's `"" | split("\n")` is `[]`, so an
+          # empty body would pipe null into gsub and crash the whole program
+          # with jq's own exit 5 — outside the documented code set
+          # (harmon-devkit#392, hit live on harmon-init#766).
           def first_line:
-            (body_text | split("\n")[0] |
+            (body_text | split("\n") | first // "" |
               gsub("^[[:space:]]+|[[:space:]]+$"; "") | ascii_downcase);
           def has_severity_marker:
-            (body_text | ascii_downcase | test("\\bp[0-2]\\b"));
+            (body_text | ascii_downcase | test("\\bp[0-9]+\\b"));
           # Factored out of `rest_is_boilerplate` so the carrier defs below can
           # reuse the exact same removal and the exact same metadata pattern
           # instead of restating them. Same regexes, same flags, same order —
@@ -473,8 +546,9 @@ codex_verdict_defs=$(
           # part of Codex's output that does NOT vary:
           #
           #   1. the verdict sentence itself, matched exactly;
-          #   2. the absence of any P0/P1/P2 badge ANYWHERE in the body —
-          #      every finding Codex has ever posted here carried one;
+          #   2. the absence of any severity badge ANYWHERE in the body —
+          #      every finding Codex has ever posted here carried one,
+          #      including the observed P3;
           #   3. every remaining line being Codex's own metadata.
           #
           # Inline comments on the current head are classified as findings
@@ -594,6 +668,14 @@ reserve)
     reserved_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     cycle_requested_at=
     previous_trigger_id=null
+    # Settlements are statements about a HEAD, not about an attempt, so attempt
+    # 2 of the same head keeps them — discarding them would make every attempt-2
+    # cycle re-block on findings a human already disposed of. A different head
+    # invalidates them, and this payload starts them empty.
+    carried_settled='[]'
+    if [ -f "$state_file" ] && [ "$(jq -r '.head' "$state_file")" = "$head" ]; then
+        carried_settled=$(jq -c '.settled // []' "$state_file")
+    fi
     if [ "$attempt" = "2" ]; then
         cycle_requested_at=$(jq -r '.cycle_requested_at' "$state_file")
         previous_reserved_at=$(jq -r '.reserved_at' "$state_file")
@@ -652,14 +734,16 @@ reserve)
         --arg cycle_requested_at "$cycle_requested_at" \
         --argjson previous_trigger_id "$previous_trigger_id" \
         --argjson timeout_min "$payload_timeout_min" \
+        --argjson settled "$carried_settled" \
         '{
-          version:1,repo:$repo,pr:$pr,head:$head,attempt:$attempt,
+          version:2,repo:$repo,pr:$pr,head:$head,attempt:$attempt,
           phase:"reserved",reserved_at:$reserved_at,
           trigger_comment_id:null,requested_at:null,
           cycle_requested_at:
             (if $cycle_requested_at == "" then null else $cycle_requested_at end),
           previous_trigger_comment_id:$previous_trigger_id,
-          timeout_min:$timeout_min
+          timeout_min:$timeout_min,
+          settled:$settled
         }')
     write_state "$state_file" "$payload"
     release_state_lock
@@ -723,6 +807,7 @@ attach)
     payload=$(jq \
         --argjson id "$trigger_id" \
         --arg requested_at "$requested_at" '
+          .version = 2 |
           .phase = "attached" |
           .trigger_comment_id = $id |
           .requested_at = $requested_at |
@@ -792,7 +877,7 @@ reap)
 
         state_repo=$(jq -er '
               select(
-                type == "object" and (.version == 1) and
+                type == "object" and (.version == 1 or .version == 2) and
                 (.repo | type == "string") and (.pr | type == "number")
               ) | .repo
             ' "$candidate" 2>/dev/null) || {
@@ -1071,6 +1156,61 @@ check)
         }
     done
 
+    # Settled dispositions are re-verified against the evidence just fetched,
+    # never trusted from the state file alone. An entry is honoured only while
+    # the target still reads exactly as it did when the disposition was
+    # written; an edited finding is a different finding, and its stale entry is
+    # ignored (not deleted — the operator settles it again, and the record of
+    # what was decided about the earlier text stays put). A target that has
+    # since vanished from the evidence settles nothing, which costs nothing:
+    # there is no finding left to suppress.
+    disposed_comments='[]'
+    disposed_reviews='[]'
+    settled_list="$workdir/settled.tsv"
+    jq -r '
+          (.settled // [])[] |
+          select((.id | type) == "number") |
+          [(.surface // ""), (.id | tostring), (.content_fingerprint // ""),
+           (.disposition // "")] |
+          @tsv
+        ' "$state_file" >"$settled_list"
+    applied_dispositions=""
+    while IFS='	' read -r settled_surface settled_id settled_fingerprint \
+        settled_disposition; do
+        [ -n "$settled_surface" ] || continue
+        case "$settled_surface" in
+        comment) settled_evidence="$workdir/comments.json" ;;
+        review) settled_evidence="$workdir/reviews.json" ;;
+        *) continue ;;
+        esac
+        settled_target=$(jq -c \
+            --argjson id "$settled_id" '
+              [.[] | select(.id? == $id)] | first // empty
+            ' "$settled_evidence")
+        [ -n "$settled_target" ] || continue
+        settled_body=$(printf '%s' "$settled_target" |
+            jq -r '(.body // "") | @json')
+        settled_edited=$(printf '%s' "$settled_target" |
+            jq -r '.updated_at // .submitted_at // ""')
+        [ "$(content_fingerprint "$settled_body" "$settled_edited")" = \
+            "$settled_fingerprint" ] || continue
+        case "$applied_dispositions" in
+        *"$settled_disposition"*) ;;
+        "") applied_dispositions=$settled_disposition ;;
+        *) applied_dispositions="$applied_dispositions and $settled_disposition" ;;
+        esac
+        case "$settled_surface" in
+        comment)
+            disposed_comments=$(printf '%s' "$disposed_comments" |
+                jq -c --argjson id "$settled_id" '. + [$id] | unique')
+            ;;
+        review)
+            disposed_reviews=$(printf '%s' "$disposed_reviews" |
+                jq -c --argjson id "$settled_id" '. + [$id] | unique')
+            ;;
+        esac
+    done <"$settled_list"
+
     # Current-head inline findings are PARTITIONED, not counted
     # (evanharmon1/harmon-devkit#275). Counting them made the two-attempt
     # contract unfinishable for any head carrying a declined P2: the settled
@@ -1287,7 +1427,7 @@ check)
     # top-level comment whose first line is "Codex Review: Didn't find any
     # major issues." plus a praise clause. Findings are a review body opening
     # "### Codex Review", and the findings themselves are INLINE comments
-    # carrying a P0/P1/P2 badge — which are rejected before this point. So the
+    # carrying a severity badge — which are rejected before this point. So the
     # prefix is the real signal, and the trailing clause is decoration.
     #
     # Equality on the whole line was the original bug: Codex always appends
@@ -1299,7 +1439,7 @@ check)
     # trying to read intent out of free text.
     #
     #   * does not open with the verdict sentence   -> findings
-    #   * carries a P0/P1/P2 marker anywhere        -> findings
+    #   * carries a severity marker anywhere        -> findings
     #   * a later line is not Codex's own metadata  -> INDETERMINATE
     #   * otherwise                                 -> clean
     #
@@ -1370,7 +1510,7 @@ check)
     # answered, not a verdict — so an `unrecognized` sibling is still seen.
     #
     # One more condition, and it is not optional: a review whose BODY carries a
-    # P0/P1/P2 badge is never settled by its inline comments, however well
+    # severity badge is never settled by its inline comments, however well
     # adjudicated those are. Codex states some findings in the review body
     # itself, and attribution cannot reach them — there is no inline comment to
     # reply to — so reclassifying the whole review on the strength of its
@@ -1399,18 +1539,87 @@ check)
     # pinning the tail deadlocked real PRs — there the strict reading was
     # fail-closed toward *blocking clean work*, here it is fail-closed toward
     # blocking work that still has an open finding.
+    # `body_text != ""` drops EMPTY-BODY reviews from classification, and only
+    # from classification. GitHub auto-creates a body-less COMMENTED review
+    # shell to carry inline comments (reply shells, and Codex's own shell
+    # posted before its inline findings land), and an empty body is no
+    # evidence in either direction: it has no verdict to be clean and no
+    # free-text surface where an unanswered concern could hide — anything it
+    # carries is inline comments, which the inline gate above already
+    # classifies on their own. Classifying the shell instead would read it as
+    # `findings` (no clean opening sentence) and hard-block a cycle whose
+    # real review has not arrived yet. `fetched_reviews` below deliberately
+    # still includes shells: inline comments attribute to them by review ID,
+    # and dropping the ID would make those comments read as naming a review
+    # nobody fetched.
+    # A DANGLING shell — an empty-body current-head review by the actor with
+    # no inline comment attributed to it — is a review still in flight:
+    # Codex posts the shell first and its verdict or findings only after, so
+    # clean evidence OLDER than the newest dangling shell may be about to be
+    # contradicted and is not accepted, while evidence NEWER than the shell
+    # stands (that is the normal shell -> verdict order, so an abandoned
+    # shell ages out instead of deadlocking the cycle). Every clean exit
+    # below compares its own evidence timestamp against this barrier;
+    # GitHub's ISO-8601 UTC strings compare correctly as strings.
+    shell_barrier=$(jq -r \
+        --argjson id "$actor_id" \
+        --arg head "$state_head" \
+        --argjson attributed "$attributed_reviews" '
+          [.[] | select(
+            .user.id? == $id and
+            (.commit_id? == $head) and
+            ((.body // "") == "") and
+            ((.id? | type) == "number")
+          ) |
+          select(.id as $rid | ($attributed | index($rid)) | not) |
+          .submitted_at? | select(type == "string")] | max // ""
+        ' "$workdir/reviews.json")
+
+    # Did any recorded disposition actually apply on this head? A disposed
+    # finding contributes neither `findings` nor `clean` to the aggregates, so
+    # without this the settle path could only ever reach a terminal state by
+    # borrowing an unrelated clean verdict or reaction — and on its own it fell
+    # through to the bounded wait and escalated, which is the deadlock `settle`
+    # exists to end.
+    disposed_applied=0
+    disposed_review_hits=$(jq -r \
+        --argjson id "$actor_id" \
+        --arg head "$state_head" \
+        --argjson disposed "$disposed_reviews" \
+        "$codex_verdict_defs"'
+          [.[] | select(
+            .user.id? == $id and
+            (.commit_id? == $head) and
+            (body_text != "")
+          ) | . as $review |
+          select(verdict_class == "findings") |
+          select((($review.id? | type) == "number") and
+                 (($disposed | index($review.id)) != null))
+          ] | length
+        ' "$workdir/reviews.json") || die "cannot evaluate recorded dispositions"
+    [ "$disposed_review_hits" -eq 0 ] || disposed_applied=1
+
     review_result=$(jq -r \
         --argjson id "$actor_id" \
         --arg head "$state_head" \
         --argjson settled "$settled_reviews" \
+        --argjson disposed "$disposed_reviews" \
         "$codex_verdict_defs"'
           [.[] | select(
             .user.id? == $id and
-            (.commit_id? == $head)
+            (.commit_id? == $head) and
+            (body_text != "")
           ) |
           . as $review | verdict_class as $class |
           if $class == "findings" then
+            # A recorded disposition settles the review BODY on its own,
+            # badge and prose included — that is what was disposed of. It
+            # says nothing about the inline comments hanging off that same
+            # review, which keep their own reply-based path above.
             (if (($review.id? | type) == "number") and
+                ($disposed | index($review.id))
+             then "settled"
+             elif (($review.id? | type) == "number") and
                 ($settled | index($review.id)) and
                 ((has_severity_marker) | not) and
                 is_carrier_only
@@ -1458,12 +1667,14 @@ check)
           [
             $prefix,
             verdict_class,
-            (.id | tostring)
+            (.id | tostring),
+            (.created_at // "")
           ] | @tsv
         ' "$workdir/comments.json" >"$comment_candidates"
 
     comment_result=none
-    while IFS='	' read -r prefix classification comment_id; do
+    clean_comment_time=""
+    while IFS='	' read -r prefix classification comment_id comment_created; do
         [ -n "$prefix" ] || continue
         printf '%s' "$prefix" | grep -Eq '^[0-9a-fA-F]{7,40}$' || {
             emit indeterminate "bot review comment contains a malformed commit prefix"
@@ -1472,6 +1683,18 @@ check)
         prefix_lower=$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')
         head_lower=$(printf '%s' "$state_head" | tr '[:upper:]' '[:lower:]')
         case "$head_lower" in "$prefix_lower"*) ;; *) continue ;; esac
+        # A disposed finding contributes neither `findings` nor `clean`: it is
+        # answered, not a verdict. Skipping it here rather than after the
+        # resolve is deliberate — `settle` already resolved this exact prefix
+        # against this exact head, and the head cannot have moved since (both
+        # head checks above pin it), so the call would re-prove a fact the
+        # disposition already carries.
+        if [ "$classification" = "findings" ] && valid_uint "$comment_id" &&
+            printf '%s' "$disposed_comments" |
+            jq -e --argjson id "$comment_id" 'index($id) != null' >/dev/null; then
+            disposed_applied=1
+            continue
+        fi
         resolved_payload=$(run_gh api "repos/$state_repo/commits/$prefix") ||
             bounded_wait "cannot resolve a reviewed commit prefix through GitHub"
         resolved=$(printf '%s' "$resolved_payload" | jq -er '.sha') || {
@@ -1495,6 +1718,10 @@ check)
         elif [ "$comment_result" = "none" ]; then
             comment_result=clean
         fi
+        if [ "$classification" = "clean" ] &&
+            [ "$comment_created" \> "$clean_comment_time" ]; then
+            clean_comment_time=$comment_created
+        fi
         : "$comment_id"
     done <"$comment_candidates"
 
@@ -1507,10 +1734,66 @@ check)
         exit 2
     fi
     if [ "$review_result" = "clean" ] || [ "$comment_result" = "clean" ]; then
+        # The newest clean evidence must be NEWER than the dangling-shell
+        # barrier above: an older clean result cannot vouch for a head whose
+        # next review is already in flight.
+        #
+        # Strictly newer, deliberately. GitHub timestamps these resources to
+        # whole seconds, so a shell and the verdict can tie, and a tie is
+        # undecidable — the verdict may belong to the shell's review or
+        # predate a review that is now in flight. `>` reads a tie as pending:
+        # fail closed, and not permanent, because the attempt machinery
+        # re-triggers and Codex then posts strictly newer evidence for this
+        # head that resolves the cycle either way. `>=` would trade that
+        # bounded delay for a promote-during-the-gap race inside the
+        # coincidence second.
+        #
+        # Accepted residual, stated so nobody rediscovers it: attempt 2 can
+        # post a clean verdict while attempt 1's review — same head, same
+        # diff, declared dead a full window ago — is somehow still running,
+        # and that newer verdict clears attempt 1's shell. Timestamps cannot
+        # correlate a verdict with a shell, so no comparison closes this
+        # without reopening the abandoned-shell deadlock on the other side.
+        # The exposure requires Codex to contradict itself on identical
+        # input, is caught by the caller's mandatory pre-promotion re-check
+        # when the late findings land before promotion, and beyond that a
+        # reviewer that may post arbitrarily late defeats any polling design
+        # — which is why the gate promotes to ready-for-review, not merge.
+        clean_review_time=""
+        if [ "$review_result" = "clean" ]; then
+            clean_review_time=$(jq -r \
+                --argjson id "$actor_id" \
+                --arg head "$state_head" \
+                "$codex_verdict_defs"'
+                  [.[] | select(
+                    .user.id? == $id and
+                    (.commit_id? == $head) and
+                    (body_text != "")
+                  ) | select(verdict_class == "clean") |
+                  .submitted_at? | select(type == "string")] | max // ""
+                ' "$workdir/reviews.json")
+        fi
+        newest_clean=$clean_review_time
+        if [ "$clean_comment_time" \> "$newest_clean" ]; then
+            newest_clean=$clean_comment_time
+        fi
+        if [ -n "$shell_barrier" ] && ! [ "$newest_clean" \> "$shell_barrier" ]; then
+            emit pending "a newer empty review shell is still in flight for this head"
+            exit 11
+        fi
         emit clean "authenticated bot posted a current-head clean result"
         exit 0
     fi
 
+    like_time=$(jq -r \
+        --argjson id "$actor_id" \
+        --arg requested "$cycle_requested" '
+          [.[] | select(
+            .user.id? == $id and
+            .content? == "+1" and
+            (.created_at? >= $requested)
+          ) | .created_at? | select(type == "string")] | max // ""
+        ' "$workdir/reactions.json")
     exact_like=$(jq \
         --argjson id "$actor_id" \
         --arg requested "$cycle_requested" '
@@ -1521,6 +1804,10 @@ check)
           )] | length
         ' "$workdir/reactions.json")
     if [ "$exact_like" -gt 0 ]; then
+        if [ -n "$shell_barrier" ] && ! [ "$like_time" \> "$shell_barrier" ]; then
+            emit pending "a newer empty review shell is still in flight for this head"
+            exit 11
+        fi
         emit clean "authenticated bot reacted +1 on the exact current-head trigger"
         exit 0
     fi
@@ -1561,11 +1848,235 @@ check)
             emit indeterminate "current-head findings are adjudicated but their review attribution is incomplete across the comment and review endpoints"
             exit 2
         }
+        # Here the barrier is UNCONDITIONAL: any dangling shell holds this
+        # exit at pending, with no timestamp comparison at all. Two earlier
+        # revisions tried to time-order the shell against inline activity —
+        # first the whole endpoint (an unrelated comment cleared it), then
+        # the adjudication evidence (a reply to an EARLIER finding cleared a
+        # NEWER shell, and a reply's author needs no trust to move the max) —
+        # and both were fail-open, because a shell is opaque: nothing in it
+        # says which future content it carries, so no other thread's
+        # timestamps can be correlated against it. What CAN be said is where
+        # a dangling shell at this exit can still be headed. The legitimate
+        # shell-then-verdict flow never arrives here — a clean verdict is a
+        # review body, a top-level comment, or a reaction, and each exits
+        # above through its own time-ordered gate — so a shell that is still
+        # dangling at this point is a review in flight or an abandoned one,
+        # and both are pending: fail closed, bounded by the attempt window.
+        # Attempt 2's newer evidence resolves the cycle when it is a clean
+        # verdict or reaction (the time-ordered exits above accept it). When
+        # attempt 2 instead returns findings and an ABANDONED attempt-1
+        # shell still dangles, this exit stays pending after those findings
+        # are adjudicated, and the cycle ends in the attempt machinery's
+        # escalation. Deliberate, not a gap: an actor shell nobody can
+        # explain plus adjudicated findings is incomplete evidence, and the
+        # checker's discipline for incomplete evidence is a human hand-off,
+        # never a green it cannot support.
+        if [ -n "$shell_barrier" ]; then
+            emit pending "an empty review shell is still unresolved for this head"
+            exit 11
+        fi
         emit clean "current-head findings are all adjudicated by trusted in-thread replies"
         exit 0
     fi
 
+    # Every non-thread finding on this head carries a recorded disposition and
+    # nothing on any surface contradicts it (findings and unrecognized results
+    # exited above). That is terminal, and it is reported with its own detail:
+    # a human wrote these dispositions, exactly as with the inline
+    # adjudicated-clean path, and the caller must be able to tell that from a
+    # verdict Codex itself posted.
+    if [ "$disposed_applied" = "1" ]; then
+        if [ -n "$shell_barrier" ]; then
+            emit pending "an empty review shell is still unresolved for this head"
+            exit 11
+        fi
+        # The detail names the DISPOSITIONS actually applied, not just that
+        # some existed: "declined" and "filed" mean different things to
+        # whoever reads this result, and a mixture means both happened.
+        emit clean "current-head non-thread findings are all settled: ${applied_dispositions:-recorded dispositions}"
+        exit 0
+    fi
+
     bounded_wait "no terminal current-head evidence yet"
+    ;;
+
+settle)
+    # Inline findings are settled by a trusted reply in their own thread. A
+    # badged finding stated in a top-level comment or in a review BODY has no
+    # thread to reply to, so nothing on GitHub can ever record that a human
+    # answered it and `check` reports `findings` for that head forever — the
+    # #275 deadlock, reappearing on the two surfaces the reply rule cannot
+    # reach. This command is the local record of that answer, and it is
+    # deliberately narrow: it refuses anything it cannot prove is a badged
+    # finding, from the pinned actor, about the state's own head.
+    [ -n "$surface" ] && [ -n "$target_id" ] && [ -n "$disposition" ] &&
+        [ -n "$note" ] && [ -n "$actor_id" ] || usage
+    valid_uint "$actor_id" || die "invalid actor ID"
+    valid_uint "$target_id" || die "invalid target ID"
+    case "$surface" in
+    comment | review) ;;
+    *) die "surface must be comment or review" ;;
+    esac
+    case "$disposition" in
+    declined | filed) ;;
+    *) die "disposition must be declined or filed" ;;
+    esac
+    settled_at=$(now_utc)
+    acquire_state_lock
+    read_state
+
+    state_repo=$(jq -r '.repo' "$state_file")
+    state_pr=$(jq -r '.pr' "$state_file")
+    state_head=$(jq -r '.head' "$state_file")
+    valid_repo "$state_repo" || die "state has an invalid repository"
+    valid_uint "$state_pr" || die "state has an invalid PR number"
+    valid_sha "$state_head" || die "state has an invalid head"
+    # `state_reserved` is deliberately left unset, which gives `run_gh` its flat
+    # per-call budget: settlement is a human act that lands after the cycle
+    # reported findings, often long after the attempt window closed, and
+    # budgeting these reads against an elapsed reservation would leave them one
+    # second to complete.
+
+    case "$surface" in
+    comment)
+        target=$(run_gh api "repos/$state_repo/issues/comments/$target_id") ||
+            die "cannot fetch conversation comment $target_id"
+        printf '%s' "$target" | jq -e \
+            --argjson id "$actor_id" \
+            --argjson target "$target_id" \
+            --arg suffix "/issues/$state_pr" '
+              (.id == $target) and (.user.id? == $id) and
+              ((.issue_url // "") | endswith($suffix))
+            ' >/dev/null ||
+            die "comment $target_id is not a Codex comment on this PR"
+        # Same discipline `check` applies to a top-level result: the comment
+        # must name a commit prefix that GitHub resolves to this head. A
+        # disposition recorded against some other head answers nothing.
+        settle_prefix=$(printf '%s' "$target" | jq -r '
+              (.body // "") |
+              try match(
+                "Reviewed commit[^0-9a-fA-F]+([0-9a-fA-F]{7,40})";
+                "i"
+              ).captures[0].string catch ""
+            ')
+        printf '%s' "$settle_prefix" | grep -Eq '^[0-9a-fA-F]{7,40}$' ||
+            die "comment $target_id does not identify a reviewed commit"
+        settle_prefix_lower=$(printf '%s' "$settle_prefix" |
+            tr '[:upper:]' '[:lower:]')
+        settle_head_lower=$(printf '%s' "$state_head" |
+            tr '[:upper:]' '[:lower:]')
+        case "$settle_head_lower" in
+        "$settle_prefix_lower"*) ;;
+        *) die "comment $target_id reviews a commit that is not this head" ;;
+        esac
+        settle_resolved_payload=$(run_gh api \
+            "repos/$state_repo/commits/$settle_prefix") ||
+            die "cannot resolve the reviewed commit prefix through GitHub"
+        settle_resolved=$(printf '%s' "$settle_resolved_payload" |
+            jq -er '.sha') ||
+            die "GitHub returned malformed commit-prefix data"
+        valid_sha "$settle_resolved" ||
+            die "GitHub returned an invalid resolved commit"
+        [ "$settle_resolved" = "$state_head" ] ||
+            die "comment $target_id reviews a commit that is not this head"
+        ;;
+    review)
+        target=$(run_gh api \
+            "repos/$state_repo/pulls/$state_pr/reviews/$target_id") ||
+            die "cannot fetch review $target_id"
+        printf '%s' "$target" | jq -e \
+            --argjson id "$actor_id" \
+            --argjson target "$target_id" \
+            --arg head "$state_head" '
+              (.id == $target) and (.user.id? == $id) and (.commit_id? == $head)
+            ' >/dev/null ||
+            die "review $target_id is not a current-head Codex review"
+        ;;
+    esac
+
+    # The badge is the only machine-emitted signal that this is a finding at
+    # all. Requiring it keeps settlement off every other shape the surfaces
+    # carry — a clean verdict, a carrier body, an unrecognized one — none of
+    # which a disposition would mean anything about.
+    printf '%s' "$target" |
+        jq -e "$codex_verdict_defs"' has_severity_marker' >/dev/null ||
+        die "target $target_id carries no severity badge, so it is not a finding to settle"
+
+    # A disposition settles the TARGET, and a target can hold more than one
+    # finding: Codex sometimes states several in one body. Since the entry is
+    # keyed by object ID, settling any one of them would otherwise mark the
+    # whole body answered and let the rest reach a clean verdict unaddressed —
+    # and re-settling the same ID replaces the entry rather than adding to it,
+    # so there is no way to represent the others.
+    #
+    # The fingerprint already binds the disposition to the exact body text, so
+    # what is missing is not integrity but INTENT: nothing made the operator
+    # say they had read all of it. `--covers N` is that statement, required
+    # only where it is ambiguous. It is not a claim this command can verify —
+    # no mechanism can judge whether an adjudication is any good — but it
+    # cannot be satisfied by accident, which is the whole difference between
+    # settling a body and settling the one finding you happened to notice.
+    # Count RENDERED badges, not severity tokens. Codex writes a finding as
+    # `![P2 Badge](https://img.shields.io/badge/P2-yellow…)`, which carries the
+    # severity twice — alt text and URL — so a token scan reports two findings
+    # for one and demands `--covers 2` for the ordinary single-finding case,
+    # breaking the documented invocation. Matching the alt-text form counts
+    # each badge once. A body that states findings as plain prose renders no
+    # badge at all, so that shape falls back to the token scan, which is
+    # correct for it; `has_severity_marker` above has already established that
+    # at least one finding is present either way.
+    badge_count=$(printf '%s' "$target" |
+        jq -r '((.body // "") | ascii_downcase) as $body |
+               ([$body | scan("!\\[p[0-9]+ badge\\]")] | length) as $rendered |
+               if $rendered > 0 then $rendered
+               else ([$body | scan("\\bp[0-9]+\\b")] | length) end') ||
+        die "cannot count the findings in target $target_id"
+    if [ "$badge_count" -gt 1 ]; then
+        [ -n "$covers" ] ||
+            die "target $target_id carries $badge_count findings; pass --covers $badge_count to state that this disposition answers all of them"
+        valid_uint "$covers" || die "--covers must be a positive integer"
+        [ "$covers" -eq "$badge_count" ] ||
+            die "--covers $covers does not match the $badge_count findings in target $target_id"
+    fi
+
+    settle_body=$(printf '%s' "$target" | jq -r '(.body // "") | @json')
+    settle_edited=$(printf '%s' "$target" |
+        jq -r '.updated_at // .submitted_at // ""')
+    settle_fingerprint=$(content_fingerprint "$settle_body" "$settle_edited")
+
+    # Re-settling the same target REPLACES its entry rather than appending: the
+    # ordinary reason to settle twice is that Codex edited the finding and the
+    # first disposition no longer applies to the text on the PR.
+    payload=$(jq \
+        --arg surface "$surface" \
+        --argjson id "$target_id" \
+        --arg disposition "$disposition" \
+        --arg note "$note" \
+        --arg fingerprint "$settle_fingerprint" \
+        --arg settled_at "$settled_at" '
+          .version = 2 |
+          # Keyed by (surface, id, FINGERPRINT). Re-settling the same text
+          # replaces its entry — a retry after a lost result must not leave
+          # two contradictory current decisions, nor grow the list on every
+          # attempt. Re-settling text Codex has since EDITED appends, because
+          # the old entry has a different fingerprint: it goes inert (`check`
+          # honours only the entry matching the body as it stands) while
+          # surviving as the record of what was decided about the earlier
+          # text, which is what SKILL.md promises is kept.
+          .settled = (
+            ((.settled // []) |
+              map(select((.surface != $surface) or (.id != $id) or
+                         (.content_fingerprint != $fingerprint)))) +
+            [{
+              surface:$surface,id:$id,disposition:$disposition,note:$note,
+              content_fingerprint:$fingerprint,settled_at:$settled_at
+            }]
+          )
+        ' "$state_file")
+    write_state "$state_file" "$payload"
+    release_state_lock
+    printf '%s\n' "$payload"
     ;;
 
 *) usage ;;
