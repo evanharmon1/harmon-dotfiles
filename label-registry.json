@@ -226,16 +226,28 @@
       "color": "FBCA04",
       "values": [
         {
-          "value": "auth",
-          "description": "Authentication and authorization"
+          "value": "shell",
+          "description": "Interactive shell experience: zsh/bash startup, prompt, aliases, functions, env"
         },
         {
-          "value": "billing",
-          "description": "Billing and payments"
+          "value": "terminal",
+          "description": "Terminal emulator and input: ghostty, karabiner, keybindings"
         },
         {
-          "value": "platform",
-          "description": "CI, build, test infra, and tooling in this repo"
+          "value": "ai-tools",
+          "description": "AI coding assistants on the host: Claude Code, Codex, Gemini, OpenCode, aichat, llm"
+        },
+        {
+          "value": "git",
+          "description": "Git identity, credentials, push transport, gh"
+        },
+        {
+          "value": "provisioning",
+          "description": "Getting a machine to a working state: chezmoi apply, Brewfile, mackup, bootstrap"
+        },
+        {
+          "value": "dev-workflow",
+          "description": "The agentic dev loop itself: constitution, AGENTS.md policy, rigor/tier/method, gauntlet/shepherd"
         }
       ]
     },
@@ -283,10 +295,6 @@
           "description": "release-please, tags, release guards"
         },
         {
-          "value": "devcontainer",
-          "description": "Dev containers, images, features"
-        },
-        {
           "value": "pm",
           "description": "Labels, projects, issue tooling, PM docs"
         },
@@ -297,6 +305,70 @@
         {
           "value": "gauntlet",
           "description": "The challenge/review second-model stage: scripts, gates, and skill wiring"
+        },
+        {
+          "value": "chezmoi",
+          "description": "chezmoi source-state mechanics: .chezmoiignore, .chezmoiscripts/, template data, apply behaviour"
+        },
+        {
+          "value": "zsh",
+          "description": "private_dot_zshrc.tmpl, .zprofile, and private_dot_dotfiles/ (aliases, functions, var)"
+        },
+        {
+          "value": "bash",
+          "description": "private_dot_bashrc.tmpl and .bash_profile (Linux/fallback shell)"
+        },
+        {
+          "value": "claude",
+          "description": "private_dot_claude/, the remote-control apply script, and ~/.claude.json handling"
+        },
+        {
+          "value": "codex",
+          "description": "private_dot_codex/"
+        },
+        {
+          "value": "gemini",
+          "description": "private_dot_gemini/"
+        },
+        {
+          "value": "opencode",
+          "description": "dot_config/opencode/"
+        },
+        {
+          "value": "llm-cli",
+          "description": "aichat and llm CLIs: dot_config/aichat, dot_config/io.datasette.llm, and their Library configs"
+        },
+        {
+          "value": "ghostty",
+          "description": "dot_config/ghostty and its Library config"
+        },
+        {
+          "value": "karabiner",
+          "description": "dot_config/private_karabiner"
+        },
+        {
+          "value": "starship",
+          "description": "dot_config/starship.toml"
+        },
+        {
+          "value": "git",
+          "description": "private_dot_gitconfig.tmpl, private_dot_gitignore_global, dot_config/private_git, dot_config/gh"
+        },
+        {
+          "value": "brew",
+          "description": "Brewfile and private_Brewfile"
+        },
+        {
+          "value": "mackup",
+          "description": "private_dot_mackup and private_dot_mackup.cfg"
+        },
+        {
+          "value": "agents-md",
+          "description": "AGENTS.md and docs/ policy prose (constitution, Dev Loop, conventions); not area:docs content"
+        },
+        {
+          "value": "specs",
+          "description": "specs/"
         }
       ]
     },
