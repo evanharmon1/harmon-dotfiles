@@ -37,6 +37,21 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 0
 fi
 
+# A symlinked ~/.claude.json is a real layout (harmon-init's devcontainers link
+# it into a persisted volume). Rename-in-place would replace the link with a
+# regular file, so operate on the resolved target instead.
+if [ -L "$config_file" ]; then
+    if ! resolved="$(readlink -f "$config_file" 2>/dev/null)" || [ -z "$resolved" ]; then
+        warn "$config_file is a symlink that cannot be resolved; leaving it untouched"
+        exit 0
+    fi
+    config_file="$resolved"
+fi
+if [ -e "$config_file" ] && [ ! -f "$config_file" ]; then
+    warn "$config_file exists but is not a regular file; leaving it untouched"
+    exit 0
+fi
+
 # Absent file: feed `{}` through the same write-temp-then-rename path below, so
 # a first apply can never leave a partial file behind. Existing file: it must
 # parse — a corrupt file is left alone rather than overwritten.
@@ -45,13 +60,14 @@ if [ -f "$config_file" ]; then
         warn "$config_file is not valid JSON; leaving it untouched"
         exit 0
     fi
-    if [ "$(jq -r '.remoteControlAtStartup // false' "$config_file" 2>/dev/null)" = "true" ]; then
+    # Boolean true only: a string "true" is not what Claude Code reads.
+    if jq -e '.remoteControlAtStartup == true' "$config_file" >/dev/null 2>&1; then
         exit 0
     fi
     # Preserve the existing mode across the atomic replace: mktemp creates 0600
     # and `mv` carries the temp file's mode over, so a more permissive original
     # would silently change. BSD and GNU stat spell the query differently.
-    mode="$(stat -f '%Lp' "$config_file" 2>/dev/null || stat -c '%a' "$config_file" 2>/dev/null || echo 600)"
+    mode="$(stat -L -f '%Lp' "$config_file" 2>/dev/null || stat -L -c '%a' "$config_file" 2>/dev/null || echo 600)"
     jq_args=('.remoteControlAtStartup = true' "$config_file")
 else
     mode=600

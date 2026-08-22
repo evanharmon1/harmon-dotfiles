@@ -114,4 +114,34 @@ if [ "$(id -u)" != "0" ]; then
     [ -z "$(find "$home" -name '.claude.json.*' 2>/dev/null)" ] || fail "temp file left behind in an unwritable dir"
 fi
 
+echo "==> a symlinked config updates the target and keeps the link"
+home="$(new_home)"
+store="$(mktemp -d "$TMP/store.XXXXXX")"
+printf '%s\n' '{"numStartups":3}' >"$store/.claude.json"
+chmod 600 "$store/.claude.json"
+ln -s "$store/.claude.json" "$home/.claude.json"
+HOME="$home" bash "$script" >/dev/null
+[ -L "$home/.claude.json" ] || fail "the symlink was replaced by a regular file"
+jq -e '.remoteControlAtStartup == true' "$store/.claude.json" >/dev/null ||
+    fail "the symlink target was not updated"
+[ "$(jq -r '.numStartups' "$store/.claude.json")" = "3" ] || fail "symlink target keys were not preserved"
+[ "$(file_mode "$store/.claude.json")" = "600" ] ||
+    fail "symlink target mode must be preserved, got $(file_mode "$store/.claude.json")"
+
+echo "==> a string \"true\" is replaced with boolean true"
+home="$(new_home)"
+printf '%s\n' '{"remoteControlAtStartup":"true"}' >"$home/.claude.json"
+HOME="$home" bash "$script" >/dev/null
+[ "$(jq -c '.remoteControlAtStartup' "$home/.claude.json")" = "true" ] ||
+    fail "string \"true\" was not replaced with boolean true"
+
+echo "==> a directory at the config path warns and writes nothing"
+home="$(new_home)"
+mkdir "$home/.claude.json"
+HOME="$home" bash "$script" >"$TMP/dir.out" 2>"$TMP/dir.err" || fail "a directory config path must still exit 0"
+[ -d "$home/.claude.json" ] || fail "the directory was replaced"
+[ -z "$(ls -A "$home/.claude.json")" ] || fail "a file was written inside the directory"
+[ ! -s "$TMP/dir.out" ] || fail "a directory config path must not claim success"
+grep -q "not a regular file" "$TMP/dir.err" || fail "no warning for a directory config path"
+
 echo "TEST PASS: claude remote-control run script"
