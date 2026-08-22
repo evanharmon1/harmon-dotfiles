@@ -73,6 +73,7 @@ tasks:
       - task: test:ci-results
       - task: test:hooks
       - task: test:ai-config
+      - task: test:claude-config
       - task: test:output
       - task: test:status
       - task: test:gh-scopes
@@ -398,6 +399,11 @@ tasks:
     desc: Show whether the Claude → Codex stop-gate review is enabled
     cmds:
       - ./scripts/codex-gate.sh status
+
+  test:claude-config:
+    desc: Behavioral test for the chezmoi run script that enables Claude Code Remote Control
+    cmds:
+      - ./scripts/test-claude-config.sh
 
   test:ai-config:
     desc: Validate Claude, Codex, and OpenCode config, rules, and symlinks

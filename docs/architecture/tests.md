@@ -17,4 +17,8 @@ How testing works in Harmon Dotfiles.
 
 - Test files live in `tests/` at the repo root (or co-located per framework convention).
 - `task verify` is the local definition-of-done gate. CI runs the same task targets.
+- Per-target behavioral tests live in `scripts/test-*.sh` and are wired to
+  `task test:<name>` targets that `verify` runs — e.g. `task test:claude-config`
+  exercises the `.chezmoiscripts/` run script that enables Claude Code Remote
+  Control, against a throwaway `HOME` so the real `~/.claude.json` is untouched.
 - TODO: document coverage expectations and fixtures as the suite grows.

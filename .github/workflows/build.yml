@@ -58,6 +58,7 @@ jobs:
       - run: task test:agent-skill-links
       - run: task test:hooks
       - run: task test:ai-config
+      - run: task test:claude-config
       - run: task test:output
       - run: task test:meta-install
       - run: task test:session-cleanup
