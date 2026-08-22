@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.17.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.16.0...v0.17.0) (2026-08-22)
+
+
+### Features
+
+* **claude:** enable Remote Control at startup via chezmoi run script ([cf15899](https://github.com/evanharmon1/harmon-dotfiles/commit/cf15899a2c635163a293394a139a276cc13d9749))
+* **claude:** enable Remote Control at startup via chezmoi run script ([850ee68](https://github.com/evanharmon1/harmon-dotfiles/commit/850ee68f8294cf79d6dda11c8fefbc8e25df7344)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+* **pm:** fit label registry to this repo — dotfiles domains and subsystem areas ([fd0b861](https://github.com/evanharmon1/harmon-dotfiles/commit/fd0b861f574e50043eb8820c21c776217182e5e4))
+* **pm:** fit label registry to this repo — dotfiles domains and subsystem areas ([c58c2c2](https://github.com/evanharmon1/harmon-dotfiles/commit/c58c2c2c920e8c0a424f5ac57f5beef0d9c4df9c))
+
+
+### Bug Fixes
+
+* **claude:** follow symlinked ~/.claude.json; require boolean true; refuse dirs ([63437e3](https://github.com/evanharmon1/harmon-dotfiles/commit/63437e366c3cfb42bb2e9864952e56fc6cbfc100)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+* **claude:** never fail apply on filesystem errors; atomic first write ([5b38d34](https://github.com/evanharmon1/harmon-dotfiles/commit/5b38d34370359c077ab28425bca5cad6baaa771f)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+* **claude:** probe GNU stat before BSD stat; run the config test in CI ([51a1e63](https://github.com/evanharmon1/harmon-dotfiles/commit/51a1e63dc0933645084bb41148979202be34f83f)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+* **claude:** require a single top-level JSON object before rewriting ([1f3d7a3](https://github.com/evanharmon1/harmon-dotfiles/commit/1f3d7a3ec1e0591a331636156dc3c679d6d29544)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+* **claude:** skip the rewrite when ~/.claude.json changes underneath ([7e8158b](https://github.com/evanharmon1/harmon-dotfiles/commit/7e8158b6f0439e986bf90efa75bd9fde7183c371)), closes [#67](https://github.com/evanharmon1/harmon-dotfiles/issues/67)
+
 ## [0.16.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.15.0...v0.16.0) (2026-08-21)
 
 
