@@ -32,6 +32,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# inode:mtime:size of the file behind the path — BSD and GNU stat differ.
+fingerprint() {
+    stat -L -f '%i:%m:%z' "$1" 2>/dev/null || stat -L -c '%i:%Y:%s' "$1" 2>/dev/null || echo "unknown"
+}
+
 if ! command -v jq >/dev/null 2>&1; then
     warn "jq not found; skipping Claude Remote Control setup for $config_file"
     exit 0
@@ -68,9 +73,17 @@ if [ -f "$config_file" ]; then
     # and `mv` carries the temp file's mode over, so a more permissive original
     # would silently change. BSD and GNU stat spell the query differently.
     mode="$(stat -L -f '%Lp' "$config_file" 2>/dev/null || stat -L -c '%a' "$config_file" 2>/dev/null || echo 600)"
+    # Claude Code rewrites this file while running. Fingerprint it (inode,
+    # mtime, size) before reading and re-check immediately before the rename:
+    # if it changed underneath us, skip rather than overwrite newer state —
+    # the next apply retries. This narrows the lost-update window to the
+    # instant between the check and the rename; it cannot close it, since
+    # Claude Code exposes no lock to take.
+    before="$(fingerprint "$config_file")"
     jq_args=('.remoteControlAtStartup = true' "$config_file")
 else
     mode=600
+    before=""
     jq_args=(-n '{remoteControlAtStartup: true}')
 fi
 
@@ -85,9 +98,15 @@ if ! tmp="$(mktemp "$config_dir/.claude.json.XXXXXX")"; then
     exit 0
 fi
 
-if ! jq "${jq_args[@]}" >"$tmp" 2>/dev/null ||
-    ! chmod "$mode" "$tmp" ||
-    ! mv "$tmp" "$config_file"; then
+if ! jq "${jq_args[@]}" >"$tmp" 2>/dev/null || ! chmod "$mode" "$tmp"; then
+    warn "failed to update $config_file; leaving existing value unchanged"
+    exit 0
+fi
+if [ -n "$before" ] && [ "$(fingerprint "$config_file")" != "$before" ]; then
+    warn "$config_file changed while updating it (another writer is active); leaving it for the next apply"
+    exit 0
+fi
+if ! mv "$tmp" "$config_file"; then
     warn "failed to update $config_file; leaving existing value unchanged"
     exit 0
 fi

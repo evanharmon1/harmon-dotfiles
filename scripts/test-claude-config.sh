@@ -144,4 +144,29 @@ HOME="$home" bash "$script" >"$TMP/dir.out" 2>"$TMP/dir.err" || fail "a director
 [ ! -s "$TMP/dir.out" ] || fail "a directory config path must not claim success"
 grep -q "not a regular file" "$TMP/dir.err" || fail "no warning for a directory config path"
 
+echo "==> a file rewritten mid-update is left alone (concurrent-writer guard)"
+home="$(new_home)"
+printf '%s\n' '{"remoteControlAtStartup":false}' >"$home/.claude.json"
+shim="$TMP/shim-jq"
+mkdir -p "$shim"
+# A jq wrapper that simulates Claude Code writing the file between the read
+# and the rename: it runs the real jq, then replaces the config with newer state.
+cat >"$shim/jq" <<SHIM
+#!/usr/bin/env bash
+out="\$("$(command -v jq)" "\$@")" || exit \$?
+printf '%s\\n' "\$out"
+if [ "\${1:-}" != "empty" ] && [ "\${1:-}" != "-e" ]; then
+    printf '%s\\n' '{"remoteControlAtStartup":false,"newer":1}' >"$home/.claude.json.swap"
+    mv "$home/.claude.json.swap" "$home/.claude.json"
+fi
+SHIM
+chmod +x "$shim/jq"
+rc=0
+HOME="$home" PATH="$shim:$PATH" bash "$script" >"$TMP/race.out" 2>"$TMP/race.err" || rc=$?
+[ "$rc" = "0" ] || fail "a concurrent rewrite must still exit 0, got $rc"
+[ "$(jq -r '.newer' "$home/.claude.json")" = "1" ] || fail "the newer concurrent state was overwritten"
+[ ! -s "$TMP/race.out" ] || fail "a skipped update must not claim success: $(cat "$TMP/race.out")"
+grep -q "changed while updating" "$TMP/race.err" || fail "no warning for a concurrent rewrite"
+[ -z "$(find "$home" -name '.claude.json.*' 2>/dev/null)" ] || fail "temp file left behind after a skipped update"
+
 echo "TEST PASS: claude remote-control run script"
