@@ -76,7 +76,16 @@ printf '%s' '{not json' >"$home/.claude.json"
 HOME="$home" bash "$script" >/dev/null 2>"$TMP/invalid.err" ||
     fail "invalid JSON must still exit 0"
 [ "$(cat "$home/.claude.json")" = '{not json' ] || fail "invalid JSON file was modified"
-grep -q "not valid JSON" "$TMP/invalid.err" || fail "no warning for invalid JSON"
+grep -q "not a single JSON object" "$TMP/invalid.err" || fail "no warning for invalid JSON"
+
+echo "==> a concatenated JSON stream is left untouched with a warning"
+home="$(new_home)"
+printf '%s\n%s\n' '{"a":1}' '{"b":2}' >"$home/.claude.json"
+before="$(cat "$home/.claude.json")"
+HOME="$home" bash "$script" >"$TMP/stream.out" 2>"$TMP/stream.err" || fail "a JSON stream must still exit 0"
+[ "$(cat "$home/.claude.json")" = "$before" ] || fail "a JSON stream was rewritten"
+[ ! -s "$TMP/stream.out" ] || fail "a JSON stream must not claim success"
+grep -q "not a single JSON object" "$TMP/stream.err" || fail "no warning for a JSON stream"
 
 echo "==> a missing jq warns and changes nothing"
 home="$(new_home)"

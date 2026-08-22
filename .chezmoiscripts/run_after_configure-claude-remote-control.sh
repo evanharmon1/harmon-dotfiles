@@ -69,8 +69,10 @@ fi
 # a first apply can never leave a partial file behind. Existing file: it must
 # parse — a corrupt file is left alone rather than overwritten.
 if [ -f "$config_file" ]; then
-    if ! jq empty "$config_file" >/dev/null 2>&1; then
-        warn "$config_file is not valid JSON; leaving it untouched"
+    # Exactly one top-level object: `jq empty` would also accept a concatenated
+    # JSON stream (a damaged write), and rewriting that installs several objects.
+    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
+        warn "$config_file is not a single JSON object; leaving it untouched"
         exit 0
     fi
     # Boolean true only: a string "true" is not what Claude Code reads.
