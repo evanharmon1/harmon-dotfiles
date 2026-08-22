@@ -32,9 +32,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# inode:mtime:size of the file behind the path — BSD and GNU stat differ.
+# GNU and BSD stat disagree on flags, and the order matters: GNU `stat -f` is
+# --file-system and prints a report to stdout before failing, so probing the
+# BSD form first on Linux yields multi-line garbage. BSD `stat -c` fails with
+# no stdout, so try the GNU form first and fall back to BSD.
+file_mode() {
+    stat -L -c '%a' "$1" 2>/dev/null || stat -L -f '%Lp' "$1" 2>/dev/null || echo 600
+}
+
+# inode:mtime:size of the file behind the path (same dialect ordering).
 fingerprint() {
-    stat -L -f '%i:%m:%z' "$1" 2>/dev/null || stat -L -c '%i:%Y:%s' "$1" 2>/dev/null || echo "unknown"
+    stat -L -c '%i:%Y:%s' "$1" 2>/dev/null || stat -L -f '%i:%m:%z' "$1" 2>/dev/null || echo "unknown"
 }
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -71,8 +79,8 @@ if [ -f "$config_file" ]; then
     fi
     # Preserve the existing mode across the atomic replace: mktemp creates 0600
     # and `mv` carries the temp file's mode over, so a more permissive original
-    # would silently change. BSD and GNU stat spell the query differently.
-    mode="$(stat -L -f '%Lp' "$config_file" 2>/dev/null || stat -L -c '%a' "$config_file" 2>/dev/null || echo 600)"
+    # would silently change.
+    mode="$(file_mode "$config_file")"
     # Claude Code rewrites this file while running. Fingerprint it (inode,
     # mtime, size) before reading and re-check immediately before the rename:
     # if it changed underneath us, skip rather than overwrite newer state —

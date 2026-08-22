@@ -21,9 +21,11 @@ fail() {
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# BSD (macOS) and GNU (CI) stat spell the octal-mode query differently.
+# BSD (macOS) and GNU (CI) stat spell the octal-mode query differently. GNU
+# first: GNU `stat -f` is --file-system and writes to stdout before failing,
+# while BSD `stat -c` fails with no stdout.
 file_mode() {
-    stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
 # Each case gets a fresh HOME under $TMP; returns its path on stdout.
@@ -56,6 +58,8 @@ jq -e '.remoteControlAtStartup == true' "$home/.claude.json" >/dev/null ||
 [ "$(jq -c '.tipsHistory' "$home/.claude.json")" = '{"a":1}' ] || fail "tipsHistory was not preserved"
 [ "$(file_mode "$home/.claude.json")" = "640" ] ||
     fail "existing mode must be preserved, got $(file_mode "$home/.claude.json")"
+[ "$(jq -c '.remoteControlAtStartup' "$home/.claude.json")" = "true" ] ||
+    fail "mode-preservation path did not write the key"
 
 echo "==> already-true is a silent no-op"
 home="$(new_home)"
