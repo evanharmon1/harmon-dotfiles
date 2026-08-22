@@ -98,4 +98,20 @@ jq -e '.remoteControlAtStartup == true' "$config_dir/.claude.json" >/dev/null ||
     fail "CLAUDE_CONFIG_DIR target was not configured"
 [ ! -e "$home/.claude.json" ] || fail "HOME must not be touched when CLAUDE_CONFIG_DIR is set"
 
+echo "==> an unwritable config dir warns and exits 0 (skipped as root)"
+if [ "$(id -u)" != "0" ]; then
+    home="$(new_home)"
+    printf '%s\n' '{"remoteControlAtStartup":false}' >"$home/.claude.json"
+    before="$(cat "$home/.claude.json")"
+    chmod 500 "$home"
+    rc=0
+    HOME="$home" bash "$script" >"$TMP/ro.out" 2>"$TMP/ro.err" || rc=$?
+    chmod 700 "$home"
+    [ "$rc" = "0" ] || fail "an unwritable config dir must still exit 0, got $rc"
+    [ ! -s "$TMP/ro.out" ] || fail "an unwritable config dir must not claim success: $(cat "$TMP/ro.out")"
+    grep -q "Warning" "$TMP/ro.err" || fail "no warning for an unwritable config dir"
+    [ "$(cat "$home/.claude.json")" = "$before" ] || fail "config was modified in an unwritable dir"
+    [ -z "$(find "$home" -name '.claude.json.*' 2>/dev/null)" ] || fail "temp file left behind in an unwritable dir"
+fi
+
 echo "TEST PASS: claude remote-control run script"
