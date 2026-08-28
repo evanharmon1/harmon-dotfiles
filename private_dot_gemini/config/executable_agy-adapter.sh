@@ -55,6 +55,9 @@ if [ -n "$cwd" ] && [ "$cwd" != "null" ] && [ -d "$cwd" ]; then
     elif [ -n "$root" ]; then
         export CLAUDE_PROJECT_DIR="$root"
         cd "$root"
+    else
+        export CLAUDE_PROJECT_DIR="$cwd"
+        cd "$cwd"
     fi
 fi
 

@@ -66,6 +66,23 @@ got="$(printf '%s' '{"cwd":"/tmp/codex-project"}' |
     bash "$repo/private_dot_codex/hooks/executable_claude-compat.sh" "$cwd_mock")"
 [ "$got" = "/tmp/codex-project" ] || fail "Codex Bash adapter lost the session cwd"
 
+echo "==> Antigravity adapter preserves a valid non-Git cwd"
+agy_capture="$tmpdir/agy-cwd"
+agy_mock="$tmpdir/agy-hook.sh"
+nongit_cwd="$tmpdir/non-git"
+mkdir -p "$nongit_cwd"
+cat >"$agy_mock" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n%s\n' "$CLAUDE_PROJECT_DIR" "$PWD" >"$AGY_CAPTURE"
+cat >/dev/null
+EOF
+chmod +x "$agy_mock"
+AGY_CAPTURE="$agy_capture" printf '{"toolCall":{"name":"run_command","args":{"Cwd":"%s","CommandLine":"true"}}}' "$nongit_cwd" |
+    AGY_CAPTURE="$agy_capture" bash "$repo/private_dot_gemini/config/executable_agy-adapter.sh" "$agy_mock" PreToolUse >/dev/null
+printf '%s\n%s\n' "$nongit_cwd" "$nongit_cwd" >"$tmpdir/agy-expected"
+cmp -s "$tmpdir/agy-expected" "$agy_capture" ||
+    fail "Antigravity adapter lost a valid non-Git cwd"
+
 echo "==> protect-files scopes Codex config protection to the machine"
 protect="$repo/private_dot_claude/hooks/executable_protect-files.sh"
 if [[ "$(uname -s)" == Darwin ]] &&
