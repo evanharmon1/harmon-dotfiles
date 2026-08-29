@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.17.2](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.1...v0.17.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **agents:** anchor agy-adapter to worktree root and fail open on missing hooks ([0e73ec8](https://github.com/evanharmon1/harmon-dotfiles/commit/0e73ec8cb47dbdb990e0e9a30bc49264dc2c7f12))
+* **agents:** anchor agy-adapter to worktree root and fail open on missing hooks ([8a0bcca](https://github.com/evanharmon1/harmon-dotfiles/commit/8a0bccaa7c7ab63b7da2bd45115bc364b4b66267))
+* **agents:** preserve non-git working directories ([6c32f73](https://github.com/evanharmon1/harmon-dotfiles/commit/6c32f734a91d1e4c495829307b826c1461a63185))
+
 ## [0.17.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.0...v0.17.1) (2026-08-24)
 
 
