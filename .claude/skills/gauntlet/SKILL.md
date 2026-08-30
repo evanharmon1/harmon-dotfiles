@@ -2,8 +2,8 @@
 name: gauntlet
 description: >-
   Run the second-model review gauntlet — adversarial challenge, then verification
-  review, each to convergence under its own resolved cap, then the CI mirror and
-  the draft PR. Entry: implementation complete and the definition-of-done gate
+  review, each to convergence under its own resolved cap, then the security gate
+  and draft PR. Entry: implementation complete and the definition-of-done gate
   green. Exit: a draft PR is open and the shepherd stage takes over. Convergence
   is the exit; fixing findings is not. Invoke as /gauntlet.
 disable-model-invocation: true
@@ -16,8 +16,8 @@ allowed-tools: Read, Glob, Grep, Edit, Write, Bash(git status:*), Bash(git branc
 
 The stage between "the implementation is done and the definition-of-done gate
 is green" and "a draft PR exists". It runs the adversarial second-model review
-to convergence, then the verification review to convergence, then the CI
-mirror, then the PR-open ritual — and hands the draft to `/shepherd`.
+to convergence, then the verification review to convergence, then the security
+gate and PR-open ritual — and hands the draft to `/shepherd`.
 
 **The central rule: convergence is the exit, fixes are not.** A stage does not
 end because you fixed everything the reviewer said. It ends when the rounds
@@ -40,6 +40,64 @@ still required downstream), §9, and §10.
 
 Writes — commits, gate runs, `git push`, `gh pr create` — always go through the
 normal permission prompt.
+
+## Stage ledger
+
+The stage ledger — distinct from the gauntlet's private adjudication ledger,
+which is a file — is a short table in the agent's **own commentary** (tool
+output is collapsed and does not count), always in this shape, with this
+legend:
+
+| 📍 Ledger | |
+|---|---|
+| **Stage** | ⚔️ challenge · **round 2/4** · local (`task challenge`) |
+| **Round** | 🔴 1 P1 open · 🟡 2 P2 deferred · ⚪ 1 P3 noted · ✅ verify green |
+| **Next** | fix P1 → `task verify` → ⚔️ challenge round 3 |
+
+Stage glyphs: 🔨 implement · 🧪 verify · ⚔️ challenge · 🔍 review · 🛡️ security ·
+🏗️ ci · 🚢 shepherd. Status glyphs: ✅ clean/green · 🔴 P0/P1 open · 🟡 P2 deferred ·
+⚪ P3 noted · ⏳ waiting on CI or a reviewer · ⛔ blocked/escalating · 🏁 stage
+converged.
+The same glyph always means the same thing, so a reader can tell
+the state at a glance without parsing prose. `Stage` names the stage and,
+for a capped stage, **its round as `round n/cap`** from the cap resolved
+below — challenge, review, and shepherd are counted and capped separately and
+never combined; implement, verify, and ci have no cap and carry no round —
+and says whether a round is a local `task challenge`/`task review` run or a cloud
+PR-shepherd review cycle. `Next` names the next concrete gate or action,
+including the `task verify` a fix owes before the next round.
+When a cap of 0 skips a stage outright, there is no round to number: omit
+`round n/cap` and write `skipped (cap 0)` in `Stage` instead of inventing
+`round 0/0`.
+Before a capped stage has begun its first round, a stage-entry or pending-wait
+ledger omits `round n/cap` and writes `waiting (no round yet)` in `Stage`;
+waiting, checks, and reviewer latency do not spend a round. Once a finding or
+no-change adjudication cycle begins, use the concrete `round n/cap` again.
+When a positive-cap stage terminates before any round began, there is still no
+round to number: write `completed (no round ran)` for a clean/converged stop or
+`stopped (no round ran)` for a blocked/escalating stop.
+
+Post it at every
+stage transition, when a round begins or ends, as the concise progress tick
+during a long wait (no re-dumping unchanged command output), and
+**immediately after a maintainer changes the requested workflow** — the latest
+instruction overrides the default transition at once, a terminal one ("go
+straight to review", "no more challenge rounds") is reflected in the ledger
+before any tool call starts the next stage, and silently returning to the
+default sequence is forbidden. An override is an attributable human decision
+and is followed, but it redirects the loop rather than erasing findings: any
+P0/P1 still open in the stage it ends is carried, **unchecked**, into the PR
+body's `## Deferred findings` with the override recorded as the reason it was
+carried — not as a disposition, so the shepherd stage still owes it a normal
+fix / decline-with-evidence / file-as-follow-up — and the ledger records the
+override as the reason for the transition. Before leaving a stage under an
+override before the PR exists, append every still-open P0/P1 to the
+git-directory `deferred-findings` sidecar once as an unchecked
+`override-carried` entry; §10 transfers those entries with the P2 sidecar into
+the PR body so the override cannot lose them across a handoff. When the PR
+already exists, write the entries directly into its `## Deferred findings`
+section under that stage's guarded body-update procedure and do not append a
+duplicate sidecar entry. A one-step task that touches a single stage owes no ledger.
 
 ## 1. Entry gate
 
@@ -128,22 +186,70 @@ so in the announcement — resolution then falls through to `default_rigor`,
 and the announcement must name "no issue bound" as the source so a stricter
 label cannot be silently skipped.
 
-**Resolution order**, highest precedence first:
+**Config shape — check before resolving anything.** `.devflow.toml` ships in
+two shapes, and skills-sync (which updates this skill) and the harmon-init
+copier update (which updates the file) run on independent cadences — a repo
+can have this skill before it has the file shape this section assumes. Detect
+which shape is actually present, then apply the matching rule below wherever
+this section branches on it:
+
+- **Migrated shape** — a top-level `rigor_order` array exists and each
+  `[rigor.<level>]` names its caps through a `review` field pointing at
+  `[review.<policy>]`. The rest of this section is written for this shape.
+- **Legacy shape** — `[rigor.<level>]` carries `challenge`, `review`,
+  `shepherd`, and `min_rounds` directly; no `review` pointer, no
+  `[review.*]` tables, no `rigor_order`. Read the caps straight off the
+  resolved level (no policy to look up); resolve a `rigor:*` label conflict
+  **per stage, to the highest cap present** — and the highest `min_rounds`
+  floor present, same principle — never `rigor_order`; and take the
+  shepherd cap as that level's own `shepherd` field. The merge-base rule
+  below still applies — it just reads whichever fields this shape has.
+
+**Caps come from the resolved rigor level's review policy, not straight off
+`[rigor.<level>]`.** A rigor level names a policy in its `review` field;
+`[review.<policy>]` is where `challenge`, `review`, `shepherd`, and
+`min_rounds` actually live as one bundle, so two rigor levels that point at
+the same policy share one set of numbers. Resolve the **level** first, then
+look up its policy:
 
 1. an explicit instruction in this session;
-2. a `rigor:*` label on the issue, **per stage, taking the highest cap
-   present — and the highest `min_rounds` floor present, under the same
-   principle** — labels are multi-select, so a conflict can only ever buy
-   more review, never less, in caps and floor alike. A `rigor:` value naming
-   no level in the file is ignored, not guessed at;
+2. a `rigor:*` label on the issue — under the **migrated shape**,
+   **conflicts resolve to the single strongest level by `rigor_order`** (the
+   weakest-to-strongest list at the top of the file), never to a per-stage
+   maximum across the labels present; under the **legacy shape**, see the
+   config-shape step above instead. A `rigor:` value naming no level in the
+   file is ignored, not guessed at;
 3. `default_rigor` in the file;
-4. the built-in fallback **4 / 4 / 4** (challenge / review / shepherd) if the
-   file is absent.
+4. the built-in fallback if the file is absent — **the standard review
+   policy: challenge ≤3, review ≤3, shepherd 4, min_rounds 1** — i.e. the
+   same numbers `standard` resolves to, not a separately memorized constant.
 
-**When the change under review edits `.devflow.toml` itself, resolve from the
-merge-base copy**, not the branch copy — otherwise a branch can lower the very
-gate that is reviewing it, and dropping every level together would evade the
-disclosure below by leaving nothing to be below:
+Under the migrated shape, take the resolved level's `review` value, look up
+`[review.<that policy>]`, and read `challenge`/`review`/`shepherd`/
+`min_rounds` from there together — under the legacy shape this is already
+done: those fields sat directly on the level the config-shape step above
+resolved.
+
+**When the change under review edits `.devflow.toml` itself, resolve every
+parameter — not just the caps — from the merge-base copy**, not the branch
+copy: `rigor_order`, every `[rigor.*]` entry's `review` **and `budget`**
+pointers, every `[review.*]` bundle, **every `[budget.*]` table**,
+`default_rigor`, and (see the tier/strategy note below) the `[tier.*]` maps,
+every role tier, `[strategy.*]`, and `default_strategy`. Otherwise a branch
+can lower the very gate that is reviewing it — retargeting a level's
+`review` pointer at a weaker policy — or misstate its own budget the same
+way: retargeting the `budget` pointer at a looser envelope (a higher
+`max_agent_runs` or `max_parallel_agents`, a longer `wall_clock_min`,
+`allow_tier_escalation` flipped on where it wasn't) is exactly as effective
+at that as editing the numbers directly. **This skill announces the budget
+envelope; it does not enforce it** — enforcement, where a consumer can do it
+at all, is theirs (Foreman intersects a resolved envelope with its own
+ceilings; an interactive session reports one it cannot measure as
+unenforced rather than claiming to meter it, per ADR 0007), so reading
+`budget` from the merge-base copy protects that announcement's honesty, not
+a limit this skill itself meters or stops on. Dropping every level together
+would evade the disclosure below the same way, by leaving nothing to be
+below:
 
 ```sh
 base="$(git merge-base HEAD "$base_ref")"          # $base_ref from §1
@@ -151,46 +257,113 @@ git show "$base:.devflow.toml"                     # absent at the merge base?
 ```
 
 A merge base that predates `.devflow.toml` — the branch introduces it — is
-the absent-file case of the resolution order: the built-in 4 / 4 / 4 and a
-floor of 1, not an error and not the branch's own copy.
+the absent-file case of the resolution order above, not an error and not the
+branch's own copy.
 
 An explicit human instruction still overrides that.
 
-**`min_rounds` — the floor.** A level may define `min_rounds` (an integer, 1 or
-2 — the two-consecutive exit ends a stage at round 2 whatever the floor says,
-so larger values cannot bind; repos that validate the config reject them). In
-a repo where nothing validates the file, do not interpret an out-of-range or
-non-integer value: clamp it **fail-safe** — every non-numeric value reads as
-2, and a numeric one reads as 2 when greater than 1, else 1 — so ambiguity
-always buys more review, never less; say so in the announcement, so a typo
-retunes the budget visibly rather than silently. It is the minimum
-number of rounds a stage must run before the **empty-round instant exit** in §5
-may be taken, so a deeper level can require independent confirmation even when
-round 1 comes back clean. **Tolerate its absence: a level that does not define
-it has a floor of 1**, which is the historical behaviour. Note what follows
-from the arithmetic — the two-consecutive-clean exit and the capped-clean exit
-both consume at least two rounds, so **any floor ≤ 2 is satisfied by
-construction** on those paths, and the floor only ever bites the empty-round
-shortcut.
+**`min_rounds` — the floor.** Read it exactly as the resolved level or
+policy states it (per the config shape above): **0 is a legal value** and means no floor at all — the **empty-round
+instant exit** in §5 may then fire on round 1. This skill does not clamp,
+guess at, or reject an out-of-range value; a `.devflow.toml` whose
+`min_rounds` exceeds that policy's own caps is a config bug for the repo that
+validates it to catch (harmon-init's own validator enforces
+`min_rounds <= caps`), not something this skill re-derives defensively.
+**Tolerate its absence: a policy that does not define it has a floor of 1**,
+the historical behaviour. The arithmetic still holds **when the cap is at
+least 2** — the two-consecutive-clean exit and the capped-clean exit both
+consume at least two rounds there, so **any floor ≤ 2 is satisfied by
+construction** on those paths, and the floor only ever binds the empty-round
+shortcut. **At a cap of 1 this construction does not apply**: the
+capped-clean exit consumes exactly one round (it *is* round 1 — see "A cap
+of 1 is a single pass" below), so it satisfies only a floor ≤ 1 by
+construction. This is not a gap in practice — a validated `.devflow.toml`
+keeps `min_rounds <= caps`, so a floor of 2 can never coexist with a cap of
+1 in the first place — but the claim itself must not overreach past what the
+cap actually guarantees.
 
-**Announce the resolved budget on entering the stage**, filled in from the file:
+**A cap of 0 skips that stage outright.** Do not run `task challenge` (or
+`task review`) at all when its resolved cap is 0 — move straight to the next
+stage. Skipping a heuristic stage never skips a **deterministic** one:
+`task verify`, `task security`, and every adjudication/recording obligation another
+enabled stage still owes (the ledger, the sidecar, the §10 PR-body transfer)
+are unchanged. Say so plainly in the announcement (e.g. "challenge ≤0 —
+skipped") so a later round or a different session does not read a missing
+round-1 report as an oversight.
 
-```text
-rigor: standard (default_rigor) → challenge ≤3, review ≤3, shepherd 4, min_rounds 1
-```
+**A cap of 1 is a single pass.** Round 1 is also the capped final round: an
+adjudicated-clean round 1 ends the stage immediately under §5's capped-clean
+exit, with no second round owed.
 
-Name a **level** only when one level supplied every number; two retuned levels can
-yield a combination belonging to no single level, so what you announce is the
-caps. Carry the same line into the PR body in §10, so a later round or a
-different session can see which budget it is spending instead of inferring one.
+**Announce the resolved budget on entering the stage**, filled in from the
+file — **the recipe is shape-conditional: announce only the axes the file
+actually configures, never every axis regardless of what the file defines.**
 
-**Disclose a reduced budget.** Whenever any resolved cap **or floor** is
-**below what `default_rigor` would give**, say so in the announcement and in
-the PR body. A
-`rigor:*` label is applied by people and verified by nothing — GitHub's triage
-role can apply one with no push access at all — so a budget can be retuned by
-someone who could not edit `.devflow.toml`. **An agent never applies one to
-itself.**
+- **Migrated shape** — announce the full contract line, exactly as the
+  contract states it, not a paraphrase:
+
+  ```text
+  rigor: standard (default) → review standard: challenge ≤3, review ≤3, shepherd 4, min_rounds 1 · tiers orch/impl/rev = frontier/standard/frontier · budget standard · strategy: plan (default)
+  ```
+
+  Name a **level** or a **policy** only when one of them supplied every
+  number in its segment; a role tier refined away from its rigor profile by
+  a `tier:<role>:*` label means the tiers segment no longer names a single
+  profile either — what you announce is always the resolved **values**.
+
+- **Legacy shape** — announce only what the file defines: the caps and the
+  floor. Do not invent tier or budget or strategy segments to match the
+  migrated-shape line's look; say plainly that this line carries none
+  instead:
+
+  ```text
+  rigor: standard (default) → challenge ≤3, review ≤3, shepherd 4, min_rounds 1 · tiers/strategy: no segment under the legacy shape (resolved separately, see below)
+  ```
+
+  A `tier:*` or `method:*` label on the issue is **still resolved — by the
+  legacy rules, not by this line.** What the legacy shape lacks is only the
+  rich per-role/budget/strategy segment the migrated-shape line carries,
+  never the resolution itself; see the legacy branch just below for what
+  those rules are.
+
+Carry the same line into the PR body in §10, so a later round or a different
+session can see which budget it is spending instead of inferring one.
+
+**Under the migrated shape, tier and strategy resolve and disclose alongside
+the caps, through the same per-`.devflow.toml` mechanism — this skill does
+not re-derive their mechanics beyond what the announcement line needs.**
+Where the repository's own policy (`AGENTS.md`) states the resolution order,
+conflict rule, or disclosure requirement for either axis, follow it; it is
+the authority this skill already defers to (see the top of this file). Both
+**arm nothing**: naming a tier or a strategy never itself invokes a model or
+starts a workflow.
+
+**Under the legacy shape, tier and method resolve too — by the legacy
+rules, which this skill only names rather than restates:** `tier:*`
+resolves against `default_tier`/`[tier.*]`, strongest-wins on conflict;
+`method:*` resolves against `default_method`/`[method].rank`, the
+config-backed rank order — never `strategy`'s ambiguous-conflict rule, which
+only exists once the file has migrated. `AGENTS.md`'s legacy-shape tier and
+method rules are the authority for the mechanics; this skill's announcement
+line simply has no segment to carry the result in until the file migrates.
+
+**Disclose every off-default and off-profile choice.** Whenever any resolved
+cap **or floor** is different from what `default_rigor` would give — above or
+below — say so in the announcement and in the PR body. A `rigor:*` label is
+applied by people and verified by nothing — GitHub's triage role can apply
+one with no push access at all — so a budget can be retuned by someone who
+could not edit `.devflow.toml`, in either direction. **Under the migrated
+shape**, the same goes for a role
+tier: when a `tier:<role>:*` label (or an unqualified `tier:*`, which refines
+**implementer** only) leaves a role's tier **below what the resolved rigor
+profile would give it**, disclose that too, as an off-profile decision,
+distinct from an off-default rigor cap. **Under the legacy shape there is no
+rigor profile for a tier to fall below**, so this specific off-profile
+disclosure does not apply — but the general off-default disclosure still
+does: a resolved tier or method different from `default_tier`/
+`default_method` is disclosed the same way a reduced rigor cap is. **An
+agent never applies a `rigor:*`, `tier:*`, `strategy:*`, or `method:*` label
+to itself.**
 
 Caps are **ceilings, not quotas**. A stage that meets an exit condition on
 round 1 is done, whatever the level allowed. Nothing here obliges a round to run.
@@ -208,6 +381,13 @@ checkout invariant in §1 is what makes bare correct, and no flag substitutes
 for it (§7, damper 10).
 
 Each round:
+
+**Challenge round-entry ledger.** Before starting every challenge round, post
+the fixed stage-ledger table in your own commentary. Fill `Stage` with
+`⚔️ challenge`, the resolved current `round n/cap`, and the local
+(`task challenge`) marker; use `⏳ waiting on reviewer` in `Round` and name the
+reviewer run in `Next`. Adjudicated findings belong in the round-end post, not
+this pre-run entry. This post is required before backgrounding the reviewer.
 
 1. **Run it in the background and poll** (§8). A round is 5–15 minutes —
    past most agents' tool-call timeouts.
@@ -269,6 +449,13 @@ same exit rule — under its **own
 cap, counted separately**. A converged challenge says nothing about review, and
 the two are capped separately even where the level gives them equal numbers.
 
+**Review round-entry ledger.** Before starting every review round, post the
+fixed stage-ledger table in your own commentary. Fill `Stage` with `🔍 review`,
+the resolved current `round n/cap`, and the local (`task review`) marker; use
+`⏳ waiting on reviewer` in `Round` and name the reviewer run in `Next`.
+Adjudicated findings belong in the round-end post, not this pre-run entry. This
+post is required before backgrounding the reviewer.
+
 **Why serial, not interleaved.** Challenge findings are architectural: fixing
 them first avoids spending fine-grained review on code that is about to change.
 That is a coarse-to-fine argument, and its known weakness is that review-round
@@ -315,6 +502,22 @@ is bounded for its own reason.
 
 The maintainer may always ask for more rounds. Convergence is a floor on when
 you may stop, not a ceiling on what they can order.
+
+**Stage-exit and escalation ledger.** Immediately after a challenge or review
+stage satisfies an exit condition, post the fixed stage-ledger table in your
+own commentary before moving to the next stage. Use `🏁 stage converged` in
+`Round`; keep `Next` naming the next concrete gate or action. If adjudicated P0/P1 findings
+persist at the cap, post the same table immediately with `⛔
+blocked/escalating`, the current `round n/cap`, and `Next` naming the
+maintainer escalation; do not start another stage or open the PR.
+
+**Round-end ledger.** Immediately after every challenge or review round is
+adjudicated and its deferred findings are durable, post the fixed stage-ledger
+table for that completed `round n/cap` before evaluating the exit/cap test or
+starting another round. Put the round's disposition and verification result in
+`Round`, and make `Next` name the exit evaluation, required fix/verify work, or
+the next numbered round. The stage-exit/escalation post above remains a
+separate transition if that evaluation ends the stage.
 
 **Round accounting is council-ready.** A **round is one pass** — one run of the
 stage's reviewer over the whole branch, adjudicated as a unit — regardless of
@@ -426,10 +629,11 @@ appending blindly would hand the shepherd four copies of one finding. A P2 you
 judge worth fixing immediately may of course be fixed in place; it just does
 not hold the stage open. One accounting note rides with that: a P2 fix
 committed after the stage's exit-eligible round is a commit no round of this
-stage reviews — that is acceptable only because the next gate in the
-pipeline (the other stage's rounds, `task ci`, and the PR's cloud review)
-covers it. A P2 fix you would not want reviewed there is a P2 to defer, not
-to slip in after convergence. The sidecar rides into the PR body in §10.
+stage reviews. Commit it and re-run the definition-of-done gate (`task verify`
+where it exists) before proceeding; the next gate in the pipeline (the other
+stage's rounds, `task security`, and the PR's cloud review) then covers the
+verified commit. A P2 fix you would not want reviewed there is a P2 to defer,
+not to slip in after convergence. The sidecar rides into the PR body in §10.
 
 **3. Round-2 provenance checkpoint.** For every finding, record on the table
 whether its subject **exists only because an earlier round of this same stage
@@ -572,22 +776,31 @@ head="$(git rev-parse HEAD)"          # right
 # head=a1b2c3d                        # wrong — retyped from scrollback
 ```
 
-## 9. CI mirror
+## 9. Security gate
 
-`task ci` where it exists — the full local mirror. Fix whatever it catches.
-This is the last cheap failure; everything after it costs a round on the PR.
-Run it against the final committed SHA and produce a fresh helper marker for
-§10, exactly as §3 does but with `task ci` as the gate:
+`task security` — Semgrep CE + gitleaks + dependency audit. This is the
+pre-publication security gate; fix whatever it catches. Run it against the final
+committed SHA and produce a fresh helper marker for §10, exactly as §3 does but
+with `task security` as the gate:
 
 ```sh
 sha="$(git rev-parse HEAD)"
 token="GAUNTLET-GREEN-${sha}-$$"
 out="$(mktemp)"
-task ci >"$out" 2>&1 && printf '\n%s\n' "$token" >>"$out"
+task security >"$out" 2>&1 && printf '\n%s\n' "$token" >>"$out"
 ```
 
 The helper's post-gate clean-tree and `HEAD == sha` checks prevent a successful
 gate from authorizing a different or partially generated commit.
+
+If remediation changes the tree, commit it, re-run the definition-of-done gate
+(`task verify` where it exists), then re-run `task security` against that new
+SHA. A security-only marker never authorizes code changed after the last green
+definition-of-done gate. Repository policy may require additional gates here;
+as everywhere in this skill, that policy outranks this default procedure.
+
+`task ci` (the full local CI mirror) remains available on demand when CI is red
+and you want to iterate locally, but it is not a mandatory pre-PR step.
 
 ## 10. Open the draft PR — the stage's exit ceremony
 
@@ -634,7 +847,8 @@ In order:
    heading, one unchecked task-list item each — `- [ ] <file:line> —
    <finding>` — with enough detail to adjudicate later. The body also carries
    what/why/how-it-was-verified (name the gates you actually ran) and the
-   budget line from §2, including the reduced-budget disclosure if one applies.
+   budget line from §2, including any off-default or off-profile disclosure
+   it carries.
 5. **Re-check ownership immediately before creating.** A claim is not a
    lock: re-read the bound issue and list its linked/open PRs — another
    worker may have opened one during the rounds. On §2's no-issue-bound
