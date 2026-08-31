@@ -3,8 +3,9 @@ name: shepherd
 description: >-
   Shepherd a draft PR to ready for review — watch CI and incoming bot/human reviews,
   treat findings as hypotheses (verify, fix only what's confirmed, explain
-  rejections in per-thread replies), push, and re-watch, for at most 4
-  rounds. Invoke as /shepherd [PR # or URL].
+  rejections in per-thread replies), push, and re-watch, under the resolved
+  shepherd cap (0-6, from .devflow.toml's review policy). Invoke as
+  /shepherd [PR # or URL].
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(git status:*), Bash(git branch --show-current), Bash(git remote), Bash(git remote get-url:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(gh pr list:*), Bash(gh run view:*), Bash(gh run list:*), Bash(${CLAUDE_SKILL_DIR}/assets/gh-ro.sh:*), Bash(${CLAUDE_SKILL_DIR}/assets/readiness-gate.sh:*)
 ---
@@ -15,7 +16,8 @@ allowed-tools: Read, Glob, Grep, Bash(git status:*), Bash(git branch --show-curr
 
 Opening a draft PR is not the end. Shepherd it: watch CI **and** incoming
 bot/human reviews, adjudicate what lands, fix what's confirmed, and re-watch
-— for at most **4 rounds**. Both signals matter and both must end green: a
+— under the resolved **shepherd cap** (see "The repository's own policy
+outranks this file" below). Both signals matter and both must end green: a
 PR is not done until CI/CD workflows pass *and* no unresolved review findings
 remain. This cap is independent of any other loop caps used earlier in the
 dev flow.
@@ -47,6 +49,64 @@ carry on; that is the own-mutation act §6 already carves out of §2's bound.
 The unexplained-promotion procedure governs only flips no session command
 accounts for.
 
+## Stage ledger
+
+The stage ledger — distinct from the gauntlet's private adjudication ledger,
+which is a file — is a short table in the agent's **own commentary** (tool
+output is collapsed and does not count), always in this shape, with this
+legend:
+
+| 📍 Ledger | |
+|---|---|
+| **Stage** | ⚔️ challenge · **round 2/4** · local (`task challenge`) |
+| **Round** | 🔴 1 P1 open · 🟡 2 P2 deferred · ⚪ 1 P3 noted · ✅ verify green |
+| **Next** | fix P1 → `task verify` → ⚔️ challenge round 3 |
+
+Stage glyphs: 🔨 implement · 🧪 verify · ⚔️ challenge · 🔍 review · 🛡️ security ·
+🏗️ ci · 🚢 shepherd. Status glyphs: ✅ clean/green · 🔴 P0/P1 open · 🟡 P2 deferred ·
+⚪ P3 noted · ⏳ waiting on CI or a reviewer · ⛔ blocked/escalating · 🏁 stage
+converged.
+The same glyph always means the same thing, so a reader can tell
+the state at a glance without parsing prose. `Stage` names the stage and,
+for a capped stage, **its round as `round n/cap`** from the cap resolved
+below — challenge, review, and shepherd are counted and capped separately and
+never combined; implement, verify, and ci have no cap and carry no round —
+and says whether a round is a local `task challenge`/`task review` run or a cloud
+PR-shepherd review cycle. `Next` names the next concrete gate or action,
+including the `task verify` a fix owes before the next round.
+When a cap of 0 skips a stage outright, there is no round to number: omit
+`round n/cap` and write `skipped (cap 0)` in `Stage` instead of inventing
+`round 0/0`.
+Before a capped stage has begun its first round, a stage-entry or pending-wait
+ledger omits `round n/cap` and writes `waiting (no round yet)` in `Stage`;
+waiting, checks, and reviewer latency do not spend a round. Once a finding or
+no-change adjudication cycle begins, use the concrete `round n/cap` again.
+When a positive-cap stage terminates before any round began, there is still no
+round to number: write `completed (no round ran)` for a clean/converged stop or
+`stopped (no round ran)` for a blocked/escalating stop.
+
+Post it at every
+stage transition, when a round begins or ends, as the concise progress tick
+during a long wait (no re-dumping unchanged command output), and
+**immediately after a maintainer changes the requested workflow** — the latest
+instruction overrides the default transition at once, a terminal one ("go
+straight to review", "no more challenge rounds") is reflected in the ledger
+before any tool call starts the next stage, and silently returning to the
+default sequence is forbidden. An override is an attributable human decision
+and is followed, but it redirects the loop rather than erasing findings: any
+P0/P1 still open in the stage it ends is carried, **unchecked**, into the PR
+body's `## Deferred findings` with the override recorded as the reason it was
+carried — not as a disposition, so the shepherd stage still owes it a normal
+fix / decline-with-evidence / file-as-follow-up — and the ledger records the
+override as the reason for the transition. Before leaving a stage under an
+override before the PR exists, append every still-open P0/P1 to the
+git-directory `deferred-findings` sidecar once as an unchecked
+`override-carried` entry; §10 transfers those entries with the P2 sidecar into
+the PR body so the override cannot lose them across a handoff. When the PR
+already exists, write the entries directly into its `## Deferred findings`
+section under that stage's guarded body-update procedure and do not append a
+duplicate sidecar entry. A one-step task that touches a single stage owes no ledger.
+
 **The repository's own policy outranks this file.** Where its `AGENTS.md`
 states a different shepherd cap or exit condition, follow `AGENTS.md` — it is
 the policy, this skill is the procedure. Read the cap from what `AGENTS.md`
@@ -54,6 +114,58 @@ actually states, never from inferring its vintage: a three-round cap is correct
 in a repo whose `AGENTS.md` still says three, and stops being correct the
 moment that file says otherwise — including in repos that have not yet adopted
 the P0/P1-gating dev flow.
+
+**Absent a repo-specific override, the shepherd cap is resolved the same way
+gauntlet resolves its challenge/review caps — check the config shape first**
+(gauntlet's `SKILL.md` §2 "Config shape" step; not a literal 4 either way,
+under either shape). `.devflow.toml` ships in two shapes, and skills-sync and
+the harmon-init copier update run on independent cadences, so a repo can have
+this skill before its file has migrated. Under the **migrated shape** (a
+top-level `rigor_order` exists and `[rigor.<level>]` names its caps through a
+`review` pointer), the cap is `[review.<the resolved policy>].shepherd`, and
+a `rigor:*` label conflict resolves to the single strongest level by
+`rigor_order`. Under the **legacy shape** (`[rigor.<level>]` carries
+`challenge`, `review`, `shepherd`, and `min_rounds` directly — no `review`
+pointer, no `[review.*]` tables, no `rigor_order`), the cap is that resolved
+level's own `shepherd` field, and a label conflict instead resolves **per
+stage, to the highest cap present**. Either way, an edit to `.devflow.toml`
+itself resolves every parameter from the merge-base copy. Shipped
+migrated-shape policies range the shepherd cap 0–6; a legacy-shape repo's own
+levels may or may not share one fixed value across levels — read them, don't
+assume. Announce the resolved value the way gauntlet announces its caps, and
+disclose it in the PR body when it is off-default.
+
+**A resolved cap of 0 does not skip the readiness gate — and whether it
+drops the current-head Codex-cycle condition from that gate is a *policy*
+question, answered by the repository's own `AGENTS.md`, never assumed
+here.** It means: spend no shepherd round — the watch/adjudicate/fix/push
+loop in steps 2–5 never runs, so triggering `@codex review` and waiting out
+its cycle (itself active engagement this budget cannot afford) never
+happens either. What that implies for the gate depends on what `AGENTS.md`'s
+Readiness Gate actually says:
+
+- **Where `AGENTS.md` states that a resolved shepherd cap of 0 drops the
+  current-head Codex condition** — pass the gate `--codex-disabled` for this
+  run, exactly as that wording directs, and evaluate the rest of the gate
+  normally.
+- **Where `AGENTS.md` still requires a terminal, clean current-head Codex
+  cycle with no cap exception** — that requirement does not lapse because no
+  round is available to satisfy it. **Never pass `--codex-disabled` to claim
+  the reviewer is off when it is not** — that would falsely declare a
+  configured reviewer disabled to force a pass. If no terminal clean result
+  already exists for this head, the Codex condition reads indeterminate — a
+  failed condition, not a pass — so the PR stays draft with a blocker report
+  naming it: no automated path promotes this PR until a clean result exists
+  by some means outside this budget.
+
+CI still has to be green, and any human review finding already on the PR
+still has to be answered, for the gate to pass — those are checks against
+state that already exists, not rounds this budget has to spend. If a human
+finding is outstanding — unanswered already, or one that arrives while this
+stage evaluates — and the gate is not otherwise clean, that is stop
+condition 2 (**cap reached**) on the spot: leave the PR draft with a
+blocker report naming it, **never an agent fix round** — there is no round
+to spend on it. A pass otherwise promotes normally.
 
 **This stage settles the low-priority findings.** Where the earlier dev-flow
 loops gate only on high-priority findings (in repos that run a
@@ -66,9 +178,29 @@ follow-up issue.
 **Round accounting (read this first):** one round = one fix push, **or**
 one no-change adjudication cycle (everything rejected/external — replies
 posted, nothing to fix — then back to watching). Count rounds explicitly
-(say "round 2 of 4") — the counter only ever increases, every wait below is
+(say "round 2 of `<cap>`", using the resolved shepherd cap above) — the
+counter only ever increases, every wait below is
 bounded, and every path ends in one of the stop conditions in step 6, so
 the loop cannot run forever.
+
+**No-change round-end ledger.** When a no-change adjudication cycle completes
+— every finding is answered or settled and nothing needs a fix push — post the
+fixed table again immediately after the final reply/settle and before returning
+to watching. Keep the completed `round n/cap` in `Stage`, put the final
+disposition in `Round`, and name the next bounded wait in `Next`; this closes
+the current round and does not start another.
+
+**Shepherd round-entry ledger.** Before the round-start fetch establishes a
+finding or no-change adjudication cycle, post the fixed stage-ledger table in
+your own commentary. Before the stage's first round, use
+`waiting (no round yet)` in `Stage`; after a round has completed, retain its
+completed `round n/cap` while polling instead of moving the counter backward.
+The fetch and an ordinary clean/pending watch spend no round. When that fetch
+does establish a watch/fix round, post the table again before adjudicating.
+Fill `Stage` with `🚢 shepherd`, the resolved current `round n/cap`, and the
+cloud (PR review cycle) marker; use `Round` for the current checks/review state
+and `Next` for the concrete action or bounded wait that follows. A no-change
+adjudication cycle follows the same numbered entry rule.
 
 Only write-incapable reads are pre-approved (`git log`/`diff`/`show` accept
 `--output=<file>`, `git fetch` accepts `--upload-pack=<cmd>` — those prompt),
@@ -694,6 +826,16 @@ you rather than the bot):
   resets this procedure to attempt 1. There is no CI-only fallback when this
   option is enabled.
 
+  **Codex-cycle result ledger.** Immediately after every Codex `check` result,
+  regardless of whether it is clean, findings, pending, retry, escalation,
+  closed, or indeterminate, post the fixed stage-ledger table in your own
+  commentary before replying, settling, re-triggering, or stopping. Fill
+  `Stage` with `🚢 shepherd`; before a finding or no-change adjudication cycle
+  has begun, omit `round n/cap` and write `waiting (no round yet)`, while a
+  cap-zero stage uses `skipped (cap 0)` as the shared rule requires. Otherwise
+  fill in the current `round n/cap`; use the matching status glyph (`✅`, `🔴`,
+  `🟡`, `⚪`, `⏳`, or `⛔`) and make `Next` name the exact follow-up.
+
   `show --state "$state"` prints the state file back unchanged. It decides
   nothing; it is the read for reconciling an interrupted cycle by hand.
 
@@ -789,6 +931,34 @@ you rather than the bot):
   green and no unresolved findings means the candidate head may proceed to
   step 6's readiness gate; **do not stop or report a handoff here**. Never
   merge — merging is always the maintainer's decision.
+
+**Shepherd-stage override transfer.** This stage starts after the draft PR
+exists, so the shared Stage-ledger paragraph's `§10` transfer describes the
+gauntlet's pre-PR handoff and cannot be the shepherd path. If a maintainer
+ends or redirects shepherd while a P0/P1 remains open, complete the shared
+trigger contract in the PR itself before stopping or changing stages:
+
+1. Immediately after recording the override in the commentary ledger, re-read
+   the open PR's `state,isDraft,headRefOid,body` and confirm it is still the
+   draft/head this round is working on.
+2. In the existing `## Deferred findings` section, add every still-open P0/P1
+   once, matched by location plus substance, as an unchecked entry such as
+   `- [ ] <file:line> — override-carried: <finding>; override: <reason>`.
+   Preserve all existing entries and record the override as why the finding was
+   carried, never as a disposition.
+3. Immediately before writing, fetch `state,isDraft,headRefOid,body` together
+   again. Revalidate that the PR is still open and draft on the expected round
+   head; if any identity or lifecycle field moved, return to step 2's
+   reconciliation instead of editing. Compare the fresh body with the copy
+   used to compose the update; if it changed, recompose against the newer body
+   and repeat this complete fetch-and-validation. A post-write read cannot
+   detect a concurrent edit that the replacement already erased.
+4. This direct PR-body write replaces the shared pre-PR sidecar append: do not
+   create a duplicate shepherd `override-carried` sidecar entry.
+5. Update the body with `gh pr edit <n> --repo "$repo" --body-file <file>`,
+   then re-read it and confirm every override-carried entry landed before
+   leaving the stage. Do not rely on the git-directory sidecar alone: this
+   PR already exists and shepherd has no later §10 transfer step.
 
 ## 3. Adjudicate findings (hypotheses, not authority)
 
@@ -1110,10 +1280,16 @@ is optional in addition, never a substitute for per-thread replies.
     also catches edits and deletions, and a thread created after the snapshot
     has no entry in `$b`, so the `// []` default flags it too.
 
-  The push increments the round counter. Then **return to step 2 and watch
-  again**: the push starts new workflow runs and gives the reviewer a fresh
-  head to comment on. Skipping the re-watch and declaring victory after a
-  push is the classic failure mode this skill exists to prevent.
+  The push increments the round counter. **Immediately after every successful
+  fix push, post the fixed stage-ledger table in your own commentary.** Fill
+  `Stage` with `🚢 shepherd`, the new current `round n/cap`, and the cloud PR
+  review-cycle marker; record the pushed head's check/review state in `Round`
+  and make `Next` the required return to watch.
+
+  Then **return to step 2 and watch again**: the push starts new workflow runs
+  and gives the reviewer a fresh head to comment on. Skipping the re-watch and
+  declaring victory after a push is the classic failure mode this skill exists
+  to prevent.
 
 ## 6. Stop conditions
 
@@ -1142,9 +1318,17 @@ loops indefinitely:
      --repo "$repo" --pr <n> --head <the adjudicated headRefOid> \
      --codex-state "$state"   # §2's attempt-state file; pass
                               # --codex-disabled instead where Codex cloud
-                              # review is not enabled — one of the two is
-                              # required, so the Codex condition cannot be
-                              # skipped by silence
+                              # review is not enabled, or where a resolved
+                              # shepherd cap of 0 AND AGENTS.md's own
+                              # readiness gate both say the Codex condition
+                              # drops out at that cap (the cap-0 note
+                              # above) — never pass it merely because the
+                              # cap is 0 while Codex review is actually
+                              # enabled and AGENTS.md still requires the
+                              # cycle: one of the two flags is always
+                              # required, so the Codex condition can never
+                              # be skipped by silence, and it can never be
+                              # skipped by a false claim either
    ```
 
    `--head` is the head whose CI, Codex result, comments, and deferred
@@ -1269,6 +1453,16 @@ loops indefinitely:
    `claim:*` label release, and the final report); do not restart code changes,
    gates, or automated review on the ready PR.
 
+   **Ready-stop ledger.** Immediately after the readiness gate confirms the
+   ready-for-review transition, post the fixed stage-ledger table in your own
+   commentary before cleanup and stopping. If no round ran, omit `round n/cap`:
+   write `skipped (cap 0)` when the cap is 0, or `completed (no round ran)` at
+   a positive cap. Still write `Round` with `🏁 stage converged` and the green
+   readiness result. Otherwise fill `Stage` with `🚢 shepherd`, the final
+   `round n/cap`, `Round` with `🏁 stage converged` and the green readiness
+   result, and `Next` with human review followed by the maintainer's merge
+   decision.
+
    If the PR was already non-draft (the gate's `pr-not-draft` failure),
    promotion is idempotently complete
    and `gh pr ready` must not be called again. Audit the existing handoff on
@@ -1342,7 +1536,9 @@ loops indefinitely:
    event releases the rest.`
    Then stop.
 2. **Cap reached** — checks still fail or findings remain unresolved after
-   4 rounds: stop.
+   the resolved shepherd cap's rounds: stop. A resolved cap of 0 reaches this
+   condition on the spot, having spent zero rounds — see the cap-resolution
+   note above.
 3. **No progress** — the same failure signature or finding survives two
    consecutive rounds unchanged **and** it is the sole remaining blocker
    (or the rounds made no material progress overall): stop early; burning
@@ -1352,6 +1548,15 @@ loops indefinitely:
 4. **Blocked on the maintainer** — the remaining failure needs secrets,
    permissions, external-service action, or a decision only the maintainer
    can make: stop immediately, whatever the round count.
+
+**Blocked-stop ledger.** Immediately after a cap-reached, no-progress, or
+maintainer-blocked stop, post the fixed stage-ledger table in your own
+commentary before the blocker report. If no round ran, omit `round n/cap`:
+write `skipped (cap 0)` when the cap is 0, or `stopped (no round ran)` at a
+positive cap. Otherwise fill `Stage` with `🚢 shepherd`, the current
+`round n/cap`, `Round` with `⛔ blocked/escalating`, and `Next` with the
+maintainer action that unblocks or decides the work. This requirement also
+covers the timeline-guard stop that necessarily leaves a promoted PR ready.
 
 One stop cannot leave the PR draft: §2's timeline guard blocking a second undo
 stops on a PR somebody else promoted, and undoing it is the very act the guard
