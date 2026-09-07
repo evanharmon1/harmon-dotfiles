@@ -1,11 +1,12 @@
 # Changes here will be overwritten by Copier
-_commit: v4.36.0
+_commit: b7c520f0f86d42189ab79a7a3834b7ab2818db11
 _src_path: https://github.com/evanharmon1/harmon-init
 bunch_add: false
 ci_runner: ubuntu-latest
 claude_authorized_members: evanharmon1
 code_owner: evanharmon1
 codeql_languages: []
+decisions_seed_date: '2026-06-19'
 devcontainer: false
 git_init: false
 github_org: evanharmon1

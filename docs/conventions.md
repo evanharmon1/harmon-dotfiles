@@ -20,6 +20,14 @@ it points here.
   via a PR; code-owner review and the `verify` + `security`
   checks are required.
 - **Never bypass hooks** (`--no-verify` is forbidden) — fix the underlying issue.
+- **Never terminate a process without explicit user approval.** The hard
+  rule in `AGENTS.md` binds the agent: `kill`, `pkill`, `killall`, and
+  `xkill` need the user's go-ahead, only direct `kill -l` and `kill -0 <PID>`
+  probes are exempt, and a PID is never inferred to belong to the current
+  session. No hook enforces this any more: the parser-based
+  `guard-process-kill.sh` prompted on ordinary commands and stalled
+  unattended workers, and the template removed it (the decision record is
+  <https://github.com/evanharmon1/harmon-init/blob/main/docs/decisions/2026-09-02-remove-guard-process-kill-hook.md>).
 - Run **`task verify`** before pushing; the pre-push hook runs secret scanning
   (and type/IaC checks where applicable).
 
@@ -115,10 +123,11 @@ it points here.
   `verify` (the definition-of-done gate — check + validate + test) and
   `ci` (full — verify + security) as the aggregates. `check` is the
   fast inner-loop/hook gate.
-- **`task ci` mirrors CI** — every check the build workflow *gates on* that can
-  run locally belongs there. The one exception is a check that needs **CI-only
-  infrastructure**: document it in `AGENTS.md` as an exception instead of faking
-  it locally.
+- **`task ci` mirrors CI on demand** — every check the build workflow *gates on* that can
+  run locally belongs there; use it when CI is red and you want to iterate
+  locally. The pre-PR gate is `task verify` + `task security`. The one exception
+  is a check that needs **CI-only infrastructure**: document it in `AGENTS.md`
+  as an exception instead of faking it locally.
 - **`lint:*` and `check` are read-only gates** — they report and fail, never
   modify files. All auto-fixing lives in **`task format`**, **`task format:file
   -- <path>`**, and **`task fix`** (= format then lint). Pre-commit hooks run the
@@ -181,6 +190,11 @@ it points here.
 - **`AGENTS.md` is the single source of truth** for AI guidance; `CLAUDE.md`,
   `GEMINI.md`, and `.github/copilot-instructions.md` are **symlinks** to it —
   edit only `AGENTS.md`.
+- **`.devflow.toml` is the single source of truth for rigor/strategy
+  execution-policy values** (review-pass caps, role tiers, budgets,
+  topologies); [docs/guides/devflow.md](guides/devflow.md) expands the model
+  and the resolution rules, `AGENTS.md` states only resolution mechanics, and
+  neither restates the config's numbers.
 - **Vendored vs local skills:** the skills sync manages ONLY the directories
   listed on the `# managed:` line of `.agents/skills/.SKILLS_PROVENANCE`. Any
   other directory under `.agents/skills/` is a **local skill owned by this
@@ -200,7 +214,8 @@ it points here.
   `AGENTS.md`, `DESIGN.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, `LICENSE`, `CHECKLIST.md`.
 - Documentation layering: `docs/product/` (why/where) · `specs/` (what to build)
-  · `docs/architecture/` (how) · `docs/decisions/` (ADRs, numbered `0001-`) ·
+  · `docs/architecture/` (how) · `docs/decisions/` (ADRs, date-named
+  `YYYY-MM-DD-…`; older records keep their `0001-` names) ·
   `docs/guides/` (build it) · `docs/runbooks/` (operate it). Folder landing
   pages are `README.md`.
 
@@ -214,6 +229,16 @@ it points here.
   Fixes** (patch), `feat!` / `BREAKING CHANGE:` → major. The rest (`build`,
   `chore`, `ci`, `docs`, `perf`, `refactor`, `revert`, `style`, `test`) don't cut
   a release on their own — they ride along in the next one.
+- **Closing an issue is guarded separately.** The `closing-keywords` job in
+  `build.yml` reads only PR and issue metadata with a read-only token, and scans
+  the PR title, body, and every commit message for
+  `Closes`/`Fixes`/`Resolves` references.
+  A bare `#N` is same-repository work: the gate refuses it while issue `#N`
+  has unchecked task-list items, or when it cannot read that issue. Explicit
+  references that name another repository are informational because this
+  repository cannot safely decide another repository's close policy. Use
+  `Refs #N` for partial work. The check reruns when a PR is edited or new
+  commits are pushed; run `task guard:closing-keywords` to pre-flight it.
 - Issue types map many-to-one onto these commit types. Personal-account repos
   use the equivalent work-type labels as that mapping's substrate because native
   issue Type is unavailable there; organization repos use native Type and no

@@ -35,6 +35,10 @@ brew "gitleaks"
 brew "node"
 # Python tool runner (Semgrep CE use uv/uvx)
 brew "uv"
+# Repository scripts (status, secret helpers) parse JSON with bare `python3`.
+# Stock macOS ships 3.9 and uv provides no `python3` shim, so the interpreter
+# itself is still a dependency.
+brew "python"
 
 # Skills sync (scripts/sync-skills.sh reads .skills-sync.yaml)
 brew "yq"
