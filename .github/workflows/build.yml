@@ -65,6 +65,7 @@ jobs:
       - run: task test:session-cleanup
       - run: task test:setup-github
       - run: task test:agent-registry
+      - run: task test:result-schemas
       - run: task test:registry-drift
       - run: task test:registry-docs
       - run: task test:label-registry
@@ -75,6 +76,7 @@ jobs:
       - run: task test:worktree
       - run: task test:lint-hygiene
       - run: task test:release-title
+      - run: task test:claim-release-merged
       - run: task test:setup-github-project
       - run: task test:sync-devkit-release
       - name: Skills drift check (vendored skills vs pinned harmon-devkit ref)

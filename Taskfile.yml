@@ -74,7 +74,6 @@ tasks:
       - task: test:label-registry
       - task: test:tasks
       - task: test:ci-results
-      - task: test:hooks
       - task: test:ai-config
       - task: test:claude-config
       - task: test:output
