@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.17.4](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.3...v0.17.4) (2026-09-08)
+
+
+### Bug Fixes
+
+* **ci:** deduplicate test:hooks and add missing offline tests to build workflow ([8f677d6](https://github.com/evanharmon1/harmon-dotfiles/commit/8f677d67ebafdc7c4a6401946183486bb4e0d67c))
+* sync harmon-devkit skills to v0.39.0 ([30c79ee](https://github.com/evanharmon1/harmon-dotfiles/commit/30c79eea8f21031a20b857f958c5ec94c1adf5f2))
+* sync harmon-devkit skills to v0.39.0 ([ac52d62](https://github.com/evanharmon1/harmon-dotfiles/commit/ac52d626d63dd57c071e67335b0d84c65fabc2fd))
+
 ## [0.17.3](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.2...v0.17.3) (2026-08-31)
 
 
