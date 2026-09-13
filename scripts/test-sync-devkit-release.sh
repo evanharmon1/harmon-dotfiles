@@ -11,12 +11,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # The helper is co-located. In the template source both files carry conditional
-# names ([% if … %]…[% endif %]); in a rendered repo they are plain
+# names; in a rendered repo they are plain
 # sync-devkit-release.sh. Resolve whichever is present.
 if [ -f "$SCRIPT_DIR/sync-devkit-release.sh" ]; then
     HELPER="$SCRIPT_DIR/sync-devkit-release.sh"
-elif [ -f "$SCRIPT_DIR/[% if use_skills_sync %]sync-devkit-release.sh[% endif %]" ]; then
-    HELPER="$SCRIPT_DIR/[% if use_skills_sync %]sync-devkit-release.sh[% endif %]"
+elif [ -f "$SCRIPT_DIR/[%""if use_skills_sync %]sync-devkit-release.sh[%""endif %]" ]; then
+    HELPER="$SCRIPT_DIR/[%""if use_skills_sync %]sync-devkit-release.sh[%""endif %]"
 else
     echo "cannot find sync-devkit-release.sh" >&2
     exit 1
@@ -29,7 +29,10 @@ BIN_DIR="$TEST_ROOT/bin"
 mkdir -p "$BIN_DIR"
 export PATH="$BIN_DIR:$PATH"
 
-note() { printf '\n  \033[1;37m%s\033[0m\n' "$*"; }
+note() {
+    printf '\n  \033[1;37m%s\033[0m\n' "$*"
+    return 0
+}
 
 # ── Fixture helpers ───────────────────────────────────────────────────
 # build_fixture TAG — a git repo with one commit (the current pin) on main,
@@ -640,7 +643,7 @@ test_usage_exit() {
     FIXTURE="$(build_fixture v0.1.0)"
     _rc=0
     _out="$(run_helper 2>&1)" || _rc=$?
-    echo "$_out" | grep -q usage || {
+    grep -q usage <<<"$_out" || {
         echo "expected usage, got: $_out"
         return 1
     }

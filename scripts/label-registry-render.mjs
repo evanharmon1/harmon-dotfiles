@@ -394,8 +394,8 @@ if (mode === 'docs-table') {
   const setGate = (gate) => {
     const next = gate ?? null
     if (next === openGate) return
-    if (openGate !== null) lines.push('[% endif %]')
-    if (next !== null) lines.push(`[% if ${GATE_ANSWER[next]} %]`)
+    if (openGate !== null) lines.push('[%' + ' endif %]')
+    if (next !== null) lines.push('[%' + ` if ${GATE_ANSWER[next]} %]`)
     openGate = next
   }
 
