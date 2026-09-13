@@ -3,8 +3,9 @@ name: kickoff
 description: >-
   Start-of-session ritual — get oriented in the repo (branch, working tree, open
   PRs/issues) and compose a descriptive session name, emitting a
-  copy-pasteable /rename command for the user. Invoke as /kickoff [topic or issue #].
-disable-model-invocation: true
+  copy-pasteable /rename command for the user. Use when a working session is
+  starting and needs orientation before beginning work. Invoke as /kickoff
+  [topic or issue #].
 allowed-tools: Read, Glob, Grep, Bash(git status:*), Bash(git branch --show-current), Bash(task --list-all:*), Bash(task status:*), Bash(gh pr list:*), Bash(gh issue list:*), Bash(gh label list:*)
 ---
 
@@ -44,7 +45,7 @@ than blocking the session start. A missing or failed creds probe is a
 summary says what couldn't be checked.
 
 **Sweep for stale claims.** The claim `/claim` makes has no owner once its
-session ends: `/shepherd` stops before the merge, `/wrap` leaves an open PR
+session ends: `/integrate` stops before the merge, `/wrap` leaves an open PR
 alone, and a personal-account board has no automation — so when the maintainer
 merges later, the assignee, `claim:*` label, and card status all
 survive with nobody left to clear them. Session start is where that gets
@@ -61,9 +62,11 @@ gh issue list --repo <owner/repo> --assignee @me --state all --limit 200 \
 # list ...)` runs zero iterations and falsely reports a clean sweep on an
 # expired token or rate limit, hiding the marker-only claim this exists to find
 # (gh-verification.md). On an org repo the event-driven release cannot recover
-# such a claim once its assignee is gone (its trust gate needs the owner or a
-# current assignee), so this sweep is the only backstop — do not skip it on a
-# failed enumeration, surface it:
+# such a claim once its assignee is gone UNLESS the timeline still proves a
+# covering assignment interval for the claim comment (its trust gate needs
+# the owner, or that proof — see claim-lifecycle.md's trust-gate note); a
+# claim with no such interval ever recorded is exactly the gap this sweep
+# backstops — do not skip it on a failed enumeration, surface it:
 if ! claim_labels="$(gh label list --repo <owner/repo> --limit 1000 --json name -q \
     '.[].name | select(startswith("claim:") or startswith("agent:"))')"; then
   echo "warning: could not list claim labels — the marker-only sweep is INCOMPLETE; retry or check auth" >&2

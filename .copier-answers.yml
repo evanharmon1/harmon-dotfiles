@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier
-_commit: b7c520f0f86d42189ab79a7a3834b7ab2818db11
+_commit: 5d233f7891269648cfd2b29f32f378568ce1e2cb
 _src_path: https://github.com/evanharmon1/harmon-init
 bunch_add: false
 ci_runner: ubuntu-latest
@@ -16,8 +16,7 @@ include_ansible: false
 include_terraform: false
 license: mit
 obsidian_project_add: false
-project_description: My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship,
-    etc.) managed with Chezmoi
+project_description: My dotfiles (.zshrc, .gitconfig, terminal config, ghostty, starship, etc.) managed with Chezmoi
 project_management: github
 project_name: Harmon Dotfiles
 project_slug: harmon-dotfiles
@@ -25,7 +24,7 @@ project_type: general
 release_content_paths: ''
 run_task_install: false
 skill_categories:
-- universal
+  - universal
 snyk_scan_schedule: 'off'
 use_codeql: false
 use_coderabbit: false
