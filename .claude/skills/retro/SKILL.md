@@ -41,9 +41,10 @@ is a reconstruction after the fact.
   **resolved rigor line**, which is where §2's caps come from. They do not
   carry the run id.
 - The **run id** lives in the evidence markers themselves,
-  `<!-- devflow:<kind> v2 run_id=<id> … -->`: on the PR's stage-rollup
+  `<!-- dev-flow-v2-evidence: {"run_id":…} -->`: on the PR's stage-rollup
   comments, and — authoritatively, because the record is anchored on the
-  issue — in the `run-index` / `run-record` comments on the linked issue. A
+  issue — in its round comments on the linked issue. The older
+  `<!-- devflow:<kind> … -->` form remains discoverable for legacy runs. A
   marker counts only as the **first line** of a comment; one quoted inside
   prose (a real risk on a PR that discusses this protocol) is not a run.
   **And only a marker from a trusted actor selects a run.** A marker is text
@@ -52,6 +53,26 @@ is a reconstruction after the fact.
   trusted-orchestrator actor ids it passes to the harvester, reports every
   marker it ignored, and refuses a trajectory whose own record names a
   different PR.
+
+Discovery applies strict tier precedence: a trusted marker on the PR itself,
+then trusted markers on closing issue references, then trusted markers on
+same-repository issues named in the PR body by `Refs`, `Addresses`, or `Part
+of`, and finally a `run-<issue>-<slug>` body token only when the PR or issue
+`<issue>` carries a trusted marker naming that exact run. More than one run on
+the selected tier is indeterminate, and a lower tier never overrides a run
+selected above it. Every issue token on a line-anchored reference declaration,
+optionally prefixed by a bullet or ordered-list marker, in the PR body
+participates in discovery, including same-repository GitHub issue
+URLs; a pull URL is disclosed and ignored as a PR hint, and a foreign-repository
+URL is disclosed without being queried. References never come from PR comments,
+quoted lines, or mid-line prose. Run tokens are read only from those declarations
+or a line-anchored `Run:` line, preserving the complete token through whitespace
+or its closing backtick, bracket, or comma before exact marker comparison.
+At most 10 unique non-closing/token issue hints are read, with a larger set
+refused rather than truncated. A hint that names a PR or missing/deleted issue is
+disclosed and ignored, while a transient lookup failure is indeterminate. Both
+the closing-reference set and these body-derived lookup inputs are mutable
+current state that `--as-of` cannot reconstruct.
 
 **Run the projection rather than reading the trajectory by hand.** It resolves
 the run id, calls the harvester (`scripts/dev-flow-stats.mjs --run <id> --json`,
@@ -87,14 +108,33 @@ against a marker); `--json` for the machine form; and `--stats-script <path>` to
 harvester this checkout does not carry at the usual place — the case below,
 where the repository has not vendored `scripts/dev-flow-stats.*` at all.
 
+Pass `--record-dir <path>` when the run's retained local record is available.
+The helper forwards it unchanged, and the harvester reads
+`<path>/<run_id>/run.json` plus that run directory's passes and adjudications.
+The GitHub marker still authenticates which run and round coordinates may be
+read; the local directory supplies their full content. An absent named record
+is reported as `record-missing`, while omitting the option leaves the marker as
+`evidence-only` rather than inventing the missing content.
+
+Once selected, the local record's rounds are read through the exit engine
+itself — the harvester spawns `scripts/dev-flow-exit.mjs --verification-only
+--json` once per confidence stage with local evidence and consumes its
+`rounds[]` trajectory field, rather than re-implementing lifecycle/receipt/
+adjudication/contiguity validation on its own (harmon-devkit#1001). What stays
+harvester-owned is everything about which GitHub markers may be trusted to
+report a round at all — trust, registration, sequence, destination, and
+cutoff visibility under `--as-of`; the engine has no opinion on any of that.
+
 **`--as-of <iso8601>` reconstructs the run record and its comment evidence at
 that instant — and nothing else.** Comments are filtered by the cutoff, and
 the harvester replays the record's append-only chain to it. But two discovery
 inputs are things GitHub does not version, so they are read as they stand now
 and are **not** reconstructed:
 
-- the **linked-issue set** (the PR's closing references), which decides which
-  issues a fallback search reaches — re-linking one changes a historical read;
+- the **linked-issue set** (the PR's closing references plus the same-repository
+  non-closing references and run-id issue numbers in its body), which decides
+  which issues a fallback search reaches — re-linking an issue or editing the
+  body changes a historical read;
 - the **PR body** the disclosed caps come from, which is mutable and
   unauthenticated anyway (§2).
 
@@ -128,6 +168,13 @@ is how tampered evidence would read as an ordinary memory-based retro.
 
 Paste the helper's output verbatim. Its sections are fixed, in this order, so
 two retros of two different runs are comparable line for line:
+
+When the run's slate has a `plan.json`, read its validated revision and include
+planned versus actual waves and interventions for each lane in the report;
+name assignments that moved, serialization or fence decisions that changed,
+and the recorded reason rather than reconstructing the original plan from lane
+briefs or memory. The plan for a run is the unique validated slate whose
+revision history lists that `run_id` in `lanes[]`.
 
 1. `## Run evidence` — run id, issue, PR, who initiated it, outcome, promotion,
    and where the run id was discovered.

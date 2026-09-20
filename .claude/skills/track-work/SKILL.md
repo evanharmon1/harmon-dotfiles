@@ -583,16 +583,20 @@ The outcome is required, has no surrounding whitespace, and must remain
 specific and understandable without either the scope or labels. Do not nest an
 Issue Form prefix (`[Bug]:`), Conventional Commit prefix (`fix:` or
 `fix(parser):`), priority (`P1:`), or another bracket prefix inside it. The
-checker enforces this grammar and the **70 Unicode code point** ceiling over the
-entire title, including scope. Whether the outcome is genuinely imperative is
-semantic judgment; the checker does not pretend to classify natural language.
+checker enforces this grammar, a **100 Unicode code point soft limit** (warning),
+and a **120 Unicode code point hard limit** (fail) over the entire title, including
+scope. Shorten an over-long title by rewriting and moving detail into the body;
+never truncate or cut characters off the end. A retitle of an issue whose body
+is empty must first copy the full original title into the body. Whether the
+outcome is genuinely imperative is semantic judgment; the checker does not
+pretend to classify natural language.
 
-For a proposed retitle, validate the title without manufacturing an issue body
-or metadata proposal:
+For a proposed retitle, validate the title and guard against truncation:
 
 ```sh
 <skill-dir>/assets/check-issue-metadata.sh --title-only \
-  --title '(cache): Reject stale entries'
+  --title '(cache): Evict cold entries' \
+  --previous-title '(cache): Reject stale entries when cache is cold'
 ```
 
 ### Body contract
@@ -841,5 +845,7 @@ catches what event-driven release did not. Project status never participates.
 ## Scope
 
 This skill is about the mechanics of tracked work — authoring, linking, closing.
-It is not the backlog-grooming routine, not the repo-conventions catalog
+It is not the backlog-grooming routine (`/groom` decides what the tracker
+should contain — `triage` classifies, `groom` decides, and a groom run ends
+by recommending a triage run), not the repo-conventions catalog
 (`standardize-repo`), and not the pre-implementation sweep (`/claim`).
