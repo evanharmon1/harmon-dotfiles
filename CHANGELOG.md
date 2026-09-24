@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.17.6](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.5...v0.17.6) (2026-09-24)
+
+
+### Bug Fixes
+
+* **lint:** format test script heredocs for shfmt 3.14 ([29fe7a4](https://github.com/evanharmon1/harmon-dotfiles/commit/29fe7a44b506337c7fb620cc9c6f6ed5d1d7f010))
+* sync harmon-devkit skills to v0.46.0 ([879d911](https://github.com/evanharmon1/harmon-dotfiles/commit/879d91187591e7c4859f45e3b183147923e87726))
+* sync harmon-devkit skills to v0.46.0 ([3aab2d7](https://github.com/evanharmon1/harmon-dotfiles/commit/3aab2d7af1dbee881c95add812e016d794cdcb54))
+
 ## [0.17.5](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.4...v0.17.5) (2026-09-13)
 
 
