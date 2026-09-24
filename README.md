@@ -53,7 +53,7 @@ post-generation [docs/CHECKLIST.md](docs/CHECKLIST.md).
 .
 ├── .claude/             # Claude Code settings + skills
 ├── .github/             # Workflows, templates, CODEOWNERS, branch ruleset
-├── docs/                # Documentation (see docs/README.md)
+├── docs/                # Documentation (see docs/index.md)
 ├── scripts/             # Repo utility scripts (hygiene, status, summaries)
 ├── specs/               # Specifications
 ├── tests/               # Tests

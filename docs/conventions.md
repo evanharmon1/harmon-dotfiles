@@ -167,12 +167,27 @@ it points here.
 - **Pin third-party actions by full commit SHA** with a trailing `# vX.Y.Z`
   comment, and annotate tool versions with `# renovate: datasource=…` so
   Renovate keeps them current.
+- **A checksum-pinned download moves as a pair.** Each per-architecture
+  `*_sha256=` line sits under a `# renovate: datasource=github-release-attachments
+  depName=<owner/repo> digestVersion=<tag>` annotation (the raw release tag),
+  and the version line and every hash line carry a trailing
+  `# pin-pair: <tool>`. Renovate then moves version, tag and hashes in one PR;
+  `task lint:pin-pairs` (in `task check`) fails a change that bumps the version
+  and leaves a hash behind.
 - Third-party CI/SaaS integrations that require an account, app installation,
   trial, or payment must be explicit opt-ins that default off. Document free-tier
   and private-repository limitations before adding them to generated output.
 - **Least-privilege `permissions:`** per job; never log secrets.
 - CI authenticates as the **`evanharmon1-ci` GitHub App** (short-lived
   tokens), not a PAT — see [architecture/security.md](architecture/security.md).
+
+### When a grouped Renovate PR goes red
+
+Identify the suspect major from the failing job, revert only that package on
+the Renovate branch, and rerun `task verify`. Repeat until the remaining group
+is green. If a major is genuinely incompatible, file a narrowly scoped hold
+rule with the upstream compatibility condition and removal trigger instead of
+leaving the whole group blocked.
 
 ## Secrets
 
@@ -217,7 +232,7 @@ it points here.
   · `docs/architecture/` (how) · `docs/decisions/` (ADRs, date-named
   `YYYY-MM-DD-…`; older records keep their `0001-` names) ·
   `docs/guides/` (build it) · `docs/runbooks/` (operate it). Folder landing
-  pages are `README.md`.
+  pages within `docs/` are `index.md`.
 
 ## Releases
 
@@ -230,7 +245,9 @@ it points here.
   `chore`, `ci`, `docs`, `perf`, `refactor`, `revert`, `style`, `test`) don't cut
   a release on their own — they ride along in the next one.
 - **Closing an issue is guarded separately.** The `closing-keywords` job in
-  `build.yml` reads only PR and issue metadata with a read-only token, and scans
+  `closing-keywords.yml` — its own workflow, so that it can keep the
+  `pull_request.edited` trigger `build.yml` deliberately drops — reads only PR
+  and issue metadata with a read-only token, and scans
   the PR title, body, and every commit message for
   `Closes`/`Fixes`/`Resolves` references.
   A bare `#N` is same-repository work: the gate refuses it while issue `#N`
