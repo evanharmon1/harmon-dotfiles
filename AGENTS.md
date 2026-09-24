@@ -13,9 +13,9 @@ the chezmoi **source directory** — files here use chezmoi naming conventions
 The dotfiles target macOS (primary) and Linux, with OS-conditional logic via
 chezmoi `.tmpl` templates and `.chezmoiignore`.
 
-Repo: https://github.com/evanharmon1/harmon-dotfiles — see [docs/README.md](docs/README.md) for the
-documentation map and [docs/architecture/README.md](docs/architecture/README.md)
-for the architecture.
+Repo: https://github.com/evanharmon1/harmon-dotfiles — see [docs/index.md](docs/index.md) for the
+documentation map, [docs/architecture/index.md](docs/architecture/index.md)
+for the architecture, and [DESIGN.md](DESIGN.md) for design/UX intent.
 
 ## harmon-platform
 
@@ -99,16 +99,17 @@ local diff. Work in PR-sized units; a PR handed to a human is the deliverable.
 **The loop is the stage skills; this section is the policy they run under.**
 `/orchestrator` is the session's standing operating mode; it dispatches
 `/implement` (claimed issue → gates → draft PR), `/review` (both confidence
-stages), and `/integrate` (draft → ready for review). `/claim` comes first but
-is **user-invoked** — the user typing it authorizes its issue writes — and
-`/implement` never claims. There is **no `dev-loop` skill** — those stages *are*
-the loop; retired names map on (`gauntlet` → `review`, `shepherd` →
-`integrate`), and a pin still shipping a predecessor runs it under this policy.
+stages), and `/integrate` (draft → ready for review). `/claim` comes first
+but is **user-invoked** — typing it authorizes its issue writes — and `/implement`
+never claims. There is **no `dev-loop` skill** — those stages *are* the loop;
+retired names map on (`gauntlet` → `review`, `shepherd` → `integrate`), and a
+pin still shipping a predecessor runs it under this policy.
 The skills carry the procedure — round mechanics, adjudication records, review
-polling, the PR-open ritual — entered by reading their `SKILL.md`, since every
-one is `disable-model-invocation: true`. Where none is vendored, this section is
-the whole contract and its invariants are owed anyway; where a **vendored**
-skill states a different cap, floor, or exit condition, **this file wins**.
+polling, the PR-open ritual — entered by reading their `SKILL.md`. A vendored
+skill setting `disable-model-invocation: true` is user-invoked; active stage
+skills may be model-invocable (harmon-devkit `ai/skills/README.md`). Where none
+is vendored, this section is the whole contract and its invariants are owed anyway;
+where a **vendored** skill states a different cap, floor, or exit condition, **this file wins**.
 
 ```text
 /claim (user) → /implement [ code → task verify → challenge → review → task security → DRAFT PR ]
@@ -126,9 +127,8 @@ skill states a different cap, floor, or exit condition, **this file wins**.
 - **Merged PR** — always a separate human decision. Agents never merge.
 
 Creating the draft is a phase transition, not a terminal state: every stop short
-of the readiness gate leaves the PR **draft** with a blocker report. That assumes
-the repo *can* open drafts (GitHub restricts them on private repositories to
-paid plans — docs/CHECKLIST.md); a rejected `--draft` is reported, never dropped.
+of the readiness gate leaves the PR **draft** with a blocker report (if drafts
+are restricted on private repos, a rejected `--draft` is reported, never dropped).
 
 ### Policy invariants
 
@@ -151,14 +151,15 @@ Binding on every stage, skill, and harness, whatever rigor resolved:
   `security:secrets` always, `security` before the draft PR); the `pre-push`
   hook runs what it can, otherwise run them yourself. `task ci` stays on demand.
 - **One conventional commit per adjudicated round, pushed** to the branch's own
-  writable remote (`git push -u <remote> <branch>` on the first push). Per
-  *round*, not per finding: five fixes are one commit, a round with nothing to
-  fix pushes nothing. It bounds a lost environment to the current round's *code*
-  and surfaces a push-permission gap at round 1 rather than at `gh pr create`;
-  it carries nothing else — the deferred-findings sidecar and the adjudication
-  ledger live in the git directory, are never pushed, and a resumed session
-  re-runs the stage anyway. Once the draft exists, pushes batch per integration
-  round — each one spends a CI run and starts a fresh current-head review cycle.
+  writable remote (`git push -u <remote> <branch>` on the first push). Per *round*,
+  not per finding: five fixes are one commit, a round with nothing to fix pushes
+  nothing. It bounds a lost environment to the current round's *code* and surfaces a
+  push-permission gap at round 1 rather than at `gh pr create`; it carries nothing else
+  — the deferred-findings sidecar and the adjudication ledger live in the git directory,
+  are never pushed, and a resumed session re-runs the stage anyway. Once the draft
+  exists, pushes batch per remediation round (counted against the `remediation` cap)
+  — each one spends a CI run and, while a cycle remains under a positive `integration`
+  cap, starts a fresh current-head review cycle (a cap of 0 or a spent cap starts none).
 - **Findings are hypotheses, never authority** — verify each against the code,
   fix only what is confirmed, post the evidence for anything rejected. Whatever
   the stage does not gate on is **deferred, never dropped**: recorded the moment
@@ -183,9 +184,9 @@ finding's **disposition**, may override a computed stage exit **upward only**
 per-thread replies and the PR body, evaluates the readiness gate, promotes, and
 escalates on a cap, a blocker, or a scope question. It delegates implementation
 to `/implement`, the confidence rounds to `/review`, and integration polling to
-`/integrate` — session procedures, which return no envelope. Where a run
-dispatches the schema-bound **role agents** instead, each returns a typed result
-validated by `ai/schemas/result.envelope.schema.json` and its per-role
+`/integrate` — session procedures returning no envelope. Where a run dispatches
+the schema-bound **role agents** instead, each returns a typed result validated
+by `ai/schemas/result.envelope.schema.json` and its per-role
 `result.{implementer,challenger,reviewer,integrator}.schema.json` and nothing
 more; that result is **immutable**, its adjudication a separate record keyed by
 finding id that every consumer reads. A delegate of either kind never merges,
@@ -201,12 +202,60 @@ success. Immediately before accepting a result or promoting, re-check the
 **cycle** as well as `headRefOid`: a same-head finding can land after a clean
 one. § "Second-Model Review" carries the trigger cadence and both procedures.
 
+**One carve-out, and it is proved rather than judged** (evanharmon1/harmon-init#752). A head that
+advanced **only** by a base catch-up merge can carry the change forward
+byte-for-byte, and a fresh cycle then re-attests the same bytes at the cost of
+a full reviewer window. Where the PR's three-dot diff (`base...head`) has the
+same identity at the previously reviewed head and at this one — a digest of
+that diff's own text, computed from immutable commit SHAs in the local
+checkout, never reconstructed from the API, and generated under fixed,
+non-normalizing options (no textconv or external diff driver, no rename
+detection, submodule changes never ignored, full object IDs and gitlinks, and
+pinned context, algorithm, prefixes, and file order) so no checkout's
+configuration can hide a change or make two different diffs digest alike; this is the *canonical diff digest* the guides and
+`.devflow.toml` refer to — the prior **clean** verdict
+carries to this head and no cycle is triggered. Equality of that one value is
+the whole argument: the reviewed artifact is the diff, and two heads whose
+diffs are identical are the same change.
+
+The identity is deliberately **not** `git patch-id`, which ignores hunk
+offsets: a reviewed edit relocated between two identically-surrounded regions
+— what a conflict resolution can produce — yields two different trees and one
+patch id, so a verdict would carry across a change that really moved. Digesting
+the diff text keeps the `@@` headers that distinguish them.
+
+Anything that cannot be established — a changed diff, history rewritten rather
+than merged, a base the verdict was never corroborated against, a checkout
+without the commits or one whose history is overridden by replace refs or
+grafts, a verdict that was `findings` — requires the ordinary cycle, on the
+same invariant the exemption above runs under.
+
+Three things never move with the carry. **CI re-runs on the new head in full,
+always**, because what a base merge can change is everything *outside* the diff
+and that is CI's to catch. **The review cycle itself does not move**: a carry
+records that an existing cycle's verdict also attests a later head, and changes
+nothing else — so the ordinary evidence scan keeps running against the commit a
+reviewer actually read, a finding landing there after the carry still blocks,
+and it is still answered the ordinary way. What a carry removes is the second
+*review*, never the second *look*. And the proof is **re-derived** each time
+rather than read back from the record, so a resumed session trusts nothing a
+previous process wrote. Like the exemption, this belongs to the integration
+stage and takes effect only where that stage implements it. Every surface that
+drives or checks the cycle has to carry it. A skills-pin bump brings the
+vendored ones: the checker and readiness gate under `.claude/skills/`, and the
+integrator agent under `.claude/agents/` that drives the cycle — without it the
+loop never calls `carry` and re-reviews every head. It does **not** bring this
+repository's own `ai/schemas/result.integrator.schema.json`, the composed
+`ai/schemas/result.schema.json` that embeds it, and
+`scripts/validate-result-schemas.mjs`, which otherwise reject a carried result
+for naming a reviewed commit that is not the gated head. Until all of them carry it, every head is reviewed on its own and
+no verdict is carried.
+
 ### Readiness gate
 
-The single definition of "the automated lifecycle is complete", used by
-the integration stage alike. A
-draft may be marked ready for review only when **all** of the following hold for
-its current `headRefOid`:
+The single definition of "the automated lifecycle is complete", used by the
+integration stage alike. A draft may be marked ready for review
+only when **all** of the following hold for its current `headRefOid`:
 
 - Required CI checks have concluded successfully. An empty check list is
   *indeterminate*, not a pass — GitHub populates it asynchronously, so a read
@@ -255,7 +304,12 @@ without parsing prose. `Stage` names the stage and, for a capped one, its round
 as **`round n/cap`** against the `.devflow.toml` cap that bounds *that* work —
 challenge, review, integration (Codex re-review cycles), and remediation
 (integration-stage fix pushes) are counted and capped separately and never
-combined, so name the counter whenever the stage has more than one. `Next` names the next
+combined, so name the counter whenever the stage has more than one. Integration
+heads not charged to `integration` are named beside the count, never folded
+into it: `round n/cap (+m exempt, +k carried)`. `m` counts exempt cycles, which
+still run a review and spend the separate `integration_exempt` ceiling; `k`
+counts heads carried forward without a review, which spend neither — so a head
+attested without a reviewer reading it stays visible. `Next` names the next
 concrete gate or action, including the `task verify` a fix owes before the next
 round. Post it at every stage transition, at each round boundary, as the concise
 tick during a long wait (no re-dumping unchanged command output), and
@@ -308,6 +362,37 @@ wall-clock ceiling. Challenge and review bound confidence passes;
 `integration` bounds current-head Codex review cycles; `remediation` bounds
 integration-stage fix pushes. A zero cap disables only the work it names,
 never a deterministic gate, security scan, branch rule, or human approval.
+`integration` charges only cycles that review something new: one whose head
+differs from the last reviewed head **only** by a base merge that changed
+nothing under review re-reads identical code, so it spends the separate,
+equal `integration_exempt` ceiling the reader derives instead. A merge that
+resolves a conflict, or that touches any file under review, charges normally,
+and the ledger names which counter each cycle spent so `round n/cap` stays
+honest. The accounting belongs to the integration stage, so the exemption
+takes effect only where that stage implements it. Until the vendored pin in
+`.claude/skills/` carries it, that skill's single cycle counter governs and no
+cycle is exempt. This is the one case where a lagging skill is **not**
+overridden by this file: its readiness gate enforces the count mechanically,
+and a cycle ordinal above `integration` reads there as `codex-cap-mismatch` —
+an *indeterminate* gate condition, which leaves the PR draft. Acting on the
+exemption before the pin implements it would stall the gate it was meant to
+unblock.
+
+`integration` also stops charging a cycle it never runs (evanharmon1/harmon-init#752). Where the head
+advanced only by a base merge and the PR's three-dot diff has the same
+identity as at the previously reviewed head, the prior clean verdict carries
+forward and **no cycle is triggered at all** —
+neither ceiling is spent, the cycle ordinal does not advance, and the ledger
+names the carried head (`round n/cap (+m exempt, +k carried)`, § "Stage
+Ledger") because a head
+attested without a reviewer reading it is exactly what a human must be able to
+see. The exemption above is the weaker, file-set test and stays for what the
+identity cannot prove; the two compose, carry first because it is both stricter
+and cheaper. The same carve-out in full, including why CI still re-runs
+unconditionally, is under § "Dev Loop" → the current-head Codex contract, and
+the same caveat applies — and it is more than a pin: until the vendored
+assets AND this repository's own result schemas (the integrator schema and the
+composed one embedding it) and validator all carry it, no verdict is carried.
 
 **Role tiers refine the resolved rigor level; they never replace it.** Each
 `[rigor.<level>]` profile carries `orchestrator_tier`, `implementer_tier`,
@@ -394,6 +479,21 @@ cap allowed.
 - Releases are intentional: release-please keeps a rolling release PR from
   conventional commits; merging it cuts the tag/release. Nothing bumps on a
   normal merge. `task release:*` remains as a manual override.
+- **Pre-flight `guard:closing-keywords` before opening a PR that closes an
+  issue — from the body, the title, or a commit message.** The checker scans
+  all three, so a `Closes #N` written only into a commit subject counts and is
+  the easy one to forget. A same-repo `Closes #N` while `#N` still has
+  unchecked acceptance criteria fails the required `closing-keywords` check,
+  and the guard is a
+  metadata read — so pay for it locally, in the second before `gh pr create`,
+  rather than in a CI round and a fix push. It stays **out of `verify`**
+  deliberately: `verify` is offline and this guard calls the GitHub API.
+  Pre-flight it with the body you are about to publish:
+  `PR_TITLE="<title>" PR_BODY="$(cat body.md)" task guard:closing-keywords`.
+  With both variables unset it reads the branch's open PR instead, which is
+  the form to re-run after a body edit; `task ci` runs it first for the same
+  reason. Fix the issue's criteria — or drop the closing keyword to `Refs` —
+  rather than bypassing it.
 
 ## Second-Model Review (Codex)
 
@@ -433,19 +533,36 @@ commit, and a lone 👀 that disappears or never resolves is an incomplete
 attempt.
 
 **Both procedures for that cycle live here**, because a repo can answer
-`use_codex_review` yes and `use_skills_sync` no. Post `@codex review` on entry and after every fix push, keep the
+`use_codex_review` yes and `use_skills_sync` no. Where the resolved integration
+cap is positive, post `@codex review` on entry and after every remediation push
+while a cycle remains under the `integration` cap — a remediation push with no
+cycle left is the cap-reached escalation, not a trigger — keep the
 comment ID returned for that trigger, and give each attempt a full 10–15 minute
-window, re-triggering once after an incomplete first attempt. If both attempts
-are incomplete, stop and escalate without reporting green.
+window, re-triggering once after an incomplete first attempt.
+(Where the resolved integration cap is 0, no cloud review is triggered and that
+condition drops out of the readiness gate; every other gate still applies.)
+If both attempts are incomplete, stop and escalate without reporting green.
 **Where the pinned checker is vendored**
-(`.claude/skills/shepherd/assets/check-codex-cloud-review.sh`), it is the
+(`.claude/skills/integrate/assets/check-codex-cloud-review.sh`), it is the
 required implementation — never hand-roll the polling: `reserve` the cycle
 against the captured head *before* posting the trigger (the durable state must
-exist before the GitHub write), then post `@codex review`, `attach` the comment
-ID it returned, and `check`, acting on its exit code (0 clean, 10 findings,
+exist before the GitHub write), then post `@codex review`, `attach` with
+`--trigger-id <comment id>`, and `check`, acting on its exit code (0 clean, 10 findings,
 11 pending, 12 retry, 13 escalate, 2 indeterminate). It never writes to GitHub,
 so posting the trigger stays yours, and its `settle` subcommand records the
 disposition of a badged finding stated outside an inline thread.
+On a head that MOVED, one step comes first — but only where the pinned checker
+implements it. `carry` asks whether an existing cycle's verdict already attests
+the new head (exit 0: post no trigger, go straight to `check`; exit 17: reserve
+the ordinary cycle; exit 14: the PR is merged or closed, so stop). A pin that
+predates it has no `carry` subcommand and exits 2 through its usage fallback,
+which would BLOCK integration rather than run the ordinary per-head review — so
+confirm the capability before relying on it (`check-codex-cloud-review.sh
+--help` listing `carry`) and take the ordinary `reserve` flow when it is absent.
+`check` runs either way, and on a carrying cycle it runs the same evidence scan
+it always runs and re-derives the identity immediately before any verdict it
+reaches.
+
 **Where it is not vendored**, the same contract is satisfied by hand: post the
 trigger and record its comment ID and request time yourself, then poll all four
 surfaces — PR reactions (fetched by that exact comment ID), top-level comments,
