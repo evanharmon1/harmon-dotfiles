@@ -7,29 +7,35 @@ which prompt on every merge (including routine catch-up merges of main into
 a lane branch) yet miss `git -C <dir> merge` entirely, because permission
 rules match literal command prefixes.
 
-Decision:
-  * silent (the normal permission flow applies) for exactly one shape, run
-    in a checkout whose current branch is a named branch other than
-    main/master and the remote's default branch:
+Invariant: the hook returns "ask" for every command that MIGHT run a git
+merge or pull, unless the whole command is exactly one allowlisted shape run
+in a verified feature-branch checkout. "Might run" is deliberately coarse:
 
-        [cd <dir> &&] git [-C <dir>] merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
-        [cd <dir> &&] git [-C <dir>] merge --abort|--continue
-        [cd <dir> &&] git [-C <dir>] pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
+  * after shell unquoting, the command's words include `git` (any case, any
+    path) and `merge` or `pull` anywhere (so newlines, `if`, `command`,
+    `g''it`, and compound lines are all covered); or
+  * the command cannot be tokenized, or uses indirection (`$`, backticks,
+    backslashes, eval, xargs, a nested shell), and mentions merge/pull.
 
-  * "ask" for every other command containing a git merge/pull invocation,
-    including ones it cannot parse (substitutions, `bash -c`, `eval`, a
-    detached HEAD, an unreadable repo, a hook error).
-  * silent for commands that contain no git merge/pull at all.
+The only silent (normal permission flow) shape is
 
-The hook never classifies arbitrary shell as safe: it recognizes one
-allowlisted shape and asks about everything else that mentions a merge. A
-parser gap therefore costs a prompt, not a silent merge into main (see
-harmon-init docs/decisions/2026-09-02-remove-guard-process-kill-hook.md for
-why an open-ended classifier was rejected). Note that a hook "allow" cannot
-override a permissions.ask rule, so this hook only ever adds prompts.
+    [cd <dir> &&] git [-C <dir>] merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
+    [cd <dir> &&] git [-C <dir>] merge --abort|--continue
+    [cd <dir> &&] git [-C <dir>] pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
 
-Tests: scripts/test-git-merge-guard.sh (run by `task test:hooks`) in harmon-infra and harmon-dotfiles.
-Template adoption: evanharmon1/harmon-init#1435.
+where the target checkout is on a named branch that is not main/master and
+differs from every remote's resolved default branch -- at least one remote
+default must resolve (`git remote set-head <remote> --auto`), or it asks.
+
+The parser only decides when to stay SILENT; any gap in it costs a prompt,
+never a silent merge. (harmon-init's decision to remove guard-process-kill
+explains why an open-ended "is this safe?" classifier was rejected.) Like
+the rules it replaces, it does not see through git aliases or scripts. A
+hook "allow" cannot override a permissions.ask rule, so this hook only ever
+adds prompts.
+
+Tests: scripts/test-git-merge-guard.sh (run by `task test:hooks`) in
+harmon-infra and harmon-dotfiles. Template adoption: evanharmon1/harmon-init#1435.
 """
 
 import json
@@ -40,78 +46,67 @@ import subprocess
 import sys
 
 PROTECTED = {"main", "master"}
+MERGE_WORDS = {"merge", "pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 SOLO_FLAGS = {"--abort", "--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 PATH = re.compile(r"^[A-Za-z0-9._/~+-]+$")
-OPERATORS = set(";&|<>()")
-INDIRECTION = re.compile(r"\$\(|`|\beval\b|\b(ba|z)?sh\s+-c\b|\bxargs\b")
-LOOSE = re.compile(r"\bgit\b.*\b(merge|pull)\b(?![-\w])", re.S)
-
-
-class Unparsed(Exception):
-    pass
+MENTION = re.compile(r"\b(?:merge|pull)\b", re.I)
+INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
 
 
 def tokenize(command):
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
+    return list(lexer)
+
+
+def might_merge(command):
+    """True when the command could run a git merge/pull (coarse on purpose)."""
     try:
-        return list(lexer)
-    except ValueError as exc:  # unbalanced quotes
-        raise Unparsed(str(exc))
+        tokens = tokenize(command)
+    except ValueError:  # unbalanced quotes, e.g. an apostrophe in a heredoc
+        return bool(MENTION.search(command))
+    words = {os.path.basename(t).lower() for t in tokens}
+    if "git" in words and words & MERGE_WORDS:
+        return True
+    return bool(INDIRECTION.search(command) and MENTION.search(command))
 
 
-def segments(tokens):
-    """Split on shell operators; return (segments, operators)."""
-    segs, ops, current = [], [], []
-    for tok in tokens:
-        if tok and set(tok) <= OPERATORS:
-            segs.append(current)
-            ops.append(tok)
-            current = []
-        else:
-            current.append(tok)
-    segs.append(current)
-    return segs, ops
-
-
-def git_subcommand(seg):
-    """Return (dir_override, subcommand, args) for a `git ...` segment."""
-    i = 0
-    while i < len(seg) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[i]):
-        i += 1  # env prefix: still a git call, but never whitelisted
-    env = i > 0
-    if i >= len(seg) or os.path.basename(seg[i]) != "git":
+def allowlisted_target(command, cwd):
+    """Return the checkout dir if the command is exactly the silent shape."""
+    if INDIRECTION.search(command) or "\n" in command:
         return None
-    i += 1
-    cdir, plain = None, not env
-    while i < len(seg) and seg[i].startswith("-"):
-        opt = seg[i]
-        if opt == "-C" and i + 1 < len(seg):
-            cdir = seg[i + 1]
-            i += 2
-            continue
-        plain = False  # -c, --git-dir, --work-tree, ...
-        i += 2 if opt in ("-c", "--git-dir", "--work-tree", "--namespace") else 1
-    if i >= len(seg):
+    tokens = tokenize(command)
+    if "&&" in tokens:
+        split = tokens.index("&&")
+        cd, call = tokens[:split], tokens[split + 1 :]
+        if len(cd) != 2 or cd[0] != "cd" or not PATH.match(cd[1]):
+            return None
+        cwd = os.path.join(cwd, os.path.expanduser(cd[1]))
+    else:
+        call = tokens
+    if any(set(t) <= set(";&|<>()") for t in call) or call[:1] != ["git"]:
         return None
-    return cdir, seg[i], seg[i + 1 :], plain
-
-
-def whitelisted_args(sub, args):
+    args = call[1:]
+    if args[:1] == ["-C"] and len(args) >= 2 and PATH.match(args[1]):
+        cwd = os.path.join(cwd, os.path.expanduser(args[1]))
+        args = args[2:]
+    if not args or args[0] not in MERGE_WORDS:
+        return None
+    sub, rest = args[0], args[1:]
+    refs = [a for a in rest if not a.startswith("-")]
+    flags = set(a for a in rest if a.startswith("-"))
+    if not all(REF.match(r) for r in refs):
+        return None
     if sub == "merge":
-        if len(args) == 1 and args[0] in SOLO_FLAGS:
-            return True
-        refs = [a for a in args if not a.startswith("-")]
-        flags = [a for a in args if a.startswith("-")]
-        return len(refs) == 1 and bool(REF.match(refs[0])) and set(flags) <= MERGE_FLAGS
-    refs = [a for a in args if not a.startswith("-")]
-    flags = [a for a in args if a.startswith("-")]
-    return (
-        len(refs) <= 2 and all(REF.match(r) for r in refs) and set(flags) <= PULL_FLAGS
-    )
+        ok = (len(rest) == 1 and rest[0] in SOLO_FLAGS) or (
+            len(refs) == 1 and flags <= MERGE_FLAGS
+        )
+    else:
+        ok = len(refs) <= 2 and flags <= PULL_FLAGS
+    return os.path.normpath(cwd) if ok else None
 
 
 def git(cwd, *args):
@@ -122,77 +117,48 @@ def git(cwd, *args):
 
 
 def feature_branch(cwd):
-    """Return the branch name if cwd is on a non-protected named branch."""
+    """Return the branch if cwd is provably on a non-default named branch."""
     if not os.path.isdir(cwd):
         return None
     branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
     if not branch or branch in PROTECTED:
         return None
-    default = git(cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    if default and branch == default.split("/", 1)[-1]:
+    defaults = set()
+    for remote in (git(cwd, "remote") or "").split():
+        ref = git(
+            cwd, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remote}/HEAD"
+        )
+        if ref:
+            defaults.add(ref.split("/", 1)[-1])
+    if not defaults or branch in defaults:
         return None
     return branch
 
 
-def resolve(base, path):
-    return os.path.normpath(os.path.join(base, os.path.expanduser(path)))
-
-
 def decide(command, cwd):
-    """Return None (no opinion) or a reason string to ask with."""
-    if not LOOSE.search(command):
+    """Return None (no opinion) or the reason to ask."""
+    if not might_merge(command):
         return None
-    if INDIRECTION.search(command) or "\\" in command:
-        return "merge/pull inside a substitution, eval, or nested shell"
-    segs, ops = segments(tokenize(command))
-
-    merges = []
-    for idx, seg in enumerate(segs):
-        call = git_subcommand(seg)
-        if call and call[1] in ("merge", "pull"):
-            merges.append((idx, call))
-    if not merges:
-        return None  # "merge" only appeared inside quoted text or as a path
-    if len(merges) > 1:
-        return "more than one git merge/pull in one command"
-
-    idx, (cdir, sub, args, plain) = merges[0]
-    prefix = segs[:idx]
-    shape_ok = plain and whitelisted_args(sub, args)
-    if prefix:
-        cd = prefix[0]
-        shape_ok = (
-            shape_ok
-            and len(prefix) == 1
-            and ops[:1] == ["&&"]
-            and len(cd) == 2
-            and cd[0] == "cd"
-            and bool(PATH.match(cd[1]))
+    target = allowlisted_target(command, cwd)
+    if target is None:
+        return "git merge/pull in a form this guard does not allowlist"
+    if feature_branch(target) is None:
+        return (
+            "git merge/pull would land on main/master or the remote default "
+            "branch, or the target branch could not be verified "
+            f"(detached HEAD, no resolvable remote HEAD, unreadable): {target}"
         )
-        if shape_ok:
-            cwd = resolve(cwd, cd[1])
-    if len(segs) > idx + 1:
-        shape_ok = False  # anything after the merge/pull
-    if cdir is not None:
-        shape_ok = shape_ok and bool(PATH.match(cdir))
-        cwd = resolve(cwd, cdir)
-
-    if not shape_ok:
-        return f"git {sub} in a form this guard does not recognize"
-    branch = feature_branch(cwd)
-    if branch is None:
-        return f"git {sub} would land on main/master, the default branch, a detached HEAD, or an unreadable checkout ({cwd})"
     return None
 
 
 def main():
-    payload = json.load(sys.stdin)
-    if payload.get("tool_name") != "Bash":
-        return
-    command = (payload.get("tool_input") or {}).get("command", "")
     try:
+        payload = json.load(sys.stdin)
+        command = (payload.get("tool_input") or {}).get("command", "")
+        if payload.get("tool_name") != "Bash" or not command:
+            return
         reason = decide(command, payload.get("cwd") or os.getcwd())
-    except Exception as exc:  # fail closed on anything that mentions a merge
+    except Exception as exc:  # fail closed
         reason = f"guard could not analyse the command ({exc.__class__.__name__})"
     if reason:
         json.dump(
