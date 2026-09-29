@@ -118,6 +118,10 @@ matrix() { # guard
     case_ "$g" ask "${r}/wt" "/usr/bin/git merge main && echo ok"
     case_ "$g" ask "${r}/wt" "true; gh pr view 1; git merge main"
     case_ "$g" ask "${r}/wt" "git merge 'unbalanced"
+    case_ "$g" ask "$r" "git \$'\\x6d\\x65\\x72\\x67\\x65' feat"
+    case_ "$g" ask "$r" "git mer\\${nl}ge feat"
+    case_ "$g" ask "$r" "git m*rge feat"
+    case_ "$g" ask "$r" "git \"\$SUB\" feat"
     # No git merge/pull: no opinion, including everyday near-misses.
     case_ "$g" silent "${r}/wt" "git merge-base main feat"
     case_ "$g" silent "${r}/wt" "git log --merges --oneline"
@@ -127,6 +131,9 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "gh pr view \"\$N\" --json mergeStateStatus,mergedAt"
     case_ "$g" silent "${r}/wt" "grep -rn merge docs/"
     case_ "$g" silent "${r}/wt" "ls pull-requests/"
+    case_ "$g" silent "${r}/wt" "git -C \"\$HOME\" status"
+    case_ "$g" silent "${r}/wt" "git log -- '*.md'"
+    case_ "$g" silent "${r}/wt" "git log --format='%h %s' -1"
     case_ "$g" silent "${r}/wt" "cat > body.md <<'EOF'${nl}this pull request adds a guard${nl}EOF"
 }
 

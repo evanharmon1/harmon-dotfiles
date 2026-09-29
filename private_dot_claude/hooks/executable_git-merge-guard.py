@@ -14,6 +14,8 @@ in a verified feature-branch checkout. "Might run" is deliberately coarse:
   * after shell unquoting, the command's words include `git` (any case, any
     path) and `merge` or `pull` anywhere (so newlines, `if`, `command`,
     `g''it`, and compound lines are all covered); or
+  * a git call's subcommand word is not a literal (an expansion, quote,
+    escape or glob such as `git $'\x6d...'` or `git m*rge`); or
   * the command cannot be tokenized, or uses indirection (`$`, backticks,
     backslashes, eval, xargs, a nested shell), and mentions merge/pull.
 
@@ -32,7 +34,9 @@ never a silent merge. (harmon-init's decision to remove guard-process-kill
 explains why an open-ended "is this safe?" classifier was rejected.)
 
 Known limits, shared with or no worse than the rules it replaces: it does
-not see through git aliases or scripts, and it trusts the local
+not see through git aliases or scripts, nor through deliberate obfuscation
+that hides both the `git` word and the subcommand (e.g. both in variables);
+it is a backstop against mistakes, not an adversarial boundary. It trusts the local
 `refs/remotes/<remote>/HEAD` cache -- after a remote renames its default
 branch, run `git remote set-head <remote> --auto` (main/master stay
 protected regardless). A
@@ -59,12 +63,37 @@ REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 PATH = re.compile(r"^[A-Za-z0-9._/~+-]+$")
 MENTION = re.compile(r"\b(?:merge|pull)\b", re.I)
 INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
+EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
+GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
 
 
 def tokenize(command):
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
     return list(lexer)
+
+
+def git_subcommand_not_literal(command):
+    """True when some git call's subcommand word is shell-synthesized.
+
+    Scans raw (still-quoted) tokens: a subcommand slot holding an
+    expansion, quote, escape or glob could become `merge` at run time.
+    """
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|<>()")
+    lexer.whitespace_split = True
+    try:
+        raw = list(lexer)
+    except ValueError:
+        return bool(MENTION.search(command))
+    for i, tok in enumerate(raw):
+        if os.path.basename(re.sub(r"[\"'\\]", "", tok)).lower() != "git":
+            continue
+        j = i + 1
+        while j < len(raw) and raw[j].startswith("-"):
+            j += 2 if raw[j] in GIT_VALUE_OPTIONS else 1
+        if j < len(raw) and EXPANSION.search(raw[j]):
+            return True
+    return False
 
 
 def might_merge(command):
@@ -74,7 +103,7 @@ def might_merge(command):
     except ValueError:  # unbalanced quotes, e.g. an apostrophe in a heredoc
         return bool(MENTION.search(command))
     words = {os.path.basename(t).lower() for t in tokens}
-    if "git" in words and words & MERGE_WORDS:
+    if "git" in words and (words & MERGE_WORDS or git_subcommand_not_literal(command)):
         return True
     return bool(INDIRECTION.search(command) and MENTION.search(command))
 
