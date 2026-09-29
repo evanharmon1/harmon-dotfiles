@@ -75,9 +75,7 @@ matrix() { # guard
     local g=$1
     # Allowlisted merges into a verified feature branch: no opinion.
     case_ "$g" silent "${r}/wt" "git merge origin/main --no-edit"
-    case_ "$g" silent "$r" "cd ${r}/wt && git merge origin/main --no-edit"
-    case_ "$g" silent "$r" "cd ./wt && git merge main"
-    case_ "$g" silent "$r" "git -C ${r}/wt merge --no-ff main"
+    case_ "$g" silent "${r}/wt" "git merge --no-ff main"
     case_ "$g" silent "${r}/wt" "git merge --abort"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
@@ -96,6 +94,19 @@ matrix() { # guard
     case_ "$g" ask "$r" "cd wt && git merge main"
     case_ "$g" ask "${tmp}/missing" "git merge main"
     # Shapes the guard does not allowlist: always ask.
+    # cd / -C paths: the silent path takes no path arguments at all, so a
+    # symlink-then-.. or quoted-~ path can't make the guard verify a
+    # different checkout than the one git uses (review round 1).
+    case_ "$g" ask "$r" "cd ${r}/wt && git merge origin/main --no-edit"
+    case_ "$g" ask "$r" "cd ./wt && git merge main"
+    case_ "$g" ask "$r" "git -C ${r}/wt merge --no-ff main"
+    case_ "$g" ask "${r}/wt" "git -C ./hop/.. merge main"
+    case_ "$g" ask "${r}/wt" "git -C \"~/repo\" merge main"
+    # Quote-synthesized words on a FEATURE checkout must still ask.
+    case_ "$g" ask "${r}/wt" "g''it merge main"
+    case_ "$g" ask "${r}/wt" "git mer''ge main"
+    case_ "$g" ask "${r}/wt" "git merge 'main'"
+    case_ "$g" ask "relative/wt" "git merge main"
     case_ "$g" ask "${r}/wt" "git checkout main && git merge feat"
     case_ "$g" ask "${r}/wt" "git merge main; git -C ${r} merge feat"
     case_ "$g" ask "${r}/wt" "git status; git merge main"

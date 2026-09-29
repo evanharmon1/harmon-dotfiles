@@ -19,13 +19,16 @@ in a verified feature-branch checkout. "Might run" is deliberately coarse:
   * the command cannot be tokenized, or uses indirection (`$`, backticks,
     backslashes, eval, xargs, a nested shell), and mentions merge/pull.
 
-The only silent (normal permission flow) shape is
+The only silent (normal permission flow) shape is one fully literal command
+-- no quotes, escapes, expansions, globs, operators, newlines, `cd` or `-C`:
 
-    [cd <dir> &&] git [-C <dir>] merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
-    [cd <dir> &&] git [-C <dir>] merge --abort|--continue
-    [cd <dir> &&] git [-C <dir>] pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
+    git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
+    git merge --abort|--continue
+    git pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
 
-where the target checkout is on a named branch that is not main/master and
+run in the working directory Claude Code reports in the hook payload (a lane
+merges from its own worktree), where that checkout is on a named branch that
+is not main/master and
 differs from every remote's resolved default branch -- at least one remote
 default must resolve (`git remote set-head <remote> --auto`), or it asks.
 
@@ -60,7 +63,7 @@ MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 SOLO_FLAGS = {"--abort", "--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
-PATH = re.compile(r"^[A-Za-z0-9._/~+-]+$")
+LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
 MENTION = re.compile(r"\b(?:merge|pull)\b", re.I)
 INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
 EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
@@ -109,29 +112,19 @@ def might_merge(command):
 
 
 def allowlisted_target(command, cwd):
-    """Return the checkout dir if the command is exactly the silent shape."""
-    if INDIRECTION.search(command) or "\n" in command:
+    """Return cwd if the whole command is exactly the silent shape.
+
+    The shape is one fully literal `git merge` / `git pull` with no path
+    arguments: no quotes, escapes, expansions, globs, operators or newlines,
+    and no `cd` / `-C`. The checkout the guard verifies is therefore the one
+    git will use -- the working directory Claude Code reports in the payload.
+    """
+    if LITERAL_UNSAFE.search(command) or not os.path.isabs(cwd):
         return None
-    tokens = tokenize(command)
-    if "&&" in tokens:
-        split = tokens.index("&&")
-        cd, call = tokens[:split], tokens[split + 1 :]
-        if len(cd) != 2 or cd[0] != "cd" or not PATH.match(cd[1]):
-            return None
-        if not cd[1].startswith(("/", "./", "../", "~/")):
-            return None  # a bare `cd wt` can resolve through CDPATH elsewhere
-        cwd = os.path.join(cwd, os.path.expanduser(cd[1]))
-    else:
-        call = tokens
-    if any(set(t) <= set(";&|<>()") for t in call) or call[:1] != ["git"]:
+    tokens = command.split()
+    if len(tokens) < 2 or tokens[0] != "git" or tokens[1] not in MERGE_WORDS:
         return None
-    args = call[1:]
-    if args[:1] == ["-C"] and len(args) >= 2 and PATH.match(args[1]):
-        cwd = os.path.join(cwd, os.path.expanduser(args[1]))
-        args = args[2:]
-    if not args or args[0] not in MERGE_WORDS:
-        return None
-    sub, rest = args[0], args[1:]
+    sub, rest = tokens[1], tokens[2:]
     refs = [a for a in rest if not a.startswith("-")]
     flags = set(a for a in rest if a.startswith("-"))
     if not all(REF.match(r) for r in refs):
@@ -142,7 +135,7 @@ def allowlisted_target(command, cwd):
         )
     else:
         ok = len(refs) <= 2 and flags <= PULL_FLAGS
-    return os.path.normpath(cwd) if ok else None
+    return cwd if ok else None
 
 
 def git(cwd, *args):
