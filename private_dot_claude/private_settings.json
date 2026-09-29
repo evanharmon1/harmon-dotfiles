@@ -35,8 +35,6 @@
     "ask": [
       "Bash(gh pr merge)",
       "Bash(gh pr merge:*)",
-      "Bash(git merge)",
-      "Bash(git merge:*)",
       "Bash(git push origin main)",
       "Bash(git push origin main:*)",
       "Bash(git push -f:*)",
@@ -149,6 +147,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/enforce-conventional-commits.sh"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/git-merge-guard.py || printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"git-merge-guard failed to run\"}}'"
           }
         ]
       }
