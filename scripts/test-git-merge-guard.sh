@@ -51,6 +51,11 @@ fixture "$am" main feat yes
 git -C "$am" tag main
 git -C "$am" tag feat
 git -C "$am" worktree add -q "${am}/wt" feat 2>/dev/null # expected: "refname is ambiguous"
+# A branch spelled `Main` in a repo whose remote default is `trunk`: only the
+# casefolded main/master check can catch it (refs are case-insensitive on macOS).
+cs="${tmp}/casefold"
+fixture "$cs" trunk Main yes
+git -C "$cs" worktree add -q "${cs}/wt" Main
 
 failures=0
 decide() { # guard cwd command -> silent|ask|rc<N>
@@ -85,6 +90,7 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "git merge --abort"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
+    case_ "$g" silent "${r}/wt" "git pull --rebase"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${sl}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${am}/wt" "git merge main --no-edit"
@@ -99,6 +105,7 @@ matrix() { # guard
     case_ "$g" ask "${nh}/wt" "git merge trunk"
     case_ "$g" ask "$sl" "git merge feat"
     case_ "$g" ask "$am" "git merge feat"
+    case_ "$g" ask "${cs}/wt" "git merge trunk"
     case_ "$g" ask "$r" "cd wt && git merge main"
     case_ "$g" ask "${tmp}/missing" "git merge main"
     # Shapes the guard does not allowlist: always ask.

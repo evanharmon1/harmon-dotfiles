@@ -24,7 +24,7 @@ The only silent (normal permission flow) shape is one fully literal command
 
     git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
     git merge --abort|--continue
-    git pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
+    git pull [--ff-only|--no-edit|--rebase|--no-rebase] [<remote> [<ref>]]
 
 run in the working directory Claude Code reports in the hook payload (a lane
 merges from its own worktree), where that checkout is on a named branch that
@@ -37,7 +37,10 @@ never a silent merge. (harmon-init's decision to remove guard-process-kill
 explains why an open-ended "is this safe?" classifier was rejected.)
 
 Known limits, shared with or no worse than the rules it replaces: it does
-not see through git aliases or scripts, nor through deliberate obfuscation
+not see through git aliases, scripts, or shell functions and aliases from the
+user's profile -- including ones this repo ships (`gitum` checks out main and
+pulls; the `ghpprm` alias runs `gh pr merge --auto`; `gitsend` pushes the
+current branch) -- nor through deliberate obfuscation
 that hides both the `git` word and the subcommand (e.g. both in variables);
 it is a backstop against mistakes, not an adversarial boundary. It trusts the local
 `refs/remotes/<remote>/HEAD` cache -- after a remote renames its default
@@ -60,7 +63,7 @@ import sys
 PROTECTED = {"main", "master"}
 MERGE_WORDS = {"merge", "pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
-PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
+PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase", "--rebase"}
 SOLO_FLAGS = {"--abort", "--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
@@ -158,7 +161,9 @@ def feature_branch(cwd):
     if not head or not head.startswith("refs/heads/"):
         return None
     branch = head[len("refs/heads/") :]
-    if branch in PROTECTED:
+    # refs are files on a case-insensitive filesystem (macOS APFS), so
+    # `Main` is `main`: compare casefolded names.
+    if branch.casefold() in PROTECTED:
         return None
     defaults = set()
     for remote in (git(cwd, "remote") or "").split():
@@ -166,7 +171,7 @@ def feature_branch(cwd):
         ref = git(cwd, "symbolic-ref", "--quiet", f"{prefix}HEAD")
         if ref and ref.startswith(prefix):
             defaults.add(ref[len(prefix) :])
-    if not defaults or branch in defaults:
+    if not defaults or branch.casefold() in {d.casefold() for d in defaults}:
         return None
     return branch
 
