@@ -45,6 +45,12 @@ git -C "$nh" worktree add -q "${nh}/wt" feat
 sl="${tmp}/slashed"
 fixture "$sl" trunk feat yes team/origin
 git -C "$sl" worktree add -q "${sl}/wt" feat
+# Tags named like branches make `symbolic-ref --short` print `heads/<name>`.
+am="${tmp}/ambiguous"
+fixture "$am" main feat yes
+git -C "$am" tag main
+git -C "$am" tag feat
+git -C "$am" worktree add -q "${am}/wt" feat 2>/dev/null # expected: "refname is ambiguous"
 
 failures=0
 decide() { # guard cwd command -> silent|ask|rc<N>
@@ -81,6 +87,7 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${sl}/wt" "git merge trunk --no-edit"
+    case_ "$g" silent "${am}/wt" "git merge main --no-edit"
     # Merges that land on main or the remote default, or an unverifiable target.
     case_ "$g" ask "$r" "git merge feat"
     case_ "$g" ask "$r" "git -C ${r} merge feat"
@@ -91,6 +98,7 @@ matrix() { # guard
     case_ "$g" ask "$tr" "git merge feat"
     case_ "$g" ask "${nh}/wt" "git merge trunk"
     case_ "$g" ask "$sl" "git merge feat"
+    case_ "$g" ask "$am" "git merge feat"
     case_ "$g" ask "$r" "cd wt && git merge main"
     case_ "$g" ask "${tmp}/missing" "git merge main"
     # Shapes the guard does not allowlist: always ask.

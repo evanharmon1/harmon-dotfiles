@@ -11,7 +11,10 @@ rule applies, ask first.
    ruleset would allow it, even when the task plan includes post-merge steps.
    Open the PR and shepherd it — checks green with reviews unpolled is not the
    stopping point — then report and stop; merging is always a human decision.
-   (Backstop: `permissions.ask` rules in `~/.claude/settings.json`.)
+   (Backstop: `permissions.ask` rules in `~/.claude/settings.json` for
+   `gh pr merge`, pushes to main and force-pushes, plus the
+   `git-merge-guard.py` PreToolUse hook, which asks before any
+   `git merge`/`git pull` it cannot verify lands on a feature branch.)
 
 2. **Never bypass safety gates.** No `--no-verify`, no disabling or weakening
    hooks, linters, tests, or CI checks to get a change through. Fix the

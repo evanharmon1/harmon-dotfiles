@@ -146,19 +146,26 @@ def git(cwd, *args):
 
 
 def feature_branch(cwd):
-    """Return the branch if cwd is provably on a non-default named branch."""
+    """Return the branch if cwd is provably on a non-default named branch.
+
+    Compares full ref names, never `--short` output: git abbreviates
+    ambiguously named refs (a tag `main` makes `refs/heads/main` print as
+    `heads/main`), which would slip past a short-name comparison.
+    """
     if not os.path.isdir(cwd):
         return None
-    branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if not branch or branch in PROTECTED:
+    head = git(cwd, "symbolic-ref", "--quiet", "HEAD")
+    if not head or not head.startswith("refs/heads/"):
+        return None
+    branch = head[len("refs/heads/") :]
+    if branch in PROTECTED:
         return None
     defaults = set()
     for remote in (git(cwd, "remote") or "").split():
-        ref = git(
-            cwd, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remote}/HEAD"
-        )
-        if ref and ref.startswith(remote + "/"):
-            defaults.add(ref[len(remote) + 1 :])
+        prefix = f"refs/remotes/{remote}/"
+        ref = git(cwd, "symbolic-ref", "--quiet", f"{prefix}HEAD")
+        if ref and ref.startswith(prefix):
+            defaults.add(ref[len(prefix) :])
     if not defaults or branch in defaults:
         return None
     return branch
