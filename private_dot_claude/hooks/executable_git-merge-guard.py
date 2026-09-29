@@ -23,7 +23,7 @@ The only silent (normal permission flow) shape is one fully literal command
 -- no quotes, escapes, expansions, globs, operators, newlines, `cd` or `-C`:
 
     git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
-    git merge --abort|--continue
+    git merge --continue
     git pull [--ff-only|--no-edit|--rebase|--no-rebase] [<remote> [<ref>]]
 
 run in the working directory Claude Code reports in the hook payload (a lane
@@ -64,7 +64,9 @@ PROTECTED = {"main", "master"}
 MERGE_WORDS = {"merge", "pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase", "--rebase"}
-SOLO_FLAGS = {"--abort", "--continue"}
+# `--abort` is deliberately absent: it resets the index and worktree and can
+# discard in-progress conflict resolutions (same class as `git reset --hard`).
+SOLO_FLAGS = {"--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
 MENTION = re.compile(r"\b(?:merge|pull)\b", re.I)

@@ -87,7 +87,7 @@ matrix() { # guard
     # Allowlisted merges into a verified feature branch: no opinion.
     case_ "$g" silent "${r}/wt" "git merge origin/main --no-edit"
     case_ "$g" silent "${r}/wt" "git merge --no-ff main"
-    case_ "$g" silent "${r}/wt" "git merge --abort"
+    case_ "$g" silent "${r}/wt" "git merge --continue"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
     case_ "$g" silent "${r}/wt" "git pull --rebase"
@@ -109,6 +109,8 @@ matrix() { # guard
     case_ "$g" ask "$r" "cd wt && git merge main"
     case_ "$g" ask "${tmp}/missing" "git merge main"
     # Shapes the guard does not allowlist: always ask.
+    # --abort discards in-progress conflict resolutions: never silent.
+    case_ "$g" ask "${r}/wt" "git merge --abort"
     # cd / -C paths: the silent path takes no path arguments at all, so a
     # symlink-then-.. or quoted-~ path can't make the guard verify a
     # different checkout than the one git uses (review round 1).
