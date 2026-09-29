@@ -90,7 +90,6 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "git merge --continue"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
-    case_ "$g" silent "${r}/wt" "git pull --rebase"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${sl}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${am}/wt" "git merge main --no-edit"
@@ -111,6 +110,8 @@ matrix() { # guard
     # Shapes the guard does not allowlist: always ask.
     # --abort discards in-progress conflict resolutions: never silent.
     case_ "$g" ask "${r}/wt" "git merge --abort"
+    # pull --rebase can rewrite already-pushed feature-branch commits.
+    case_ "$g" ask "${r}/wt" "git pull --rebase origin main"
     # cd / -C paths: the silent path takes no path arguments at all, so a
     # symlink-then-.. or quoted-~ path can't make the guard verify a
     # different checkout than the one git uses (review round 1).

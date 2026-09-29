@@ -24,7 +24,7 @@ The only silent (normal permission flow) shape is one fully literal command
 
     git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
     git merge --continue
-    git pull [--ff-only|--no-edit|--rebase|--no-rebase] [<remote> [<ref>]]
+    git pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
 
 run in the working directory Claude Code reports in the hook payload (a lane
 merges from its own worktree), where that checkout is on a named branch that
@@ -42,7 +42,13 @@ user's profile -- including ones this repo ships (`gitum` checks out main and
 pulls; the `ghpprm` alias runs `gh pr merge --auto`; `gitsend` pushes the
 current branch) -- nor through deliberate obfuscation
 that hides both the `git` word and the subcommand (e.g. both in variables);
-it is a backstop against mistakes, not an adversarial boundary. It trusts the local
+it is a backstop against mistakes, not an adversarial boundary.
+It gates only git merge/pull: `git reset --hard`, `git restore` and
+`git checkout -- .` discard the same conflict resolutions `git merge --abort`
+would, and this hook does not see them. `git pull --rebase` is not silent,
+because it can rewrite already-pushed feature-branch commits. In unattended
+runs (`claude -p`, lanes) an "ask" is effectively a denial, so a conflicted
+merge there is recovered by a human, not by the agent. It trusts the local
 `refs/remotes/<remote>/HEAD` cache -- after a remote renames its default
 branch, run `git remote set-head <remote> --auto` (main/master stay
 protected regardless). A
@@ -63,7 +69,7 @@ import sys
 PROTECTED = {"main", "master"}
 MERGE_WORDS = {"merge", "pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
-PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase", "--rebase"}
+PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 # `--abort` is deliberately absent: it resets the index and worktree and can
 # discard in-progress conflict resolutions (same class as `git reset --hard`).
 SOLO_FLAGS = {"--continue"}
