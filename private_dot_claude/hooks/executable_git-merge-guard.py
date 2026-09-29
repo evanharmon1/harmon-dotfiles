@@ -29,8 +29,13 @@ default must resolve (`git remote set-head <remote> --auto`), or it asks.
 
 The parser only decides when to stay SILENT; any gap in it costs a prompt,
 never a silent merge. (harmon-init's decision to remove guard-process-kill
-explains why an open-ended "is this safe?" classifier was rejected.) Like
-the rules it replaces, it does not see through git aliases or scripts. A
+explains why an open-ended "is this safe?" classifier was rejected.)
+
+Known limits, shared with or no worse than the rules it replaces: it does
+not see through git aliases or scripts, and it trusts the local
+`refs/remotes/<remote>/HEAD` cache -- after a remote renames its default
+branch, run `git remote set-head <remote> --auto` (main/master stay
+protected regardless). A
 hook "allow" cannot override a permissions.ask rule, so this hook only ever
 adds prompts.
 
@@ -84,6 +89,8 @@ def allowlisted_target(command, cwd):
         cd, call = tokens[:split], tokens[split + 1 :]
         if len(cd) != 2 or cd[0] != "cd" or not PATH.match(cd[1]):
             return None
+        if not cd[1].startswith(("/", "./", "../", "~/")):
+            return None  # a bare `cd wt` can resolve through CDPATH elsewhere
         cwd = os.path.join(cwd, os.path.expanduser(cd[1]))
     else:
         call = tokens
@@ -128,8 +135,8 @@ def feature_branch(cwd):
         ref = git(
             cwd, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remote}/HEAD"
         )
-        if ref:
-            defaults.add(ref.split("/", 1)[-1])
+        if ref and ref.startswith(remote + "/"):
+            defaults.add(ref[len(remote) + 1 :])
     if not defaults or branch in defaults:
         return None
     return branch

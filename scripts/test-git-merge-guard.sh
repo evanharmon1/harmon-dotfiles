@@ -21,14 +21,15 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYST
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-fixture() { # dir default-branch feature-branch set-remote-head(yes|no)
+fixture() { # dir default-branch feature-branch set-remote-head(yes|no) [remote-name]
+    local rem=${5:-origin}
     git init -q -b "$2" "$1"
     git -C "$1" -c user.name=t -c user.email=t@t commit -q --allow-empty -m 'chore: fixture'
     git -C "$1" branch "$3"
-    git -C "$1" remote add origin "${tmp}/absent.git"
-    git -C "$1" update-ref "refs/remotes/origin/$2" HEAD
+    git -C "$1" remote add "$rem" "${tmp}/absent.git"
+    git -C "$1" update-ref "refs/remotes/${rem}/$2" HEAD
     if [[ $4 == yes ]]; then
-        git -C "$1" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2"
+        git -C "$1" symbolic-ref "refs/remotes/${rem}/HEAD" "refs/remotes/${rem}/$2"
     fi
 }
 r="${tmp}/repo"
@@ -41,6 +42,9 @@ git -C "$tr" worktree add -q "${tr}/wt" feat
 nh="${tmp}/nohead"
 fixture "$nh" trunk feat no
 git -C "$nh" worktree add -q "${nh}/wt" feat
+sl="${tmp}/slashed"
+fixture "$sl" trunk feat yes team/origin
+git -C "$sl" worktree add -q "${sl}/wt" feat
 
 failures=0
 decide() { # guard cwd command -> silent|ask|rc<N>
@@ -72,12 +76,13 @@ matrix() { # guard
     # Allowlisted merges into a verified feature branch: no opinion.
     case_ "$g" silent "${r}/wt" "git merge origin/main --no-edit"
     case_ "$g" silent "$r" "cd ${r}/wt && git merge origin/main --no-edit"
-    case_ "$g" silent "$r" "cd wt && git merge main"
+    case_ "$g" silent "$r" "cd ./wt && git merge main"
     case_ "$g" silent "$r" "git -C ${r}/wt merge --no-ff main"
     case_ "$g" silent "${r}/wt" "git merge --abort"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
+    case_ "$g" silent "${sl}/wt" "git merge trunk --no-edit"
     # Merges that land on main or the remote default, or an unverifiable target.
     case_ "$g" ask "$r" "git merge feat"
     case_ "$g" ask "$r" "git -C ${r} merge feat"
@@ -87,6 +92,8 @@ matrix() { # guard
     case_ "$g" ask "$r" "git pull"
     case_ "$g" ask "$tr" "git merge feat"
     case_ "$g" ask "${nh}/wt" "git merge trunk"
+    case_ "$g" ask "$sl" "git merge feat"
+    case_ "$g" ask "$r" "cd wt && git merge main"
     case_ "$g" ask "${tmp}/missing" "git merge main"
     # Shapes the guard does not allowlist: always ask.
     case_ "$g" ask "${r}/wt" "git checkout main && git merge feat"
