@@ -163,6 +163,16 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "base=\"\$(git merge-base HEAD \"\$base_ref\")\""
     case_ "$g" silent "${r}/wt" "gh pr list --json number | xargs -n1 echo pull-requests"
     case_ "$g" ask "${r}/wt" "x=\$(git merge main)"
+    # The dashed executables, and the index-writing merge plumbing behind indirection.
+    case_ "$g" ask "${r}/wt" "\$(git --exec-path)/git-merge main"
+    case_ "$g" ask "${r}/wt" "git-pull origin main"
+    case_ "$g" ask "$r" "eval \"git merge-ours feat\""
+    case_ "$g" ask "$r" "bash -c 'git merge-recursive base -- HEAD feat'"
+    # Quoted prose that names both words asks (documented limit); the guard's own
+    # file name does not.
+    case_ "$g" ask "${r}/wt" "git commit -m 'docs: explain how git pull works'"
+    case_ "$g" silent "${r}/wt" "bash scripts/test-git-merge-guard.sh"
+    case_ "$g" silent "${r}/wt" "python3 .claude/hooks/git-merge-guard.py --help"
     case_ "$g" silent "${r}/wt" "git log --merges --oneline"
     case_ "$g" silent "${r}/wt" "git commit -m 'fix: catch-up merge of main'"
     case_ "$g" silent "${r}/wt" "git status && git log -1"

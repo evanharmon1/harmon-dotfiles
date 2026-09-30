@@ -56,6 +56,11 @@ protected regardless). A
 hook "allow" cannot override a permissions.ask rule, so this hook only ever
 adds prompts.
 
+Quoted text that holds the words `git` and `merge`/`pull` asks, whatever
+wraps it (`git commit -m "docs: how git pull works"`, `grep 'git merge'`),
+because the guard cannot tell a quoted command string from quoted prose; an
+unquoted message already did the same. Reword, or accept the prompt.
+
 It runs only where Claude Code runs hooks: `claude --bare` and the
 `disableAllHooks` setting skip it, and nothing prompts there unless a
 permissions.ask rule does. It checks the branch before the command starts,
@@ -74,6 +79,8 @@ import sys
 
 PROTECTED = {"main", "master"}
 MERGE_WORDS = {"merge", "pull"}
+# The dashed executables under `git --exec-path`, callable by full path.
+DASHED = {"git-merge", "git-pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 # A silent pull must name its mode: with `pull.rebase` or `branch.<name>.rebase`
@@ -84,9 +91,16 @@ PULL_NO_REWRITE = {"--ff-only", "--no-rebase"}
 SOLO_FLAGS = {"--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
-# Whole words only, hyphen included: `merge-base`, `merge-tree` and
-# `pull-requests` are not merges.
-MENTION = re.compile(r"(?<![\w-])(?:merge|pull)(?![\w-])", re.I)
+# A mention is `merge`/`pull` as a whole word, or the dashed executable
+# `git-merge`/`git-pull`. The read-only plumbing `merge-base` and `merge-tree`
+# and prose like `pull-requests` are not mentions; `merge-ours`,
+# `merge-recursive` and the other index-writing plumbing still are.
+MENTION = re.compile(
+    r"(?<![\w-])merge(?!-(?:base|tree)(?![\w-]))(?!\w)"
+    r"|(?<![\w-])pull(?![\w-])"
+    r"|(?<![\w-])git-(?:merge|pull)(?![\w-])",
+    re.I,
+)
 GIT_WORD = re.compile(r"\bgit\b", re.I)
 INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
 EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
@@ -130,6 +144,8 @@ def might_merge(command):
         return bool(MENTION.search(command))
     words = {os.path.basename(t).lower() for t in tokens}
     if "git" in words and (words & MERGE_WORDS or git_subcommand_not_literal(command)):
+        return True
+    if words & DASHED:
         return True
     # A quoted command string handed to any interpreter (`fish -c 'git merge x'`,
     # `pwsh -Command ...`): one token that holds both words. No interpreter list.
