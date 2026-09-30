@@ -16,7 +16,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 guard="${GUARD:-${repo_root}/private_dot_claude/hooks/executable_git-merge-guard.py}"
 
 # Fixture commits must not trip a global signing config or core.hooksPath.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 tmp="$(mktemp -d)"
@@ -88,6 +88,7 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "git merge origin/main --no-edit"
     case_ "$g" silent "${r}/wt" "git merge --no-ff main"
     case_ "$g" silent "${r}/wt" "git merge --continue"
+    case_ "$g" silent "${r}/wt" "git merge --quit"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
     case_ "$g" silent "${r}/wt" "git pull --no-rebase origin main --no-edit"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
@@ -138,6 +139,11 @@ matrix() { # guard
     case_ "$g" ask "$r" "G=git; \$G merge feat"
     case_ "$g" ask "${r}/wt" "git merge main || true"
     case_ "$g" ask "${r}/wt" "git merge \$(echo main)"
+    # A `#` inside a word is not a comment in bash; shlex must not drop the rest.
+    case_ "$g" ask "$r" "echo a#b; git merge feat"
+    case_ "$g" ask "$r" "git log --grep=#1 && git merge feat"
+    case_ "$g" ask "$r" "git -c alias.m=merge m feat"
+    case_ "$g" ask "$r" "git merge --quit"
     case_ "$g" ask "${r}/wt" "git merge main > /dev/null"
     case_ "$g" ask "${r}/wt" "FOO=1 git merge main"
     case_ "$g" ask "${r}/wt" "git -c core.hooksPath=/dev/null merge main"
@@ -168,6 +174,13 @@ matrix() { # guard
     case_ "$g" ask "${r}/wt" "git-pull origin main"
     case_ "$g" ask "$r" "eval \"git merge-ours feat\""
     case_ "$g" ask "$r" "bash -c 'git merge-recursive base -- HEAD feat'"
+    case_ "$g" ask "$r" "eval \"git-merge-ours feat\""
+    # An expanded subcommand inside an interpreter string, like the unwrapped form.
+    case_ "$g" ask "$r" "bash -c \"git \$SUB main\""
+    case_ "$g" ask "$r" "eval \"git \${sub} feat\""
+    case_ "$g" silent "${r}/wt" "bash -c \"git log --oneline\""
+    # A dashed name anywhere asks (documented limit).
+    case_ "$g" ask "${r}/wt" "grep -rn git-merge docs/"
     # Quoted prose that names both words asks (documented limit); the guard's own
     # file name does not.
     case_ "$g" ask "${r}/wt" "git commit -m 'docs: explain how git pull works'"

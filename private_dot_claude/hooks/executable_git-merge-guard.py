@@ -59,7 +59,14 @@ adds prompts.
 Quoted text that holds the words `git` and `merge`/`pull` asks, whatever
 wraps it (`git commit -m "docs: how git pull works"`, `grep 'git merge'`),
 because the guard cannot tell a quoted command string from quoted prose; an
-unquoted message already did the same. Reword, or accept the prompt.
+unquoted message already did the same. So does any command holding a `$`
+and either word, such as a heredoc commit message or PR body
+(`git commit -m "$(cat <<'EOF' ... catch-up merge ... EOF)"`). Unattended
+runs write such text to a file first: `git commit -F <file>`,
+`gh pr create --body-file <file>`. `git.exe` and `git -c alias.x=merge x`
+ask; only the dashed `git-merge`/`git-pull` executables are recognised
+by name, and they are recognised in any position, so `grep -rn git-merge`
+asks too.
 
 It runs only where Claude Code runs hooks: `claude --bare` and the
 `disableAllHooks` setting skip it, and nothing prompts there unless a
@@ -88,17 +95,22 @@ PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 PULL_NO_REWRITE = {"--ff-only", "--no-rebase"}
 # `--abort` is deliberately absent: it resets the index and worktree and can
 # discard in-progress conflict resolutions (same class as `git reset --hard`).
-SOLO_FLAGS = {"--continue"}
+# `--quit` leaves the index and worktree alone (unlike `--abort`) and saves
+# the autostash, which is why worktree-rm.sh asks for it after an interrupted
+# merge.
+SOLO_FLAGS = {"--continue", "--quit"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
 # A mention is `merge`/`pull` as a whole word, or the dashed executable
 # `git-merge`/`git-pull`. The read-only plumbing `merge-base` and `merge-tree`
 # and prose like `pull-requests` are not mentions; `merge-ours`,
-# `merge-recursive` and the other index-writing plumbing still are.
+# `merge-recursive` and the other index-writing plumbing still are, spelled
+# with a space or dashed (`git-merge-ours`); only this guard's own name is
+# excluded from the dashed form.
 MENTION = re.compile(
     r"(?<![\w-])merge(?!-(?:base|tree)(?![\w-]))(?!\w)"
     r"|(?<![\w-])pull(?![\w-])"
-    r"|(?<![\w-])git-(?:merge|pull)(?![\w-])",
+    r"|(?<![\w-])git-(?:merge|pull)(?!-guard\b)(?!\w)",
     re.I,
 )
 GIT_WORD = re.compile(r"\bgit\b", re.I)
@@ -110,6 +122,9 @@ GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
 def tokenize(command):
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
+    # shlex starts a comment at a `#` anywhere in a word; bash only at the
+    # start of one. `echo a#b; git merge feat` must not lose its second half.
+    lexer.commenters = ""
     return list(lexer)
 
 
@@ -121,6 +136,7 @@ def git_subcommand_not_literal(command):
     """
     lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         raw = list(lexer)
     except ValueError:
@@ -147,10 +163,16 @@ def might_merge(command):
         return True
     if words & DASHED:
         return True
+    # A one-off alias (`git -c alias.m=merge m feat`) renames the subcommand.
+    if "git" in words and re.search(r"\balias\.", command):
+        return True
     # A quoted command string handed to any interpreter (`fish -c 'git merge x'`,
     # `pwsh -Command ...`): one token that holds both words. No interpreter list.
     if any(
-        re.search(r"\s", t) and GIT_WORD.search(t) and MENTION.search(t) for t in tokens
+        re.search(r"\s", t)
+        and GIT_WORD.search(t)
+        and (MENTION.search(t) or git_subcommand_not_literal(t))
+        for t in tokens
     ):
         return True
     return bool(INDIRECTION.search(command) and MENTION.search(command))
