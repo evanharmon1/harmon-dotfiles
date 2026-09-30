@@ -143,6 +143,14 @@ matrix() { # guard
     case_ "$g" ask "$r" "echo a#b; git merge feat"
     case_ "$g" ask "$r" "git log --grep=#1 && git merge feat"
     case_ "$g" ask "$r" "git -c alias.m=merge m feat"
+    case_ "$g" ask "$r" "git -c Alias.m=merge m feat"
+    case_ "$g" ask "$r" "git.exe merge feat"
+    # A real comment holding a quote or a trailing backslash must not hide a
+    # spliced subcommand on the same or the next line (bash-like reading).
+    case_ "$g" ask "$r" "git mer''ge feat # don't"
+    case_ "$g" ask "$r" "# don't${nl}git mer\"\"ge feat"
+    case_ "$g" ask "$r" "true # don't${nl}git mer\"\"ge feat # it's ok"
+    case_ "$g" ask "$r" "echo # \\${nl}git mer\"\"ge feat"
     case_ "$g" ask "$r" "git merge --quit"
     case_ "$g" ask "${r}/wt" "git merge main > /dev/null"
     case_ "$g" ask "${r}/wt" "FOO=1 git merge main"
@@ -181,6 +189,10 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "bash -c \"git log --oneline\""
     # A dashed name anywhere asks (documented limit).
     case_ "$g" ask "${r}/wt" "grep -rn git-merge docs/"
+    case_ "$g" ask "${r}/wt" "git log -1 # check the merge commit"
+    case_ "$g" ask "${r}/wt" "gh pr comment 1 --body \"git \$(git rev-parse HEAD) is the head\""
+    case_ "$g" ask "${r}/wt" "git config --get alias.st"
+    case_ "$g" silent "${r}/wt" "gh pr comment 1 --body \"run git status with \$FLAGS\""
     # Quoted prose that names both words asks (documented limit); the guard's own
     # file name does not.
     case_ "$g" ask "${r}/wt" "git commit -m 'docs: explain how git pull works'"
@@ -192,6 +204,8 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "gh pr merge 1"
     case_ "$g" silent "${r}/wt" "gh pr view \"\$N\" --json mergeStateStatus,mergedAt"
     case_ "$g" silent "${r}/wt" "grep -rn merge docs/"
+    # `.sh` is a file extension, not a shell name.
+    case_ "$g" silent "${r}/wt" "grep -n merge scripts/worktree-rm.sh"
     case_ "$g" silent "${r}/wt" "ls pull-requests/"
     case_ "$g" silent "${r}/wt" "git -C \"\$HOME\" status"
     case_ "$g" silent "${r}/wt" "git log -- '*.md'"

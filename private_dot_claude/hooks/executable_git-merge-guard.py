@@ -23,7 +23,7 @@ The only silent (normal permission flow) shape is one fully literal command
 -- no quotes, escapes, expansions, globs, operators, newlines, `cd` or `-C`:
 
     git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
-    git merge --continue
+    git merge (--continue|--quit)
     git pull (--ff-only|--no-rebase) [--no-edit] [<remote> [<ref>]]
 
 run in the working directory Claude Code reports in the hook payload (a lane
@@ -63,10 +63,15 @@ unquoted message already did the same. So does any command holding a `$`
 and either word, such as a heredoc commit message or PR body
 (`git commit -m "$(cat <<'EOF' ... catch-up merge ... EOF)"`). Unattended
 runs write such text to a file first: `git commit -F <file>`,
-`gh pr create --body-file <file>`. `git.exe` and `git -c alias.x=merge x`
-ask; only the dashed `git-merge`/`git-pull` executables are recognised
-by name, and they are recognised in any position, so `grep -rn git-merge`
-asks too.
+`gh pr create --body-file <file>`. `git.exe`, `git -c alias.x=merge x` and the dashed `git-merge`/`git-pull`
+executables are recognised by name, the last two in any position, so
+`grep -rn git-merge` asks too. Unattended runs write text that names both
+words with the Write tool, not a Bash heredoc. Three more prompts come
+from the same inability to tell a command from text about one: a real bash
+comment is read as text (`git log -1 # check the merge commit` asks); a
+quoted string where `git` is followed by an expansion asks even with
+neither word (`--body "git $(git rev-parse HEAD) is the head"`); and any
+`git` command whose text holds `alias.` asks (`git config --get alias.st`).
 
 It runs only where Claude Code runs hooks: `claude --bare` and the
 `disableAllHooks` setting skip it, and nothing prompts there unless a
@@ -114,33 +119,35 @@ MENTION = re.compile(
     re.I,
 )
 GIT_WORD = re.compile(r"\bgit\b", re.I)
-INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
+INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|(?<![\w.])(?:ba|z|da|k|c)?sh\b")
 EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
 GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
 
 
-def tokenize(command):
+def tokenize(command, commenters=""):
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
-    # shlex starts a comment at a `#` anywhere in a word; bash only at the
-    # start of one. `echo a#b; git merge feat` must not lose its second half.
-    lexer.commenters = ""
+    lexer.commenters = commenters
     return list(lexer)
 
 
-def git_subcommand_not_literal(command):
-    """True when some git call's subcommand word is shell-synthesized.
+# shlex starts a comment at a `#` anywhere in a word; bash only at the start
+# of one. Neither reading alone matches bash: with comments off, a quote or a
+# trailing `\` inside a real comment changes how the next line tokenizes; with
+# comments on, `echo a#b; git merge feat` loses its second half. So a command
+# is read both ways and asks if EITHER reading might merge. The bash-like
+# reading keeps `#` as a commenter after neutralising every `#` that does not
+# start a word.
+MIDWORD_HASH = re.compile(r"(?<=[^\s;&|(])#")
 
-    Scans raw (still-quoted) tokens: a subcommand slot holding an
-    expansion, quote, escape or glob could become `merge` at run time.
-    """
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|<>()")
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        raw = list(lexer)
-    except ValueError:
-        return bool(MENTION.search(command))
+
+def readings(command):
+    return ((command, ""), (MIDWORD_HASH.sub("_", command), "#"))
+
+
+def raw_subcommand_not_literal(raw):
+    """True when some git call's subcommand slot could become `merge` at run
+    time: an expansion, quote, escape or glob in a still-quoted token."""
     for i, tok in enumerate(raw):
         if os.path.basename(re.sub(r"[\"'\\]", "", tok)).lower() != "git":
             continue
@@ -152,19 +159,40 @@ def git_subcommand_not_literal(command):
     return False
 
 
+def git_subcommand_not_literal(command, commenters=""):
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|<>()")
+    lexer.whitespace_split = True
+    lexer.commenters = commenters
+    try:
+        raw = list(lexer)
+    except ValueError:
+        # Untokenizable (an apostrophe in a heredoc): fall back to whitespace
+        # words, so `git mer''ge feat # don't` still shows its spliced slot.
+        raw = command.split()
+    return raw_subcommand_not_literal(raw)
+
+
 def might_merge(command):
     """True when the command could run a git merge/pull (coarse on purpose)."""
+    return any(reading_might_merge(text, c) for text, c in readings(command))
+
+
+def reading_might_merge(command, commenters):
     try:
-        tokens = tokenize(command)
+        tokens = tokenize(command, commenters)
     except ValueError:  # unbalanced quotes, e.g. an apostrophe in a heredoc
-        return bool(MENTION.search(command))
-    words = {os.path.basename(t).lower() for t in tokens}
-    if "git" in words and (words & MERGE_WORDS or git_subcommand_not_literal(command)):
+        return bool(MENTION.search(command)) or git_subcommand_not_literal(command)
+    # `git.exe` is git.
+    words = {re.sub(r"\.exe$", "", os.path.basename(t).lower()) for t in tokens}
+    if "git" in words and (
+        words & MERGE_WORDS or git_subcommand_not_literal(command, commenters)
+    ):
         return True
     if words & DASHED:
         return True
-    # A one-off alias (`git -c alias.m=merge m feat`) renames the subcommand.
-    if "git" in words and re.search(r"\balias\.", command):
+    # A one-off alias (`git -c alias.m=merge m feat`) renames the subcommand;
+    # git folds the section name's case.
+    if "git" in words and re.search(r"\balias\.", command, re.I):
         return True
     # A quoted command string handed to any interpreter (`fish -c 'git merge x'`,
     # `pwsh -Command ...`): one token that holds both words. No interpreter list.
