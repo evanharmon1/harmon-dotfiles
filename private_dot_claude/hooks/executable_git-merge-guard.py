@@ -24,7 +24,7 @@ The only silent (normal permission flow) shape is one fully literal command
 
     git merge [--no-edit|--no-ff|--ff|--ff-only] <ref>
     git merge --continue
-    git pull [--ff-only|--no-edit|--no-rebase] [<remote> [<ref>]]
+    git pull (--ff-only|--no-rebase) [--no-edit] [<remote> [<ref>]]
 
 run in the working directory Claude Code reports in the hook payload (a lane
 merges from its own worktree), where that checkout is on a named branch that
@@ -46,7 +46,8 @@ it is a backstop against mistakes, not an adversarial boundary.
 It gates only git merge/pull: `git reset --hard`, `git restore` and
 `git checkout -- .` discard the same conflict resolutions `git merge --abort`
 would, and this hook does not see them. `git pull --rebase` is not silent,
-because it can rewrite already-pushed feature-branch commits. In unattended
+because it can rewrite already-pushed feature-branch commits; neither is a
+`git pull` that names no mode, because `pull.rebase` can make it a rebase. In unattended
 runs (`claude -p`, lanes) an "ask" is effectively a denial, so a conflicted
 merge there is recovered by a human, not by the agent. It trusts the local
 `refs/remotes/<remote>/HEAD` cache -- after a remote renames its default
@@ -54,6 +55,11 @@ branch, run `git remote set-head <remote> --auto` (main/master stay
 protected regardless). A
 hook "allow" cannot override a permissions.ask rule, so this hook only ever
 adds prompts.
+
+It runs only where Claude Code runs hooks: `claude --bare` and the
+`disableAllHooks` setting skip it, and nothing prompts there unless a
+permissions.ask rule does. It checks the branch before the command starts,
+so another session switching the same checkout in between is not seen.
 
 Tests: scripts/test-git-merge-guard.sh (run by `task test:hooks`) in
 harmon-infra and harmon-dotfiles. Template adoption: evanharmon1/harmon-init#1435.
@@ -70,12 +76,18 @@ PROTECTED = {"main", "master"}
 MERGE_WORDS = {"merge", "pull"}
 MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
+# A silent pull must name its mode: with `pull.rebase` or `branch.<name>.rebase`
+# set, a bare `git pull` rebases and rewrites the branch.
+PULL_NO_REWRITE = {"--ff-only", "--no-rebase"}
 # `--abort` is deliberately absent: it resets the index and worktree and can
 # discard in-progress conflict resolutions (same class as `git reset --hard`).
 SOLO_FLAGS = {"--continue"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 LITERAL_UNSAFE = re.compile(r"[\"'`$\\\n;&|<>(){}*?\[\]~]")
-MENTION = re.compile(r"\b(?:merge|pull)\b", re.I)
+# Whole words only, hyphen included: `merge-base`, `merge-tree` and
+# `pull-requests` are not merges.
+MENTION = re.compile(r"(?<![\w-])(?:merge|pull)(?![\w-])", re.I)
+GIT_WORD = re.compile(r"\bgit\b", re.I)
 INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|\b(?:ba|z|da|k|c)?sh\b")
 EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
 GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
@@ -119,6 +131,12 @@ def might_merge(command):
     words = {os.path.basename(t).lower() for t in tokens}
     if "git" in words and (words & MERGE_WORDS or git_subcommand_not_literal(command)):
         return True
+    # A quoted command string handed to any interpreter (`fish -c 'git merge x'`,
+    # `pwsh -Command ...`): one token that holds both words. No interpreter list.
+    if any(
+        re.search(r"\s", t) and GIT_WORD.search(t) and MENTION.search(t) for t in tokens
+    ):
+        return True
     return bool(INDIRECTION.search(command) and MENTION.search(command))
 
 
@@ -145,7 +163,7 @@ def allowlisted_target(command, cwd):
             len(refs) == 1 and flags <= MERGE_FLAGS
         )
     else:
-        ok = len(refs) <= 2 and flags <= PULL_FLAGS
+        ok = len(refs) <= 2 and flags <= PULL_FLAGS and bool(flags & PULL_NO_REWRITE)
     return cwd if ok else None
 
 

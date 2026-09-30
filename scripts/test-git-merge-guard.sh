@@ -89,7 +89,7 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "git merge --no-ff main"
     case_ "$g" silent "${r}/wt" "git merge --continue"
     case_ "$g" silent "${r}/wt" "git pull --ff-only"
-    case_ "$g" silent "${r}/wt" "git pull origin main --no-edit"
+    case_ "$g" silent "${r}/wt" "git pull --no-rebase origin main --no-edit"
     case_ "$g" silent "${tr}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${sl}/wt" "git merge trunk --no-edit"
     case_ "$g" silent "${am}/wt" "git merge main --no-edit"
@@ -144,6 +144,12 @@ matrix() { # guard
     case_ "$g" ask "${r}/wt" "git merge -s ours main"
     case_ "$g" ask "${r}/wt" "git merge main feat"
     case_ "$g" ask "${r}/wt" "bash -c 'git merge main'"
+    # Any interpreter handed a quoted command string, listed or not.
+    case_ "$g" ask "${r}/wt" "fish -c 'git merge main'"
+    case_ "$g" ask "${r}/wt" "pwsh -Command 'git pull'"
+    # With pull.rebase set, a pull that names no mode rebases the branch.
+    case_ "$g" ask "${r}/wt" "git pull origin main --no-edit"
+    case_ "$g" ask "${r}/wt" "git pull origin main"
     case_ "$g" ask "${r}/wt" "/usr/bin/git merge main && echo ok"
     case_ "$g" ask "${r}/wt" "true; gh pr view 1; git merge main"
     case_ "$g" ask "${r}/wt" "git merge 'unbalanced"
@@ -153,6 +159,10 @@ matrix() { # guard
     case_ "$g" ask "$r" "git \"\$SUB\" feat"
     # No git merge/pull: no opinion, including everyday near-misses.
     case_ "$g" silent "${r}/wt" "git merge-base main feat"
+    # A read-only hyphenated subcommand next to an expansion.
+    case_ "$g" silent "${r}/wt" "base=\"\$(git merge-base HEAD \"\$base_ref\")\""
+    case_ "$g" silent "${r}/wt" "gh pr list --json number | xargs -n1 echo pull-requests"
+    case_ "$g" ask "${r}/wt" "x=\$(git merge main)"
     case_ "$g" silent "${r}/wt" "git log --merges --oneline"
     case_ "$g" silent "${r}/wt" "git commit -m 'fix: catch-up merge of main'"
     case_ "$g" silent "${r}/wt" "git status && git log -1"
