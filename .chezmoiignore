@@ -29,6 +29,13 @@ release-please-config.json
 renovate.json
 scripts/**
 
+# harmon-init template assets (result schemas, fixtures, registries) — repo maintenance, not dotfiles
+ai/**
+agent-registry.json
+agent-registry.schema.json
+label-registry.json
+label-registry.schema.json
+
 # Legacy (pre-v3)
 requirements.txt
 check_for_pattern.sh
