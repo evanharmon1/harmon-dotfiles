@@ -340,6 +340,8 @@ bash "$(dirname "${BASH_SOURCE[0]}")/test-git-merge-guard.sh"
 # branch, asking when the guard cannot be found).
 echo "==> .claude/settings.json registers git-merge-guard and drops the git merge ask rules"
 project_settings="$repo/.claude/settings.json"
+# `.matcher` is a regex Claude Code searches; "Bash" is what this repo writes,
+# so it is matched exactly on purpose (a widened matcher fails loudly here).
 registered="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
     | select(.type == "command" and (.command | contains("git-merge-guard.py")))
     | .command] | first // empty' "$project_settings")"
@@ -359,12 +361,14 @@ git -C "$guard_fixture" remote add origin "$tmpdir/absent.git"
 git -C "$guard_fixture" update-ref refs/remotes/origin/main HEAD
 git -C "$guard_fixture" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 git -C "$guard_fixture" worktree add -q "$guard_fixture/wt" feat
-registered_decision() { # project-dir cwd command -> silent|ask|other
-    local out
+registered_decision() { # project-dir cwd command -> silent|ask|other|rc<N>
+    local out rc
     out="$(jq -nc --arg c "$3" --arg d "$2" \
         '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' |
-        CLAUDE_PROJECT_DIR="$1" bash -c "$registered" 2>/dev/null)" || true
-    if [ -z "$out" ]; then
+        CLAUDE_PROJECT_DIR="$1" bash -c "$registered" 2>"$tmpdir/registered.err")" && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "rc${rc}: $(tr '\n' ' ' <"$tmpdir/registered.err")"
+    elif [ -z "$out" ]; then
         echo silent
     elif jq -e '.hookSpecificOutput.permissionDecision == "ask"' <<<"$out" >/dev/null 2>&1; then
         echo ask
@@ -380,4 +384,10 @@ expect_registered() { # expected project-dir cwd command
 expect_registered ask "$repo" "$guard_fixture" "git merge feat"
 expect_registered silent "$repo" "$guard_fixture/wt" "git merge origin/main --no-edit"
 expect_registered ask "$tmpdir/no-such-project" "$guard_fixture/wt" "git merge origin/main --no-edit"
+# The quoting of $CLAUDE_PROJECT_DIR is exercised, not only pattern-matched: an
+# unquoted path with a space would split, fail, and fall back to a permanent
+# ask, which looks like the guard working while the silent case never happens.
+ln -s "$repo" "$tmpdir/spaced project dir"
+expect_registered ask "$tmpdir/spaced project dir" "$guard_fixture" "git merge feat"
+expect_registered silent "$tmpdir/spaced project dir" "$guard_fixture/wt" "git merge origin/main --no-edit"
 echo "==> git-merge-guard registration OK"
