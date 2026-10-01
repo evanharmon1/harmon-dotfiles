@@ -49,3 +49,17 @@ rule applies, ask first.
 
 Keep this file tiny: a rule belongs here only if it matters enough to be read
 at the start of every session.
+
+## Working note
+
+**Keep `merge` and `pull` out of commands that are not a merge.** Not a rule:
+a convention that avoids needless permission prompts. The `git-merge-guard`
+hook (rule 1) reads each whole Bash command, quotes and comments included, and
+asks on any it cannot tell apart from a merge or pull; the docstring of
+`~/.claude/hooks/git-merge-guard.py` describes what it matches. So keep the
+words `merge`, `pull`, `git-merge` and `git-pull` out of such commands (write
+`mergeState=$M`, not `merge=$M`). Put text that needs them in a file written
+with the Write tool, not a Bash heredoc, and pass it by path (`git commit -F`,
+`gh pr create --body-file`). This never applies to a real merge: run every
+`git merge` or `git pull` as its own visible command, never hidden in a script
+or reworded to keep the guard silent (rules 1 and 2).
