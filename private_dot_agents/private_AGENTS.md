@@ -47,14 +47,19 @@ rule applies, ask first.
    intent and proceeding in the same turn is not consent. Reads (`op read`,
    `op item list`, `op inject`) are fine.
 
+Keep this file tiny: a rule belongs here only if it matters enough to be read
+at the start of every session.
+
 ## Working note
 
 **Write shell commands the merge guard can read.** The `git-merge-guard`
-hook asks before any Bash command it cannot prove is not a merge or pull into
-`main`. So never put the bare words `merge` or `pull` next to a `$variable` or
-`git` as a label or in prose (write `mergeState=$M`, not `merge=$M`), and pass
-commit messages, PR bodies and multi-line scripts by file (`git commit -F`,
-`gh pr create --body-file`, `python3 script.py`).
-
-Keep this file tiny: a rule belongs here only if it matters enough to be read
-at the start of every session.
+hook (rule 1) reads the whole Bash command. It asks when `merge` or `pull`
+appears anywhere, even inside quotes or a comment, in a command that also
+contains a `$`, a backtick, a backslash, `eval`, `xargs` or a shell name. It
+also asks when either word stands alone, comments included, in a command that
+uses `git`. So keep those words out of labels and notes in such commands
+(write `mergeState=$M`, not `merge=$M`), and pass multi-line text by file
+(`git commit -F`,
+`gh pr create --body-file`). This applies only to text that is not a merge.
+Run every real `git merge` or `git pull` as its own visible command. Never hide
+one in a script, and never reword one to keep the guard silent (rules 1 and 2).
