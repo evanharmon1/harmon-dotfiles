@@ -52,14 +52,13 @@ at the start of every session.
 
 ## Working note
 
-**Write shell commands the merge guard can read.** The `git-merge-guard`
-hook (rule 1) reads the whole Bash command. It asks when `merge` or `pull`
-appears anywhere, even inside quotes or a comment, in a command that also
-contains a `$`, a backtick, a backslash, `eval`, `xargs` or a shell name. It
-also asks when either word stands alone, comments included, in a command that
-uses `git`. So keep those words out of labels and notes in such commands
-(write `mergeState=$M`, not `merge=$M`), and pass multi-line text by file
-(`git commit -F`,
-`gh pr create --body-file`). This applies only to text that is not a merge.
-Run every real `git merge` or `git pull` as its own visible command. Never hide
-one in a script, and never reword one to keep the guard silent (rules 1 and 2).
+Not a rule: a convention that avoids needless permission prompts. The
+`git-merge-guard` hook (rule 1) reads each whole Bash command, quotes and
+comments included, and asks on any it cannot tell apart from a merge or pull;
+the docstring of `~/.claude/hooks/git-merge-guard.py` describes what it
+matches. So keep the words `merge`, `pull`, `git-merge` and `git-pull` out of
+commands that are not one (write `mergeState=$M`, not `merge=$M`), and pass
+text that needs them by file (`git commit -F`, `gh pr create --body-file`).
+This never applies to a real merge: run every `git merge` or `git pull` as its
+own visible command, never hidden in a script or reworded to keep the guard
+silent (rules 1 and 2).
