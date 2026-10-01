@@ -151,6 +151,12 @@ matrix() { # guard
     case_ "$g" ask "$r" "# don't${nl}git mer\"\"ge feat"
     case_ "$g" ask "$r" "true # don't${nl}git mer\"\"ge feat # it's ok"
     case_ "$g" ask "$r" "echo # \\${nl}git mer\"\"ge feat"
+    # Line continuation, an apostrophe in a heredoc body, and `)#`.
+    case_ "$g" ask "$r" "true && \\${nl}git mer\"\"ge feat"
+    case_ "$g" ask "$r" "bash -c \"git mer''ge feat\" <<'EOF'${nl}don't${nl}EOF"
+    case_ "$g" ask "$r" "git -c alias.m=mer\"\"ge m feat <<'EOF'${nl}don't${nl}EOF"
+    case_ "$g" ask "$r" "(true)# don't${nl}bash -c \"git mer''ge feat\""
+    case_ "$g" ask "$r" "(true)# \\${nl}git mer\"\"ge feat"
     case_ "$g" ask "$r" "git merge --quit"
     case_ "$g" ask "${r}/wt" "git merge main > /dev/null"
     case_ "$g" ask "${r}/wt" "FOO=1 git merge main"
@@ -171,9 +177,25 @@ matrix() { # guard
     case_ "$g" ask "$r" "git mer\\${nl}ge feat"
     case_ "$g" ask "$r" "git m*rge feat"
     case_ "$g" ask "$r" "git \"\$SUB\" feat"
+    # An untokenizable command (a quote opening a heredoc word) is still split
+    # on `;&|()`, so a spliced subcommand right after `&&` or `(` is seen.
+    case_ "$g" ask "$r" "true&&git \$'\\x6d\\x65\\x72\\x67\\x65' feat <<X${nl}\"hi"
+    case_ "$g" ask "$r" "(git mer\"\"ge feat) <<X${nl}\"\\"
+    # Options that take a separate value shift the subcommand slot.
+    case_ "$g" ask "$r" "git --attr-source HEAD \$'\\x6d\\x65\\x72\\x67\\x65' feat"
+    case_ "$g" ask "$r" "git --shallow-file /dev/null \$'\\x6d\\x65\\x72\\x67\\x65' feat"
+    case_ "$g" ask "$r" "git --config-env user.name=FOO \"\$SUB\" feat"
+    case_ "$g" ask "$r" "git --super-prefix sub/ \$'\\x6d\\x65\\x72\\x67\\x65' feat"
+    # Scripts are not seen through: a bare path is silent (documented limit),
+    # but a shell name in front of it is indirection and asks.
+    case_ "$g" silent "${r}/wt" "./scripts/merge-main.sh"
+    case_ "$g" ask "${r}/wt" "sh ./scripts/merge-main.sh"
+    case_ "$g" ask "${r}/wt" "sh ./merge-main.sh"
     # No git merge/pull: no opinion, including everyday near-misses.
     case_ "$g" silent "${r}/wt" "git merge-base main feat"
-    # A read-only hyphenated subcommand next to an expansion.
+    # A quoted word with trailing whitespace is not the word `merge`.
+    case_ "$g" silent "${r}/wt" "git log --grep \"Merge \""
+    # The integrate skill's own read-only form: an expansion plus `merge-base`.
     case_ "$g" silent "${r}/wt" "base=\"\$(git merge-base HEAD \"\$base_ref\")\""
     case_ "$g" silent "${r}/wt" "gh pr list --json number | xargs -n1 echo pull-requests"
     case_ "$g" ask "${r}/wt" "x=\$(git merge main)"
@@ -231,6 +253,46 @@ QUIET=1 matrix "$mutant"
 if [[ $failures -eq 0 ]]; then
     echo "TEST FAIL: matrix passed a guard that allows merges into main" >&2
     exit 1
+fi
+
+# The guard only protects anything if settings.json runs it. Exercise the
+# REGISTERED command, not the file: a removed or misspelled entry, or a broken
+# fail-closed fallback, must fail here.
+settings="${repo_root}/.claude/settings.json"
+if [[ -z ${GUARD:-} && -f $settings ]]; then
+    echo "==> git-merge-guard is registered in .claude/settings.json and fails closed"
+    registered="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+        | select(.type == "command" and (.command | contains("git-merge-guard.py")))
+        | .command] | first // empty' "$settings")"
+    if [[ -z $registered ]]; then
+        echo "TEST FAIL: no PreToolUse Bash hook in .claude/settings.json runs git-merge-guard.py" >&2
+        exit 1
+    fi
+    registered_decision() { # project-dir cwd command -> silent|ask|other
+        local out
+        out="$(jq -nc --arg c "$3" --arg d "$2" \
+            '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' |
+            CLAUDE_PROJECT_DIR="$1" bash -c "$registered" 2>/dev/null)" || true
+        if [[ -z $out ]]; then
+            echo silent
+        elif jq -e '.hookSpecificOutput.permissionDecision == "ask"' <<<"$out" >/dev/null 2>&1; then
+            echo ask
+        else
+            echo other
+        fi
+    }
+    expect_registered() { # expected project-dir cwd command
+        local got
+        got="$(registered_decision "$2" "$3" "$4")"
+        if [[ $got != "$1" ]]; then
+            echo "TEST FAIL: registered hook: expected=$1 got=${got} :: $4 (project dir $2)" >&2
+            exit 1
+        fi
+    }
+    expect_registered ask "$repo_root" "$r" "git merge feat"
+    expect_registered silent "$repo_root" "${r}/wt" "git merge origin/main --no-edit"
+    # A guard that cannot be run must ask, never stay silent.
+    expect_registered ask "${tmp}/no-such-project" "${r}/wt" "git merge origin/main --no-edit"
 fi
 
 echo "==> git-merge-guard OK"

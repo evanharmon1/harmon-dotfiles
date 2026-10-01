@@ -30,22 +30,32 @@ run in the working directory Claude Code reports in the hook payload (a lane
 merges from its own worktree), where that checkout is on a named branch that
 is not main/master and
 differs from every remote's resolved default branch -- at least one remote
-default must resolve (`git remote set-head <remote> --auto`), or it asks.
+default must resolve (`git remote set-head <remote> --auto`), or it asks. With
+several remotes, a branch that is the default of one remote whose HEAD is unset
+stays silent unless another remote's HEAD names it.
 
 The parser only decides when to stay SILENT; any gap in it costs a prompt,
-never a silent merge. (harmon-init's decision to remove guard-process-kill
+never a silent merge. (The decision to remove guard-process-kill,
+https://github.com/evanharmon1/harmon-init/blob/main/docs/decisions/2026-09-02-remove-guard-process-kill-hook.md,
 explains why an open-ended "is this safe?" classifier was rejected.)
 
 Known limits, shared with or no worse than the rules it replaces: it does
 not see through git aliases, scripts, or shell functions and aliases from the
-user's profile -- including ones this repo ships (`gitum` checks out main and
-pulls; the `ghpprm` alias runs `gh pr merge --auto`; `gitsend` pushes the
-current branch) -- nor through deliberate obfuscation
-that hides both the `git` word and the subcommand (e.g. both in variables);
+user's profile (an alias that checks out main and pulls, one that runs
+`gh pr merge --auto`, one that pushes the current branch) -- a bare
+`./scripts/merge-main.sh` is silent, while `sh ./scripts/merge-main.sh` asks
+(the `.sh` extension is not indirection, a shell name is) -- nor through
+deliberate obfuscation that hides the `git` word itself (a variable, brace
+expansion such as `{git,merge} feat`, or a glob such as `gi[t]`);
 it is a backstop against mistakes, not an adversarial boundary.
 It gates only git merge/pull: `git reset --hard`, `git restore` and
 `git checkout -- .` discard the same conflict resolutions `git merge --abort`
-would, and this hook does not see them. `git pull --rebase` is not silent,
+would, and this hook does not see them. Nor does it see the commands that
+advance main without a merge or pull: `git fetch . feat:main`,
+`git push . HEAD:main`, `git branch -f main feat` and
+`git update-ref refs/heads/main`. Direct `git merge-recursive` and `git merge-file`
+are silent too: they write the index or a file but create no commit and move
+no ref, so nothing lands on main. `git pull --rebase` is not silent,
 because it can rewrite already-pushed feature-branch commits; neither is a
 `git pull` that names no mode, because `pull.rebase` can make it a rebase. In unattended
 runs (`claude -p`, lanes) an "ask" is effectively a denial, so a conflicted
@@ -62,24 +72,32 @@ because the guard cannot tell a quoted command string from quoted prose; an
 unquoted message already did the same. So does any command holding a `$`
 and either word, such as a heredoc commit message or PR body
 (`git commit -m "$(cat <<'EOF' ... catch-up merge ... EOF)"`). Unattended
-runs write such text to a file first: `git commit -F <file>`,
-`gh pr create --body-file <file>`. `git.exe`, `git -c alias.x=merge x` and the dashed `git-merge`/`git-pull`
+runs ALWAYS pass commit messages and PR bodies by file, written with the Write
+tool rather than a Bash heredoc, whether or not the text names both words:
+`git commit -F <file>`, `gh pr create --body-file <file>`. `git.exe`,
+`git -c alias.x=merge x` and the dashed `git-merge`/`git-pull`
 executables are recognised by name, the last two in any position, so
-`grep -rn git-merge` asks too. Unattended runs write text that names both
-words with the Write tool, not a Bash heredoc. Three more prompts come
+`grep -rn git-merge` asks too. Three more prompts come
 from the same inability to tell a command from text about one: a real bash
 comment is read as text (`git log -1 # check the merge commit` asks); a
-quoted string where `git` is followed by an expansion asks even with
-neither word (`--body "git $(git rev-parse HEAD) is the head"`); and any
+quoted string where `git` is followed by an expansion, backtick, quote,
+glob or brace asks even with neither word (`--body "git $(git rev-parse
+HEAD) is the head"`, a commit message saying "git `worktree`"); and any
 `git` command whose text holds `alias.` asks (`git config --get alias.st`).
 
-It runs only where Claude Code runs hooks: `claude --bare` and the
-`disableAllHooks` setting skip it, and nothing prompts there unless a
-permissions.ask rule does. It checks the branch before the command starts,
-so another session switching the same checkout in between is not seen.
+It runs only where Claude Code runs hooks. `claude --bare` and the
+`disableAllHooks` setting skip it, and with the `git merge` ask rules removed
+nothing prompts there; the devcontainer's settings allow every `git` command.
+Nothing in this repository runs Claude that way. The enforcement that does
+not depend on the client is the GitHub "Protect Main" ruleset, which refuses
+the push (maintainer decision, challenge round 3).
 
-Tests: scripts/test-git-merge-guard.sh (run by `task test:hooks`) in
-harmon-infra and harmon-dotfiles. Template adoption: evanharmon1/harmon-init#1435.
+It checks the branch before the command starts, not while it runs: another
+pane that switches the same checkout in between is not seen. Lanes merge in
+their own worktrees, which no other session checks out.
+
+Tests: scripts/test-git-merge-guard.sh (run by `task test:hooks`).
+Design and rationale: evanharmon1/harmon-init#1435.
 """
 
 import json
@@ -97,6 +115,9 @@ MERGE_FLAGS = {"--no-edit", "--no-ff", "--ff", "--ff-only"}
 PULL_FLAGS = {"--ff-only", "--no-edit", "--no-rebase"}
 # A silent pull must name its mode: with `pull.rebase` or `branch.<name>.rebase`
 # set, a bare `git pull` rebases and rewrites the branch.
+# `git -c pull.rebase=true pull --ff-only` on a diverged feature branch aborts
+# ("Not possible to fast-forward") and leaves the branch unchanged (verified
+# 2026-09-30, git 2.55.0), so `--ff-only` is safe even with `pull.rebase` set.
 PULL_NO_REWRITE = {"--ff-only", "--no-rebase"}
 # `--abort` is deliberately absent: it resets the index and worktree and can
 # discard in-progress conflict resolutions (same class as `git reset --hard`).
@@ -121,14 +142,43 @@ MENTION = re.compile(
 GIT_WORD = re.compile(r"\bgit\b", re.I)
 INDIRECTION = re.compile(r"[$`\\]|\beval\b|\bxargs\b|(?<![\w.])(?:ba|z|da|k|c)?sh\b")
 EXPANSION = re.compile(r"[$`\\*?\[{'\"]")
-GIT_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
+GIT_VALUE_OPTIONS = (
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--attr-source",
+    "--shallow-file",
+    "--config-env",
+    "--super-prefix",
+)
+# Words are split on whitespace and these shell operators when a command
+# cannot be tokenized.
+WORD_SPLIT = re.compile(r"[\s;&|()]+")
 
 
 def tokenize(command, commenters=""):
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
     lexer.whitespace_split = True
     lexer.commenters = commenters
-    return list(lexer)
+    try:
+        return list(lexer)
+    except ValueError:
+        # An unbalanced quote (an apostrophe in a heredoc body): close it at
+        # the end so the tail becomes one quoted token the ordinary rules can
+        # read, rather than skipping those rules.
+        for quote in ("'", '"'):
+            lexer = shlex.shlex(
+                command + quote, posix=True, punctuation_chars=";&|<>()"
+            )
+            lexer.whitespace_split = True
+            lexer.commenters = commenters
+            try:
+                return list(lexer)
+            except ValueError:
+                continue
+        raise
 
 
 # shlex starts a comment at a `#` anywhere in a word; bash only at the start
@@ -138,7 +188,8 @@ def tokenize(command, commenters=""):
 # is read both ways and asks if EITHER reading might merge. The bash-like
 # reading keeps `#` as a commenter after neutralising every `#` that does not
 # start a word.
-MIDWORD_HASH = re.compile(r"(?<=[^\s;&|(])#")
+# `)` ends a word in bash, so `(true)# x` starts a comment there.
+MIDWORD_HASH = re.compile(r"(?<=[^\s;&|()])#")
 
 
 def readings(command):
@@ -149,7 +200,9 @@ def raw_subcommand_not_literal(raw):
     """True when some git call's subcommand slot could become `merge` at run
     time: an expansion, quote, escape or glob in a still-quoted token."""
     for i, tok in enumerate(raw):
-        if os.path.basename(re.sub(r"[\"'\\]", "", tok)).lower() != "git":
+        # A `\`-newline continuation leaves the newline on the next token. Strip
+        # only newlines: other whitespace inside a quoted word is part of it.
+        if os.path.basename(re.sub(r"[\"'\\]", "", tok).strip("\n")).lower() != "git":
             continue
         j = i + 1
         while j < len(raw) and raw[j].startswith("-"):
@@ -166,9 +219,10 @@ def git_subcommand_not_literal(command, commenters=""):
     try:
         raw = list(lexer)
     except ValueError:
-        # Untokenizable (an apostrophe in a heredoc): fall back to whitespace
-        # words, so `git mer''ge feat # don't` still shows its spliced slot.
-        raw = command.split()
+        # Untokenizable (an apostrophe in a heredoc): fall back to words split
+        # on whitespace and `;&|()`, so `git mer''ge feat # don't`, `true&&git`
+        # and `(git` still show their spliced slot.
+        raw = [w for w in WORD_SPLIT.split(command) if w]
     return raw_subcommand_not_literal(raw)
 
 
@@ -183,7 +237,9 @@ def reading_might_merge(command, commenters):
     except ValueError:  # unbalanced quotes, e.g. an apostrophe in a heredoc
         return bool(MENTION.search(command)) or git_subcommand_not_literal(command)
     # `git.exe` is git.
-    words = {re.sub(r"\.exe$", "", os.path.basename(t).lower()) for t in tokens}
+    words = {
+        re.sub(r"\.exe$", "", os.path.basename(t.strip("\n")).lower()) for t in tokens
+    }
     if "git" in words and (
         words & MERGE_WORDS or git_subcommand_not_literal(command, commenters)
     ):
