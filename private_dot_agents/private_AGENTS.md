@@ -47,5 +47,14 @@ rule applies, ask first.
    intent and proceeding in the same turn is not consent. Reads (`op read`,
    `op item list`, `op inject`) are fine.
 
+## Working note
+
+**Write shell commands the merge guard can read.** The `git-merge-guard`
+hook asks before any Bash command it cannot prove is not a merge or pull into
+`main`. So never put the bare words `merge` or `pull` next to a `$variable` or
+`git` as a label or in prose (write `mergeState=$M`, not `merge=$M`), and pass
+commit messages, PR bodies and multi-line scripts by file (`git commit -F`,
+`gh pr create --body-file`, `python3 script.py`).
+
 Keep this file tiny: a rule belongs here only if it matters enough to be read
 at the start of every session.
