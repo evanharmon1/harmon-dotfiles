@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.18.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.6...v0.18.0) (2026-10-01)
+
+
+### Features
+
+* **claude:** replace git merge ask rules with a branch-aware merge guard ([edd64ba](https://github.com/evanharmon1/harmon-dotfiles/commit/edd64ba49e5eb9a8087760227507cdf9eb00a0f4))
+* **claude:** replace git merge ask rules with a branch-aware merge guard ([8ae2761](https://github.com/evanharmon1/harmon-dotfiles/commit/8ae276111725dc21383f90efcc4487efe19aa1be))
+
+
+### Bug Fixes
+
+* **chezmoi:** ignore harmon-init template assets so they are not deployed to HOME ([32d7d0f](https://github.com/evanharmon1/harmon-dotfiles/commit/32d7d0f42ea15fb8986f95cbf83cc27ac46417bc))
+* **chezmoi:** ignore harmon-init template assets so they are not deployed to HOME ([8fd4efa](https://github.com/evanharmon1/harmon-dotfiles/commit/8fd4efa4757f62af971504d0e905fb8dfca26ca7))
+* **claude:** ask when a git subcommand is shell-synthesized ([888f3b6](https://github.com/evanharmon1/harmon-dotfiles/commit/888f3b6033ff0a8c216c64a97e66c53507dc5010))
+* **claude:** casefold protected branches, allow pull --rebase, name shipped wrappers ([9adb45f](https://github.com/evanharmon1/harmon-dotfiles/commit/9adb45fda40ce23fc065e53c5ff9b12a10371b7b))
+* **claude:** close three merge-guard gaps found by review in harmon-infra ([d80b30a](https://github.com/evanharmon1/harmon-dotfiles/commit/d80b30a5940ab3706da479dc40d0be549375586a))
+* **claude:** close three merge-guard gaps found by review in harmon-infra ([4e4479c](https://github.com/evanharmon1/harmon-dotfiles/commit/4e4479c2192390561722a0063838440cf4ca84be))
+* **claude:** compare full refs in the merge guard; update the constitution backstop note ([3132f1c](https://github.com/evanharmon1/harmon-dotfiles/commit/3132f1c3e319954fc7c8e57128e5507b959dcfc2))
+* **claude:** keep git merge --abort behind the approval prompt ([ce40b42](https://github.com/evanharmon1/harmon-dotfiles/commit/ce40b42f88c2ae833698a0b295f7651cbdb4081d))
+* **claude:** keep merge plumbing and dashed git-merge as mentions in the guard ([ef198dc](https://github.com/evanharmon1/harmon-dotfiles/commit/ef198dca4b0871ff4f50ab7488ee40ca4d0a5845))
+* **claude:** make the merge guard fail closed on unparsed forms and unknown defaults ([c247f84](https://github.com/evanharmon1/harmon-dotfiles/commit/c247f8456500dc239b40b125bed38e0d9d603423))
+* **claude:** re-sync the global git-merge-guard with the harmon-init reference ([9e28c46](https://github.com/evanharmon1/harmon-dotfiles/commit/9e28c469eee7f2b462b9d4806f613825b4fb2131))
+* **claude:** re-sync the global git-merge-guard with the harmon-init reference ([2a4cf1c](https://github.com/evanharmon1/harmon-dotfiles/commit/2a4cf1c9e370cc5787cfabdf6ab0e3c3bd4ba88d)), closes [#118](https://github.com/evanharmon1/harmon-dotfiles/issues/118)
+* **claude:** read each command with and without comments before deciding ([63e13ab](https://github.com/evanharmon1/harmon-dotfiles/commit/63e13abf92aaebfd8e74d8a467e0b255deda5242))
+* **claude:** stop a mid-word # from hiding a merge; catch expanded subcommands ([4f626f1](https://github.com/evanharmon1/harmon-dotfiles/commit/4f626f192e63564fd4c65a320ef4a51a12bacca5))
+* **claude:** strip exact remote names and reject CDPATH-dependent cd targets ([92676d6](https://github.com/evanharmon1/harmon-dotfiles/commit/92676d6029ea285b0dc1ab43a5c3c5d9aff53a64))
+* **claude:** take git pull --rebase off the merge guard's silent path ([258f794](https://github.com/evanharmon1/harmon-dotfiles/commit/258f794627bd246a7aad4fbd518853ee39ef209c))
+
 ## [0.17.6](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.5...v0.17.6) (2026-09-24)
 
 
