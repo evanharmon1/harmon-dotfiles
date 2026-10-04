@@ -470,7 +470,7 @@ fi
 resume_exact=0
 if jq -e --arg login "$login" --rawfile body "$record_file" '
     ($body | sub("\\n+$"; "")) as $expected
-    | .found == true and .author == $login and .body == $expected
+    | .found == true and .author == $login and (((.body // "") | sub("\\n+$"; "")) == $expected)
 ' "$tmp/predecessor.json" >/dev/null; then
     resume_exact=1
 fi
@@ -624,6 +624,9 @@ claim_blockers_absent() {
             [ "$live_label" = "$claim_label" ] || [ "$live_label" = "$model_label" ] || return 1
             ;;
         esac
+        # Human-only work (a (HUMAN)/(QA) collector or precondition) is never
+        # claimable; GitHub label names compare case-insensitively.
+        [ "$(printf '%s' "$live_label" | tr '[:upper:]' '[:lower:]')" != human ] || return 1
     done < <(jq -r '.labels[]?.name' "$snapshot")
 }
 
@@ -774,7 +777,7 @@ current_record_is_live() {
         select_predecessor "$issue_output" "$comments_output" "$predecessor_output" &&
         jq -e --arg login "$login" --rawfile body "$record_file" '
             ($body | sub("\\n+$"; "")) as $expected
-            | .found == true and .author == $login and .body == $expected
+            | .found == true and .author == $login and (((.body // "") | sub("\\n+$"; "")) == $expected)
         ' "$predecessor_output" >/dev/null &&
         claim_is_live "$issue_output"
 }
@@ -932,7 +935,7 @@ else
         | ($before[0] | map(.id)) as $known
         | any(.[];
             .user.login == $login
-            and .body == $expected
+            and (((.body // "") | sub("\\n+$"; "")) == $expected)
             and (.id as $id | ($known | index($id)) == null))
     ' "$tmp/comments-after.json" >/dev/null; then
         exact_record_found=1
