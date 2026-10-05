@@ -64,8 +64,23 @@ done
     fail "local Codex profile must use on-request approvals"
 [ "$(yq '.project_doc_max_bytes' "$profile")" = "65536" ] ||
     fail "local Codex profile must load up to 64 KiB of project guidance"
-[ "$(jq -r '.model' "$repo/private_dot_claude/private_settings.json")" = "claude-opus-4-8" ] ||
-    fail "Claude must default to Opus 4.8"
+claude_settings="$repo/private_dot_claude/private_settings.json"
+[ "$(jq -r '.model' "$claude_settings")" = "opus" ] ||
+    fail "Claude must default to the opus alias"
+[ "$(jq -r '.modelSettings["claude-fable-5-1"].effortLevel' "$claude_settings")" = "high" ] ||
+    fail "Claude Fable 5.1 must default to high effort"
+[ "$(jq -r '.modelSettings["claude-opus-5-5"].effortLevel' "$claude_settings")" = "medium" ] ||
+    fail "Claude Opus 5.5 must default to medium effort"
+[ "$(jq -r '.modelSettings["claude-sonnet-5-5"].effortLevel' "$claude_settings")" = "medium" ] ||
+    fail "Claude Sonnet 5.5 must default to medium effort"
+[ "$(jq -r '.remoteControlAtStartup' "$claude_settings")" = "true" ] ||
+    fail "Claude must start Remote Control with every session"
+[ "$(jq -r '.sandbox.enabled' "$claude_settings")" = "true" ] ||
+    fail "Claude must run Bash commands in the sandbox"
+[ "$(jq -r '.inputNeededNotifEnabled' "$claude_settings")" = "true" ] ||
+    fail "Claude must notify when it needs input"
+[ "$(jq -r '.feedbackDrafts' "$claude_settings")" = "off" ] ||
+    fail "Claude-drafted feedback must be off"
 [ "$(jq -r '.share' "$opencode_config")" = "disabled" ] ||
     fail "OpenCode personal default must disable session sharing"
 [ "$(jq -r 'if .snapshot == true then "true" else "false" end' "$opencode_config")" = "true" ] ||
