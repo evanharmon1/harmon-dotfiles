@@ -73,11 +73,15 @@ claude_settings="$repo/private_dot_claude/private_settings.json"
     fail "Claude Opus 5.5 must default to medium effort"
 [ "$(jq -r '.modelSettings["claude-sonnet-5-5"].effortLevel' "$claude_settings")" = "medium" ] ||
     fail "Claude Sonnet 5.5 must default to medium effort"
-[ "$(jq -r '.remoteControlAtStartup' "$claude_settings")" = "true" ] ||
+# Booleans are compared as JSON booleans: Claude Code ignores a string "true".
+jq -e '.remoteControlAtStartup == true' "$claude_settings" >/dev/null ||
     fail "Claude must start Remote Control with every session"
-[ "$(jq -r '.sandbox.enabled' "$claude_settings")" = "true" ] ||
-    fail "Claude must run Bash commands in the sandbox"
-[ "$(jq -r '.inputNeededNotifEnabled' "$claude_settings")" = "true" ] ||
+# Enabled, not enforced: the sandbox stays fail-open (a host where it cannot
+# start runs Bash unsandboxed with a warning) and keeps the permission-gated
+# per-command escape, by the maintainer's choice.
+jq -e '.sandbox.enabled == true' "$claude_settings" >/dev/null ||
+    fail "Claude must enable the Bash sandbox by default"
+jq -e '.inputNeededNotifEnabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must notify when it needs input"
 [ "$(jq -r '.feedbackDrafts' "$claude_settings")" = "off" ] ||
     fail "Claude-drafted feedback must be off"
