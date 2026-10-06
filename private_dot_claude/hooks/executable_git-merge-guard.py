@@ -27,24 +27,28 @@ command substitutions -- and a merge is:
     `pull`, wherever it appears in a command's words (`command git merge`,
     `timeout 9 git pull`, `xargs git merge`, `ssh host git pull`);
   * a git call whose subcommand slot is not a literal (`git $x`, `git m*rge`,
-    `git $'\\x6d...'`), is missing under `xargs`/`parallel`, or is renamed by
-    a one-off alias (`git -c alias.m=merge m`);
+    `git $'\\x6d...'`), could be filled in by `xargs`/`parallel` (a missing
+    slot, a replacement string such as `xargs -I X git X`, `:::` arguments),
+    or is renamed by a one-off alias (`git -c alias.m=merge m`);
   * a command whose name is not a literal followed by `merge`/`pull`
     (`$G merge feat`);
   * the dashed `git-merge`/`git-pull` executables run as a command;
-  * any of the above inside text that runs: `$(...)`, backticks, `<(...)`,
-    an unquoted heredoc's substitutions, a string handed to `bash -c` (any
-    shell, `su -c`, `pwsh -Command`), `eval`, `ssh`, `watch` or `env -S`, a
-    heredoc or here-string fed to a shell, or -- when a shell reads a pipe --
-    any mention of merge/pull in the pipeline.
+  * any of the above inside text that runs: `$(...)` (and `$((...))`, which
+    bash also reads as one), backticks, `<(...)`, substitutions inside
+    `${...}` or an unquoted heredoc, a string handed to `bash -c` (any shell,
+    `su -c`, `pwsh -Command`; `$'...'` strings decoded first), `eval`, `ssh`,
+    `watch` or `env -S`, a heredoc or here-string fed to a shell (whatever
+    its arguments), or -- when a shell reads a pipe -- any mention of
+    merge/pull in the pipeline; `${...}` operators are not modelled, so a
+    `${...}` that mentions merge/pull asks.
 
 Everything else is data and stays silent: quoted text and heredoc bodies not
 handed to an evaluator (`git commit -m "catch-up merge"`, report appends),
 search patterns (`grep -n 'merge base'`), and other subcommands and flags that
 merely hold the word (`git merge-base`, `merge-tree`, `mergetool`,
 `--merge-base-policy`). A command the parser cannot read (an unbalanced quote)
-asks if it mentions merge/pull at all, so a parser gap costs a prompt, never
-a silent merge.
+asks if it mentions git, merge or pull at all -- bash may still run the lines
+before the error -- so a parser gap costs a prompt, not a silent merge.
 
 The only silent (normal permission flow) shape is one fully literal command
 -- no quotes, escapes, expansions, globs, operators, newlines, `cd` or `-C`:
@@ -144,6 +148,7 @@ MENTION = re.compile(
     r"|(?<![\w-])git-(?:merge|pull)(?!-guard\b)(?!\w)",
     re.I,
 )
+GIT_MENTION = re.compile(r"(?<![\w-])git(?![\w-])", re.I)
 GIT_VALUE_OPTIONS = {
     "-C",
     "-c",
@@ -170,6 +175,24 @@ WRAPPERS = {
     "ionice", "nice", "nocorrect", "noglob", "nohup", "parallel", "setsid",
     "stdbuf", "sudo", "time", "timeout", "unbuffer", "xargs",
     "-exec", "-execdir", "-ok", "-okdir",
+}
+# Wrapper options that take a separate value, so the value is not the command.
+WRAPPER_VALUE_OPTIONS = {
+    "doas": {"-u", "-C"},
+    "env": {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+    "exec": {"-a"},
+    "ionice": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"},
+    "nice": {"-n", "--adjustment"},
+    "parallel": {"-j", "-S", "-I", "-a", "-C", "--jobs", "--sshlogin", "--replace",
+                 "--joblog", "--results", "--delay", "--timeout", "--arg-file", "--colsep"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R",
+             "--user", "--group", "--host", "--prompt", "--chdir", "--role",
+             "--type", "--other-user", "--close-from", "--command-timeout", "--chroot"},
+    "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "xargs": {"-I", "-J", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "-R", "-S",
+              "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines",
+              "--max-chars", "--replace", "--eof", "--process-slot-var"},
 }
 # Programs that feed stdin words to the command after them.
 ARG_FEEDERS = {"parallel", "xargs"}
@@ -208,13 +231,15 @@ class Parser:
     """A reader for the subset of bash that decides what runs. Commands found
     inside substitutions are collected too: they run as well."""
 
-    def __init__(self, text, commands=None):
+    def __init__(self, text, commands=None, uncertain=None):
         self.s = text
         self.i = 0
         self.commands = [] if commands is None else commands
         self.cur = None
         self.piped = False
         self.heredocs = []
+        # Expansion text the parser does not model; asks if it mentions merge/pull.
+        self.uncertain = uncertain if uncertain is not None else []
 
     def command(self):
         if self.cur is None:
@@ -251,9 +276,6 @@ class Parser:
                 self.end_command()
                 self.piped = op in ("|", "|&")
                 self.i += len(op)
-            elif s.startswith("((", self.i):
-                self.end_command()
-                self.i = self.skip_parens(self.i)
             elif c == "(":
                 self.end_command()
                 depth += 1
@@ -284,19 +306,6 @@ class Parser:
         self.read_heredocs()
         return self.i
 
-    def skip_parens(self, i):
-        """Skip `((...))` or `$((...))` arithmetic from its first `(`."""
-        level = 0
-        while i < len(self.s):
-            if self.s[i] == "(":
-                level += 1
-            elif self.s[i] == ")":
-                level -= 1
-                if level == 0:
-                    return i + 1
-            i += 1
-        raise ParseError("unterminated arithmetic")
-
     def redirection(self):
         s = self.s
         if s.startswith("<<<", self.i):
@@ -310,7 +319,7 @@ class Parser:
             quoted = any(ch in s[start : self.i] for ch in "'\"\\")
             self.heredocs.append((self.command(), word.value, quoted, strip))
         elif s.startswith(("<(", ">("), self.i):
-            self.i = Parser(s, self.commands).nested(self.i + 2)
+            self.i = Parser(s, self.commands, self.uncertain).nested(self.i + 2)
         else:
             self.i += 1
             while self.i < len(s) and s[self.i] in "<>&|":
@@ -346,7 +355,7 @@ class Parser:
             body = "\n".join(lines)
             if not quoted:
                 # An unquoted heredoc expands `$(...)` and backticks: they run.
-                Parser(body, self.commands).read_double_quoted(Word(), closing=None)
+                Parser(body, self.commands, self.uncertain).read_double_quoted(Word(), closing=None)
             cmd.stdin.append(body)
         self.heredocs = []
 
@@ -373,7 +382,7 @@ class Parser:
                     j += 2 if s[j] == "\\" else 1
                 if j >= len(s):
                     raise ParseError("unterminated $'")
-                word.value += s[self.i : j + 1]
+                word.value += ansi_c(s[self.i + 2 : j])
                 word.literal = False
                 self.i = j + 1
             elif c == '"':
@@ -424,17 +433,18 @@ class Parser:
             if j >= len(s):
                 raise ParseError("unterminated `")
             body = re.sub(r"\\([`$\\])", r"\1", s[self.i + 1 : j])
-            Parser(body, self.commands).run()
+            Parser(body, self.commands, self.uncertain).run()
             self.i = j + 1
-        elif s.startswith("$((", self.i):
-            self.i = self.skip_parens(self.i + 1)
         elif s.startswith("$(", self.i):
-            self.i = Parser(s, self.commands).nested(self.i + 2)
+            # `$((...))` arithmetic is read as a substitution too: bash runs
+            # `$((git merge feat) )` as one, and arithmetic text is harmless.
+            self.i = Parser(s, self.commands, self.uncertain).nested(self.i + 2)
         elif s.startswith("${", self.i):
-            end = s.find("}", self.i)
-            if end < 0:
-                raise ParseError("unterminated ${")
-            self.i = end + 1
+            self.i += 2
+            self.read_double_quoted(Word(), closing="}")
+            # Operators like `${x/merge/y}` are not modelled: the word test
+            # covers anything they could spell.
+            self.uncertain.append(s[start : self.i])
         elif self.i + 1 < len(s) and (s[self.i + 1].isalnum() or s[self.i + 1] in "_@*#?$!-"):
             self.i += 2
             while self.i < len(s) and (s[self.i].isalnum() or s[self.i] == "_"):
@@ -447,10 +457,18 @@ class Parser:
         word.literal = False
 
 
+def ansi_c(body):
+    """Decode a `$'...'` body the way bash does, near enough to read a word."""
+    try:
+        return body.encode("latin-1", "backslashreplace").decode("unicode_escape")
+    except UnicodeDecodeError:
+        return body
+
+
 def parse(text):
     parser = Parser(text)
     parser.run()
-    return parser.commands
+    return parser.commands, parser.uncertain
 
 
 def base(word):
@@ -460,19 +478,45 @@ def base(word):
 
 def command_index(words):
     """Index of the word bash runs as the command, skipping assignments and
-    wrappers (`sudo`, `env`, `timeout 9`, `xargs -n1`, ...)."""
+    wrappers with their options (`sudo -u evan`, `env -C dir`, `timeout 9`)."""
     i = 0
     while i < len(words):
         w = words[i]
         if w.literal and ASSIGNMENT.match(w.value):
             i += 1
         elif w.literal and base(w) in WRAPPERS:
+            takes_value = WRAPPER_VALUE_OPTIONS.get(base(w), set())
             i += 1
             while i < len(words) and WRAPPER_ARG.match(words[i].value):
-                i += 1
+                i += 2 if words[i].value in takes_value else 1
         else:
             return i
     return i
+
+
+def feeder_tokens(words, i):
+    """Replacement strings that `xargs`/`parallel` before words[i] fill in
+    at run time, or None when no feeder precedes it."""
+    tokens = None
+    for k, w in enumerate(words[:i]):
+        name = base(w) if w.literal else ""
+        if name not in ARG_FEEDERS:
+            continue
+        tokens = tokens or set()
+        if name == "parallel":
+            tokens.add("{")
+        for j in range(k + 1, i):
+            opt = words[j].value
+            if opt in ("-I", "-J", "--replace") and j + 1 < i:
+                tokens.add(words[j + 1].value)
+            elif opt.startswith(("-I", "-J")):
+                tokens.add(opt[2:])
+            elif opt.startswith("--replace="):
+                tokens.add(opt.split("=", 1)[1])
+            elif opt.startswith("-i"):
+                # GNU xargs `-i[R]`: replace R, `{}` by default.
+                tokens.add(opt[2:] or "{}")
+    return tokens
 
 
 def git_might_merge(words, i):
@@ -487,9 +531,16 @@ def git_might_merge(words, i):
             if re.match(r"\s*alias\.", val, re.I):
                 return True
         j += 2 if opt in GIT_VALUE_OPTIONS else 1
+    tokens = feeder_tokens(words, i)
+    if tokens is not None:
+        # `xargs git`, `xargs -I X git X`, `parallel git ::: merge`: a feeder
+        # can fill the subcommand from stdin or its own arguments.
+        if j >= len(words) or any(w.value.startswith(":::") for w in words):
+            return True
+        if any(t and t in words[j].value for t in tokens):
+            return True
     if j >= len(words):
-        # `xargs git`: the subcommand comes from stdin.
-        return any(w.literal and base(w) in ARG_FEEDERS for w in words[:i])
+        return False
     slot = words[j]
     return not slot.literal or slot.value.strip("\n").lower() in MERGE_WORDS
 
@@ -500,11 +551,6 @@ def shell_payloads(words, i):
         if words[k].literal and SCRIPT_OPTION.match(words[k].value):
             return [words[k + 1].value]
     return None
-
-
-def reads_stdin(words, i):
-    """A shell with no -c and no script file reads its script from stdin."""
-    return all(w.value.startswith("-") for w in words[i + 1 :])
 
 
 def command_might_merge(cmd, text, depth):
@@ -527,7 +573,9 @@ def command_might_merge(cmd, text, depth):
             if payloads is not None:
                 if any(script_might_merge(p, depth + 1) for p in payloads):
                     return True
-            elif at_command and reads_stdin(words, i):
+            else:
+                # No -c: the shell may read its script from stdin (`bash -s x`),
+                # so heredocs, here-strings and pipes feeding it are script.
                 if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
                     return True
                 if cmd.piped and MENTION.search(text):
@@ -551,10 +599,13 @@ def script_might_merge(text, depth=0):
     if depth > MAX_DEPTH:
         return True
     try:
-        commands = parse(text)
+        commands, uncertain = parse(text)
     except (ParseError, IndexError, RecursionError):
-        # Unreadable: fall back to the word test.
-        return bool(MENTION.search(text))
+        # Unreadable: bash may still run the lines before the error, so ask on
+        # any mention of git, merge or pull.
+        return bool(MENTION.search(text) or GIT_MENTION.search(text))
+    if any(MENTION.search(t) for t in uncertain):
+        return True
     return any(command_might_merge(c, text, depth) for c in commands)
 
 

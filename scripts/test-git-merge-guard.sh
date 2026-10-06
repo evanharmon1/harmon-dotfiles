@@ -17,6 +17,8 @@ guard="${GUARD:-${repo_root}/private_dot_claude/hooks/executable_git-merge-guard
 
 # Fixture commits must not trip a global signing config or core.hooksPath.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+# The matrix tests the guarded (dev) profile; the profile section sets its own.
+unset FOREMAN_DEVCONTAINER
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 tmp="$(mktemp -d)"
@@ -270,6 +272,28 @@ matrix() { # guard
     case_ "$g" ask "$r" "sh <<< 'git pull'"
     case_ "$g" ask "$r" "echo 'git merge feat' | sh"
     case_ "$g" ask "$r" "sudo bash -lc 'git pull'"
+    # Challenge round 1: substitutions inside `${...}` and `((...))`, ANSI-C
+    # strings handed to an evaluator, stdin scripts with positional arguments,
+    # wrapper options that take a value, feeders that fill the subcommand, and
+    # unreadable commands that never spell merge.
+    case_ "$g" ask "$r" "echo \"\${x:-\$(git merge feat)}\""
+    case_ "$g" ask "$r" "echo \${x:-\`git pull\`}"
+    case_ "$g" ask "$r" "((git merge feat) )"
+    case_ "$g" ask "$r" "echo \$((git merge feat) )"
+    case_ "$g" ask "$r" "bash -c \$'git merge feat'"
+    case_ "$g" ask "$r" "eval \$'git \\x70ull'"
+    case_ "$g" ask "$r" "bash -s foo <<'EOF'${nl}git merge feat${nl}EOF"
+    case_ "$g" ask "$r" "sudo -u evan sh <<< 'git pull'"
+    case_ "$g" ask "$r" "sudo -u evan /usr/libexec/git-core/git-merge feat"
+    case_ "$g" ask "$r" "echo merge | xargs -I X git X feat"
+    case_ "$g" ask "$r" "echo merge | xargs -I{} git {} feat"
+    case_ "$g" ask "$r" "parallel git ::: merge"
+    case_ "$g" ask "$r" "git \$x feat${nl}echo 'unbalanced"
+    case_ "$g" ask "$r" "git m*rge feat 'x"
+    case_ "$g" silent "$r" "echo \$((1 + 2))"
+    case_ "$g" silent "$r" "echo \"\${x:-default}\" \"\${#arr[@]}\""
+    case_ "$g" silent "$r" "git ls-files | xargs git log --oneline"
+    case_ "$g" silent "$r" "sudo -u evan git status"
 }
 
 echo "==> git-merge-guard decision matrix"
