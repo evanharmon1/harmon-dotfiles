@@ -42,7 +42,7 @@ Files follow chezmoi's [source state attributes](https://www.chezmoi.io/referenc
 - **App configs**: `dot_config/` holds configs for starship, ghostty, karabiner, gh, aichat, llm, and OpenCode.
 - **macOS app configs**: `private_Library/` holds `~/Library/Application Support/` configs (ghostty, aichat, llm).
 - **OS-conditional ignoring**: `.chezmoiignore` excludes macOS-only paths on non-Darwin and Linux-only XDG paths on non-Linux.
-- **Apply-time scripts**: `.chezmoiscripts/` holds scripts chezmoi runs (never deploys) on `chezmoi apply` — e.g. enabling Claude Code Remote Control in `~/.claude.json`, which is runtime state and so not managed as a file.
+- **Apply-time scripts**: `.chezmoiscripts/` holds scripts chezmoi runs (never deploys) on `chezmoi apply` — e.g. enabling Claude Code Remote Control in `~/.claude.json`, which is runtime state and so not managed as a file. The managed `~/.claude/settings.json` sets the same `remoteControlAtStartup` default; the script stays because a `/config` toggle writes the key to `~/.claude.json`, and the script re-asserts it there on every apply.
 
 ## Hard Rules
 
