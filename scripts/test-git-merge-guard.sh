@@ -188,10 +188,11 @@ matrix() { # guard
     case_ "$g" ask "$r" "git --shallow-file /dev/null \$'\\x6d\\x65\\x72\\x67\\x65' feat"
     case_ "$g" ask "$r" "git --config-env user.name=FOO \"\$SUB\" feat"
     case_ "$g" ask "$r" "git --super-prefix sub/ \$'\\x6d\\x65\\x72\\x67\\x65' feat"
-    # Scripts are not seen through, with or without a shell name (documented limit).
+    # Scripts are not seen through (documented limit), but a shell name makes the
+    # command line an evaluator, so a mention of merge/pull asks.
     case_ "$g" silent "${r}/wt" "./scripts/merge-main.sh"
-    case_ "$g" silent "${r}/wt" "sh ./scripts/merge-main.sh"
-    case_ "$g" silent "${r}/wt" "sh ./merge-main.sh"
+    case_ "$g" ask "${r}/wt" "sh ./scripts/merge-main.sh"
+    case_ "$g" ask "${r}/wt" "sh ./merge-main.sh"
     # No git merge/pull: no opinion, including everyday near-misses.
     case_ "$g" silent "${r}/wt" "git merge-base main feat"
     # A quoted word with trailing whitespace is not the word `merge`.
@@ -200,13 +201,13 @@ matrix() { # guard
     case_ "$g" silent "${r}/wt" "base=\"\$(git merge-base HEAD \"\$base_ref\")\""
     case_ "$g" silent "${r}/wt" "gh pr list --json number | xargs -n1 echo pull-requests"
     case_ "$g" ask "${r}/wt" "x=\$(git merge main)"
-    # The dashed executables run as commands. The index-writing merge plumbing
-    # creates no commit and moves no ref, so it is silent even behind an evaluator.
+    # The dashed executables run as commands. Behind an evaluator the index-writing
+    # merge plumbing falls under the word test and asks.
     case_ "$g" ask "${r}/wt" "\$(git --exec-path)/git-merge main"
     case_ "$g" ask "${r}/wt" "git-pull origin main"
-    case_ "$g" silent "$r" "eval \"git merge-ours feat\""
-    case_ "$g" silent "$r" "bash -c 'git merge-recursive base -- HEAD feat'"
-    case_ "$g" silent "$r" "eval \"git-merge-ours feat\""
+    case_ "$g" ask "$r" "eval \"git merge-ours feat\""
+    case_ "$g" ask "$r" "bash -c 'git merge-recursive base -- HEAD feat'"
+    case_ "$g" ask "$r" "eval \"git-merge-ours feat\""
     # An expanded subcommand inside an interpreter string, like the unwrapped form.
     case_ "$g" ask "$r" "bash -c \"git \$SUB main\""
     case_ "$g" ask "$r" "eval \"git \${sub} feat\""
@@ -294,6 +295,15 @@ matrix() { # guard
     case_ "$g" silent "$r" "echo \"\${x:-default}\" \"\${#arr[@]}\""
     case_ "$g" silent "$r" "git ls-files | xargs git log --oneline"
     case_ "$g" silent "$r" "sudo -u evan git status"
+    # Challenge round 2: an evaluator puts the whole command line under the
+    # word test, whatever its options or how its input arrives.
+    case_ "$g" ask "$r" "bash -C -c 'git merge feat'"
+    case_ "$g" ask "$r" "zsh -C -c 'git pull'"
+    case_ "$g" ask "$r" "env -S'git merge feat'"
+    case_ "$g" ask "$r" "printf 'git merge feat\\n' | if true; then sh; fi"
+    case_ "$g" ask "$r" "bash -C -c \$'git \\x70ull'"
+    case_ "$g" silent "$r" "bash -c 'git log --oneline' | head -5"
+    case_ "$g" silent "$r" "bash scripts/test-git-merge-guard.sh"
 }
 
 echo "==> git-merge-guard decision matrix"

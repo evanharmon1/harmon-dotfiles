@@ -37,10 +37,13 @@ command substitutions -- and a merge is:
     bash also reads as one), backticks, `<(...)`, substitutions inside
     `${...}` or an unquoted heredoc, a string handed to `bash -c` (any shell,
     `su -c`, `pwsh -Command`; `$'...'` strings decoded first), `eval`, `ssh`,
-    `watch` or `env -S`, a heredoc or here-string fed to a shell (whatever
-    its arguments), or -- when a shell reads a pipe -- any mention of
-    merge/pull in the pipeline; `${...}` operators are not modelled, so a
-    `${...}` that mentions merge/pull asks.
+    `watch` or `env -S`, or a heredoc or here-string fed to a shell
+    (whatever its arguments); `${...}` operators are not modelled, so a
+    `${...}` that mentions merge/pull asks;
+  * any mention of merge/pull anywhere in a command line that also runs an
+    evaluator (a shell, `eval`, `ssh`, `watch`, `env -S`): their option and
+    input shapes (`bash -C -c`, `env -S'...'`, a pipe into `if ...; then sh`)
+    are open-ended, so the word test covers what the parser does not.
 
 Everything else is data and stays silent: quoted text and heredoc bodies not
 handed to an evaluator (`git commit -m "catch-up merge"`, report appends),
@@ -165,7 +168,8 @@ SHELLS = {
     "ash", "bash", "busybox", "dash", "fish", "ksh", "mksh", "powershell",
     "pwsh", "script", "sh", "su", "zsh",
 }
-SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|-command|--command)$", re.I)
+# Case matters: `-C` is noclobber in bash and zsh, not a script.
+SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command))$")
 # Programs whose remaining arguments, joined, are run as a command line.
 JOINERS = {"eval", "ssh", "watch"}
 # Programs that take a command in their arguments; what follows them is at
@@ -218,13 +222,12 @@ class Word:
 
 
 class Command:
-    """One simple command: its words, the text fed to its stdin by heredocs
-    and here-strings, and whether a pipe feeds it."""
+    """One simple command: its words, and the text fed to its stdin by
+    heredocs and here-strings."""
 
-    def __init__(self, piped):
+    def __init__(self):
         self.words = []
         self.stdin = []
-        self.piped = piped
 
 
 class Parser:
@@ -236,15 +239,13 @@ class Parser:
         self.i = 0
         self.commands = [] if commands is None else commands
         self.cur = None
-        self.piped = False
         self.heredocs = []
         # Expansion text the parser does not model; asks if it mentions merge/pull.
         self.uncertain = uncertain if uncertain is not None else []
 
     def command(self):
         if self.cur is None:
-            self.cur = Command(self.piped)
-            self.piped = False
+            self.cur = Command()
         return self.cur
 
     def end_command(self):
@@ -274,7 +275,6 @@ class Parser:
             elif s.startswith(("&&", "||", ";;", "|&"), self.i) or c in ";&|":
                 op = s[self.i : self.i + 2] if s[self.i : self.i + 2] in ("&&", "||", ";;", "|&") else c
                 self.end_command()
-                self.piped = op in ("|", "|&")
                 self.i += len(op)
             elif c == "(":
                 self.end_command()
@@ -546,11 +546,22 @@ def git_might_merge(words, i):
 
 
 def shell_payloads(words, i):
-    """The script strings handed to the shell at words[i] with -c, if any."""
-    for k in range(i + 1, len(words) - 1):
-        if words[k].literal and SCRIPT_OPTION.match(words[k].value):
-            return [words[k + 1].value]
-    return None
+    """The script strings handed to the shell at words[i] with -c."""
+    return [
+        words[k + 1].value
+        for k in range(i + 1, len(words) - 1)
+        if words[k].literal and SCRIPT_OPTION.match(words[k].value)
+    ]
+
+
+def is_evaluator(words, i):
+    """True when words[i] runs text it is given as a script."""
+    name = base(words[i])
+    if name in SHELLS or name in JOINERS:
+        return True
+    return name == "env" and any(
+        w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
+    )
 
 
 def command_might_merge(cmd, text, depth):
@@ -568,18 +579,19 @@ def command_might_merge(cmd, text, depth):
             return True
         if not w.literal:
             continue
+        # An evaluator's option and input shapes are open-ended (`bash -C -c`,
+        # `env -S'...'`, a pipe into a compound command), so its presence puts
+        # the whole script under the word test; the parse below still sees
+        # what the word test cannot (`$'\x70ull'`, `git $x`).
+        if is_evaluator(words, i) and MENTION.search(text):
+            return True
         if name in SHELLS:
             payloads = shell_payloads(words, i)
-            if payloads is not None:
-                if any(script_might_merge(p, depth + 1) for p in payloads):
-                    return True
-            else:
-                # No -c: the shell may read its script from stdin (`bash -s x`),
-                # so heredocs, here-strings and pipes feeding it are script.
-                if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
-                    return True
-                if cmd.piped and MENTION.search(text):
-                    return True
+            if any(script_might_merge(p, depth + 1) for p in payloads):
+                return True
+            # Without -c a shell may read its script from stdin (`bash -s x`).
+            if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
+                return True
         elif name in JOINERS:
             if script_might_merge(" ".join(x.value for x in words[i + 1 :]), depth + 1):
                 return True
@@ -589,9 +601,11 @@ def command_might_merge(cmd, text, depth):
                     if script_might_merge(words[k + 1].value, depth + 1):
                         return True
             for k in range(i + 1, len(words)):
-                if words[k].value.startswith("--split-string="):
-                    if script_might_merge(words[k].value.split("=", 1)[1], depth + 1):
-                        return True
+                v = words[k].value
+                attached = v.split("=", 1)[1] if v.startswith("--split-string=") else (
+                    v[2:] if v.startswith("-S") and len(v) > 2 else None)
+                if attached is not None and script_might_merge(attached, depth + 1):
+                    return True
     return False
 
 
