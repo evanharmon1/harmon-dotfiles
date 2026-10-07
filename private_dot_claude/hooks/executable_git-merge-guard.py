@@ -29,7 +29,8 @@ command substitutions -- and a merge is:
   * a git call whose subcommand slot is not a literal (`git $x`, `git m*rge`,
     `git $'\\x6d...'`), could be filled in by `xargs`/`parallel` (a missing
     slot, a replacement string such as `xargs -I X git X`, `:::` arguments),
-    or is renamed by a one-off alias (`git -c alias.m=merge m`);
+    or is a one-off alias whose expansion could merge (`git -c alias.m=merge m`,
+    a `!` shell alias, or one whose `-c` value or source is not literal);
   * a command whose name is not a literal followed by `merge`/`pull`
     (`$G merge feat`);
   * the dashed `git-merge`/`git-pull` executables run as a command;
@@ -166,9 +167,10 @@ GIT_VALUE_OPTIONS = {
     "--super-prefix",
 }
 # Shells: they read a script from stdin, and their presence puts a command
-# line under the word test.
+# line under the word test. `busybox` is not one: it is a wrapper that runs
+# the applet named next, and `busybox sh` is caught by `sh`.
 SHELLS = {
-    "ash", "bash", "busybox", "csh", "dash", "elvish", "fish", "ksh", "mksh",
+    "ash", "bash", "csh", "dash", "elvish", "fish", "ksh", "mksh",
     "nu", "oksh", "osh", "powershell", "pwsh", "script", "sh", "su", "tcsh",
     "xonsh", "yash", "zsh",
 }
@@ -181,7 +183,7 @@ JOINERS = {"eval", "ssh", "trap", "watch"}
 # Programs that take a command in their arguments; what follows them is at
 # command position for the dashed-executable and stdin-shell checks.
 WRAPPERS = {
-    "builtin", "caffeinate", "chronic", "command", "doas", "env", "exec",
+    "builtin", "busybox", "caffeinate", "chronic", "command", "doas", "env", "exec",
     "ionice", "nice", "nocorrect", "noglob", "nohup", "parallel", "setsid",
     "stdbuf", "sudo", "time", "timeout", "unbuffer", "xargs",
     "-exec", "-execdir", "-ok", "-okdir",
@@ -532,6 +534,7 @@ def feeder_tokens(words, i):
 def git_might_merge(words, i):
     """True when the git call at words[i] could be a merge or pull."""
     j = i + 1
+    aliases = {}  # one-off alias name -> expansion (None: set from the environment)
     while j < len(words) and words[j].value.startswith("-"):
         opt = words[j].value
         name, eq, val = opt.partition("=")
@@ -539,10 +542,15 @@ def git_might_merge(words, i):
             # The attached form `-calias.m=merge` is git's own spelling too.
             name, eq, val = "-c", "=", opt[2:]
         if name in ("-c", "--config-env"):
-            val = val if eq else (words[j + 1].value if j + 1 < len(words) else "")
-            # A one-off alias renames the subcommand; git folds the section case.
-            if re.match(r"\s*alias\.", val, re.I):
+            word = words[j] if eq else (words[j + 1] if j + 1 < len(words) else Word())
+            val = val if eq else word.value
+            if not word.literal:
+                # `git -c "$X" m`: the setting could define any alias.
                 return True
+            # Git folds the section and the alias name case.
+            alias = re.match(r"\s*alias\.([^=]+)=?(.*)", val, re.I | re.S)
+            if alias:
+                aliases[alias.group(1).lower()] = alias.group(2) if name == "-c" else None
         j += 2 if opt in GIT_VALUE_OPTIONS else 1
     tokens = feeder_tokens(words, i)
     if tokens is not None:
@@ -555,7 +563,18 @@ def git_might_merge(words, i):
     if j >= len(words):
         return False
     slot = words[j]
-    return not slot.literal or slot.value.strip("\n").lower() in MERGE_WORDS
+    sub = slot.value.strip("\n").lower()
+    if slot.literal and sub in aliases:
+        # Only the invoked alias matters (`git -c alias.x=log status` runs
+        # status). Its expansion asks when it names merge/pull or when a `!`
+        # shell alias could run one.
+        expansion = aliases[sub]
+        if expansion is None:
+            return True
+        if expansion.lstrip().startswith("!"):
+            return script_might_merge(expansion.lstrip()[1:]) or bool(MENTION.search(expansion))
+        return bool(MENTION.search(expansion))
+    return not slot.literal or sub in MERGE_WORDS
 
 
 def is_evaluator(words, i):

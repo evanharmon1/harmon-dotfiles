@@ -320,6 +320,15 @@ matrix() { # guard
     # Review round 3: a trap action runs later; `git grep -c` counts.
     case_ "$g" ask "$r" "trap 'git merge main' EXIT"
     case_ "$g" silent "$r" "git grep -c 'git merge' -- docs"
+    # Integration cycle 1 (Codex cloud): only the invoked alias matters, and
+    # busybox runs the applet named next.
+    case_ "$g" silent "$r" "git -c alias.x=log status"
+    case_ "$g" silent "$r" "git -c alias.lg='log --oneline' lg"
+    case_ "$g" ask "$r" "git -c alias.m='!git merge' m feat"
+    case_ "$g" ask "$r" "git -c alias.M=merge m feat"
+    case_ "$g" ask "$r" "git -c \"\$X\" m feat"
+    case_ "$g" silent "$r" "busybox grep -c 'git merge' README.md"
+    case_ "$g" ask "$r" "busybox sh -c 'git pull'"
 }
 
 echo "==> git-merge-guard decision matrix"
