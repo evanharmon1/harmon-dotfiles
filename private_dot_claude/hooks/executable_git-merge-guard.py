@@ -666,8 +666,9 @@ def is_evaluator(words, i):
     if name in SOURCE_BUILTINS:
         # As an argument (`rg -c x .`) a dot is a path, not the builtin.
         return i == command_index(words)
-    if name in SHELLS or name in JOINERS or name == "parallel":
-        # `parallel ::: 'git merge main'` runs each input as a command.
+    if name in SHELLS or name in JOINERS or name in ("parallel", "coproc"):
+        # `parallel ::: 'git merge main'` runs each input as a command;
+        # `coproc NAME { ...; }` runs a compound body the reader does not split.
         return True
     if name == "sudo":
         # Only sudo's own options: `sudo grep -i ...` passes `-i` to grep.
@@ -724,7 +725,10 @@ def command_might_merge(cmd, text, depth):
                 v = words[k].value
                 if re.match(r"(?i)/[ck]", v):
                     rest = [v[2:]] + [x.value for x in words[k + 1 :]]
-                    if script_might_merge(" ".join(rest), depth + 1):
+                    payload = " ".join(rest)
+                    # cmd's own expansions and escapes (`%SUB%`, `!SUB!`,
+                    # `m^erge`) are not bash's: any of them makes it unknown.
+                    if re.search(r"[%!^]", payload) or script_might_merge(payload, depth + 1):
                         return True
                     break
         if (name in SHELLS or name in ("sudo", "parallel")) and is_evaluator(words, i):

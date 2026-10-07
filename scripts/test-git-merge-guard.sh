@@ -391,6 +391,11 @@ matrix() { # guard
     # Challenge round 3: /c is cmd's alone, and herdr needs the `pane run` pair.
     case_ "$g" silent "$r" "echo /c 'git merge main'"
     case_ "$g" silent "$r" "herdr agent read run | grep merge"
+    # Review round 1: a named coproc's brace body, and cmd's own expansions.
+    case_ "$g" ask "$r" "coproc job { /usr/libexec/git-core/git-pull origin main; }"
+    case_ "$g" ask "$r" "cmd /c git %SUB% main"
+    case_ "$g" ask "$r" "cmd /c git m^erge main"
+    case_ "$g" silent "$r" "cmd /c dir"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""
