@@ -416,6 +416,12 @@ matrix() { # guard
     # `--` can be an option's value (`-p -- -s`), so it does not end the scan.
     case_ "$g" ask "$r" "echo 'git pull' | sudo -p -- -s"
     case_ "$g" ask "$r" "sudo -- grep -i 'git merge' README.md"
+    # Integration cycle 4: wrapper and env long-option abbreviations.
+    case_ "$g" ask "$r" "G=git; sudo --chd /repo \"\$G\" merge feature"
+    case_ "$g" ask "$r" "env --spl='git merge feature'"
+    case_ "$g" ask "$r" "env --split 'git pull'"
+    case_ "$g" silent "$r" "sudo --chd /repo git status"
+    case_ "$g" silent "$r" "env --unset=FOO git status"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

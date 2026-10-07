@@ -531,6 +531,14 @@ def command_positions(words):
             positions.add(i + 1 + command_index(words[i + 1 :]))
             if base(w) == "coproc":
                 positions.add(i + 2)
+            # Wrappers take unambiguous long-option prefixes (`sudo --chd /repo`
+            # for `--chdir`), so after any option without `=`, both the next
+            # word and the one after it may be the command.
+            j = i + 1
+            while j < len(words) and WRAPPER_ARG.match(words[j].value):
+                if words[j].value.startswith("-") and "=" not in words[j].value:
+                    positions.update((j + 1, j + 2))
+                j += 1
     return positions
 
 
@@ -653,6 +661,12 @@ def herdr_runs(words, i):
     )
 
 
+def split_string_option(v):
+    """`env -S`, `--split-string` or any unambiguous prefix (`--spl`)."""
+    name = v.split("=", 1)[0]
+    return v.startswith("-S") or (len(name) >= 4 and "--split-string".startswith(name))
+
+
 def is_evaluator(words, i):
     """True when words[i] runs text it is given as a script."""
     name = base(words[i])
@@ -674,7 +688,7 @@ def is_evaluator(words, i):
         # never a silent merge.
         return any(sudo_shell_flag(x.value) for x in words[i + 1 :])
     return name == "env" and any(
-        w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
+        split_string_option(w.value) for w in words[i + 1 :]
     )
 
 
@@ -744,12 +758,14 @@ def command_might_merge(cmd, text, depth):
             # (`env -Sgit $SUB main` runs `git $SUB main`).
             for k in range(i + 1, len(words)):
                 v = words[k].value
-                if v in ("-S", "--split-string") and k + 1 < len(words):
-                    payload, rest = words[k + 1].value, words[k + 2 :]
-                elif v.startswith("--split-string="):
+                if not split_string_option(v):
+                    continue
+                if "=" in v and v.startswith("--"):
                     payload, rest = v.split("=", 1)[1], words[k + 1 :]
                 elif v.startswith("-S") and len(v) > 2:
                     payload, rest = v[2:], words[k + 1 :]
+                elif k + 1 < len(words):
+                    payload, rest = words[k + 1].value, words[k + 2 :]
                 else:
                     continue
                 if script_might_merge(" ".join([payload] + [x.value for x in rest]), depth + 1):
