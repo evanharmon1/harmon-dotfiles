@@ -401,6 +401,13 @@ matrix() { # guard
     case_ "$g" ask "$r" "cmd.exe //c git merge main"
     case_ "$g" ask "$r" "cmd /Q/Cgit pull"
     case_ "$g" silent "$r" "cmd //c dir"
+    # Integration cycle 1: herdr dispatch words from expansions, and sudo's
+    # long-option prefixes.
+    case_ "$g" ask "$r" "GROUP=pane; herdr \"\$GROUP\" run 42 'git merge main'"
+    case_ "$g" ask "$r" "ACTION=run; herdr pane \"\$ACTION\" 42 'git pull'"
+    case_ "$g" ask "$r" "echo 'git merge main' | sudo --sh"
+    case_ "$g" ask "$r" "echo 'git pull' | sudo --lo"
+    case_ "$g" silent "$r" "sudo --list"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

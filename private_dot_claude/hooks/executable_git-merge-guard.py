@@ -637,7 +637,8 @@ def sudo_shell_flag(opt):
     """True when one of sudo's own options asks for a shell (`-s`, `-i`,
     `--shell`, `--login`). Short clusters are read the way getopt reads them:
     a value-taking letter ends the cluster (`-uadmin` is `-u admin`)."""
-    if opt in ("--shell", "--login"):
+    # sudo takes any unambiguous long-option prefix (`--sh`, `--lo`).
+    if len(opt) >= 4 and ("--shell".startswith(opt) or "--login".startswith(opt)):
         return True
     if not opt.startswith("-") or opt.startswith("--"):
         return False
@@ -654,8 +655,12 @@ def herdr_runs(words, i):
     another pane's shell; other herdr subcommands only read or manage panes.
     The `pane run` pair is found wherever it sits, so global options cannot
     hide it, while a lone `run` argument (`herdr agent read run`) is data."""
-    values = [w.value for w in words[i + 1 :]]
-    return any(a == "pane" and b == "run" for a, b in zip(values, values[1:]))
+    # A non-literal word can be either half (`herdr "$GROUP" run`).
+    rest = words[i + 1 :]
+    return any(
+        (a.value == "pane" or not a.literal) and (b.value == "run" or not b.literal)
+        for a, b in zip(rest, rest[1:])
+    )
 
 
 def is_evaluator(words, i):
