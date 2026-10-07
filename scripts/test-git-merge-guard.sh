@@ -375,6 +375,12 @@ matrix() { # guard
     case_ "$g" silent "$r" "sudo -u evan git status"
     case_ "$g" silent "$r" "find . -name '*.md' -exec grep -l merge-base {} +"
     case_ "$g" silent "$r" "git ls-files | parallel wc -l"
+    # Challenge round 1: a literal xargs replacement token is still dynamic;
+    # sudo's shell mode is read from sudo's own options; only `herdr pane run`
+    # runs text.
+    case_ "$g" ask "$r" "printf 'git\\n' | xargs -I X X merge feat"
+    case_ "$g" silent "$r" "sudo grep -i 'git merge' README.md"
+    case_ "$g" silent "$r" "herdr pane wait-output p1 --regex 'git merge'"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

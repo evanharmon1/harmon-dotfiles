@@ -50,7 +50,7 @@ command substitutions -- and a merge is:
     literal; `${...}` operators are not modelled, so a
     `${...}` that mentions merge/pull asks; a `trap` action counts too;
   * any mention of merge/pull anywhere in a command line that also runs an
-    evaluator (a shell, `eval`, `ssh`, `trap`, `watch`, `herdr`, `parallel`,
+    evaluator (a shell, `eval`, `ssh`, `trap`, `watch`, `herdr pane run`, `parallel`,
     `sudo -s`/`-i`, `env -S`): their option and
     input shapes (`bash -C -c`, `env -S'...'`, a pipe into `if ...; then sh`)
     are open-ended, so the word test covers what the parser does not.
@@ -188,8 +188,7 @@ SHELLS = {
 SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command|/c|/k))$")
 # Programs whose remaining arguments, joined, are run as a command line.
 # `trap ACTION SIGNAL...` runs ACTION later; the signal names parse as harmless words.
-# `herdr pane run 42 '...'` types its text into another pane's shell.
-JOINERS = {"eval", "herdr", "ssh", "trap", "watch"}
+JOINERS = {"eval", "ssh", "trap", "watch"}
 # Programs that take a command in their arguments; what follows them is at
 # command position for the dashed-executable and stdin-shell checks.
 WRAPPERS = {
@@ -627,9 +626,27 @@ def git_might_merge(words, i, depth=0):
     return False
 
 
+def option_prefix(words, i):
+    """The option words right after the wrapper at words[i], before its command."""
+    takes_value = WRAPPER_VALUE_OPTIONS.get(base(words[i]), set())
+    j, prefix = i + 1, []
+    while j < len(words) and WRAPPER_ARG.match(words[j].value) and words[j].value != "--":
+        prefix.append(words[j])
+        j += 2 if words[j].value in takes_value else 1
+    return prefix
+
+
+def herdr_runs(words, i):
+    """`herdr pane run <pane> '...'` types its text into another pane's shell;
+    other herdr subcommands only read or manage panes."""
+    return [w.value for w in words[i + 1 : i + 3]] == ["pane", "run"]
+
+
 def is_evaluator(words, i):
     """True when words[i] runs text it is given as a script."""
     name = base(words[i])
+    if name == "herdr":
+        return herdr_runs(words, i)
     if name in SOURCE_BUILTINS:
         # As an argument (`rg -c x .`) a dot is a path, not the builtin.
         return i == command_index(words)
@@ -637,7 +654,8 @@ def is_evaluator(words, i):
         # `parallel ::: 'git merge main'` runs each input as a command.
         return True
     if name == "sudo":
-        return any(SUDO_SHELL.match(x.value) for x in words[i + 1 :])
+        # Only sudo's own options: `sudo grep -i ...` passes `-i` to grep.
+        return any(SUDO_SHELL.match(x.value) for x in option_prefix(words, i))
     return name == "env" and any(
         w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
     )
@@ -648,9 +666,12 @@ def command_might_merge(cmd, text, depth):
     ci = command_index(words)
     positions = command_positions(words)
     for p in positions:
-        if p < len(words) and not words[p].literal:
+        tokens = feeder_tokens(words, p) if p < len(words) else None
+        # A feeder's replacement string is filled at run time (`xargs -I X X`).
+        fed = bool(tokens) and any(t and t in words[p].value for t in tokens)
+        if p < len(words) and (not words[p].literal or fed):
             # The command itself comes from an expansion (`$(printf 'git merge')`,
-            # `git${IFS}merge`, `"$SHELL" <<< ...`, `xargs -I{} {}`): what runs is
+            # `git${IFS}merge`, `"$SHELL" <<< ...`, `xargs -I X X merge`): what runs is
             # unknown, so the line goes under the merge/pull word test.
             if MENTION.search(text) or any(
                 w.value.lower() in MERGE_WORDS for w in words[p + 1 : p + 2]
@@ -685,7 +706,7 @@ def command_might_merge(cmd, text, depth):
             # `sudo -s`), and `parallel` runs stdin lines as commands.
             if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
                 return True
-        elif name in JOINERS:
+        elif name in JOINERS or (name == "herdr" and herdr_runs(words, i)):
             if script_might_merge(" ".join(x.value for x in words[i + 1 :]), depth + 1):
                 return True
         elif name == "env":
