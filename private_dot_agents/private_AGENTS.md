@@ -14,7 +14,9 @@ rule applies, ask first.
    (Backstop: `permissions.ask` rules in `~/.claude/settings.json` for
    `gh pr merge`, pushes to main and force-pushes, plus the
    `git-merge-guard.py` PreToolUse hook, which asks before any
-   `git merge`/`git pull` it cannot verify lands on a feature branch.)
+   `git merge`/`git pull` it cannot verify lands on a feature branch — on the
+   host and in the dev devcontainer; the bot and agent profiles rely on the
+   "Protect Main" ruleset instead.)
 
 2. **Never bypass safety gates.** No `--no-verify`, no disabling or weakening
    hooks, linters, tests, or CI checks to get a change through. Fix the
@@ -52,14 +54,14 @@ at the start of every session.
 
 ## Working note
 
-**Keep `merge` and `pull` out of commands that are not a merge.** Not a rule:
-a convention that avoids needless permission prompts. The `git-merge-guard`
-hook (rule 1) reads each whole Bash command, quotes and comments included, and
-asks on any it cannot tell apart from a merge or pull; the docstring of
-`~/.claude/hooks/git-merge-guard.py` describes what it matches. So keep the
-words `merge`, `pull`, `git-merge` and `git-pull` out of such commands (write
-`mergeState=$M`, not `merge=$M`). Put text that needs them in a file written
-with the Write tool, not a Bash heredoc, and pass it by path (`git commit -F`,
-`gh pr create --body-file`). This never applies to a real merge: run every
-`git merge` or `git pull` as its own visible command, never hidden in a script
-or reworded to keep the guard silent (rules 1 and 2).
+**Run every real merge as its own visible command.** Not a rule: a
+convention that keeps the merge guard useful. The `git-merge-guard` hook
+(rule 1) parses each Bash command and asks only on a real or possible
+`git merge`/`git pull`; quoted text, heredoc bodies, search patterns and
+`git merge-base` are data, so prose and flags that merely name the words need
+no workaround (the docstring of `~/.claude/hooks/git-merge-guard.py` lists
+what it matches). Run every `git merge` or `git pull` as its own plain
+command, never hidden in a script, an alias or an evaluated string, and never
+reworded to keep the guard silent (rules 1 and 2). The hook reads each whole
+command, so a `git merge`/`git pull` in a compound command still asks, and
+so does a command it cannot parse that mentions merge or pull.
