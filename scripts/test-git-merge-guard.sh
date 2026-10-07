@@ -327,6 +327,10 @@ matrix() { # guard
     case_ "$g" ask "$r" "git -c alias.m='!git merge' m feat"
     case_ "$g" ask "$r" "git -c alias.M=merge m feat"
     case_ "$g" ask "$r" "git -c \"\$X\" m feat"
+    case_ "$g" ask "$r" "git -c alias.a=b -c alias.b=merge a feat"
+    case_ "$g" ask "$r" "git -c alias.g='!git' g merge feat"
+    case_ "$g" ask "$r" "git -c alias.o='-C .' o merge feat"
+    case_ "$g" silent "$r" "git -c alias.a=b -c alias.b=log a --oneline"
     case_ "$g" silent "$r" "busybox grep -c 'git merge' README.md"
     case_ "$g" ask "$r" "busybox sh -c 'git pull'"
 }

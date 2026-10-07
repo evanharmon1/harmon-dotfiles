@@ -531,8 +531,10 @@ def feeder_tokens(words, i):
     return tokens
 
 
-def git_might_merge(words, i):
+def git_might_merge(words, i, depth=0):
     """True when the git call at words[i] could be a merge or pull."""
+    if depth > MAX_DEPTH:
+        return True
     j = i + 1
     aliases = {}  # one-off alias name -> expansion (None: set from the environment)
     while j < len(words) and words[j].value.startswith("-"):
@@ -566,14 +568,24 @@ def git_might_merge(words, i):
     sub = slot.value.strip("\n").lower()
     if slot.literal and sub in aliases:
         # Only the invoked alias matters (`git -c alias.x=log status` runs
-        # status). Its expansion asks when it names merge/pull or when a `!`
-        # shell alias could run one.
+        # status). Expand it the way git does, with the caller's arguments
+        # appended, and check the result: a `!` alias is a shell script, any
+        # other re-enters git, so chained aliases and expansions that are only
+        # options (`alias.g='-c x=y'`) are followed too.
         expansion = aliases[sub]
-        if expansion is None:
+        rest = words[j + 1 :]
+        if expansion is None or MENTION.search(expansion):
             return True
         if expansion.lstrip().startswith("!"):
-            return script_might_merge(expansion.lstrip()[1:]) or bool(MENTION.search(expansion))
-        return bool(MENTION.search(expansion))
+            script = " ".join([expansion.lstrip()[1:]] + [w.value for w in rest])
+            return script_might_merge(script, depth + 1)
+        try:
+            expanded = parse(expansion)[0]
+        except (ParseError, IndexError, RecursionError):
+            return True
+        if len(expanded) != 1:
+            return True
+        return git_might_merge(words[:j] + expanded[0].words + rest, i, depth + 1)
     return not slot.literal or sub in MERGE_WORDS
 
 
