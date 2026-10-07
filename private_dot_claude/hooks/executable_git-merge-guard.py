@@ -720,17 +720,17 @@ def command_might_merge(cmd, text, depth):
                 return True
         if name == "cmd":
             # `cmd.exe /c` and `/k` (Windows Git Bash, WSL interop) run what
-            # follows, attached or not (`cmd /cgit pull`); only cmd reads them so.
-            for k in range(i + 1, len(words)):
-                v = words[k].value
-                if re.match(r"(?i)/[ck]", v):
-                    rest = [v[2:]] + [x.value for x in words[k + 1 :]]
-                    payload = " ".join(rest)
-                    # cmd's own expansions and escapes (`%SUB%`, `!SUB!`,
-                    # `m^erge`) are not bash's: any of them makes it unknown.
-                    if re.search(r"[%!^]", payload) or script_might_merge(payload, depth + 1):
-                        return True
-                    break
+            # follows. cmd's switch spellings are open-ended (`/c`, `//c` to dodge
+            # MSYS path conversion, `/Q/C`, attached `/cgit pull`), and its own
+            # expansions and escapes (`%SUB%`, `!SUB!`, `m^erge`) are not bash's.
+            # So a cmd line that names git and uses any of them asks, and the text
+            # after the first /c or /k switch is also read as a script.
+            line = " ".join(x.value for x in words[i + 1 :])
+            if GIT_MENTION.search(line) and re.search(r"[%!^]", line):
+                return True
+            switch = re.search(r"(?i)/+[ck]", line)
+            if switch and script_might_merge(line[switch.end() :], depth + 1):
+                return True
         if (name in SHELLS or name in ("sudo", "parallel")) and is_evaluator(words, i):
             # Without -c a shell may read its script from stdin (`bash -s x`,
             # `sudo -s`), and `parallel` runs stdin lines as commands.

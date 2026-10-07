@@ -396,6 +396,11 @@ matrix() { # guard
     case_ "$g" ask "$r" "cmd /c git %SUB% main"
     case_ "$g" ask "$r" "cmd /c git m^erge main"
     case_ "$g" silent "$r" "cmd /c dir"
+    # Review round 2: Git Bash's doubled and stacked cmd switches.
+    case_ "$g" ask "$r" "cmd.exe //c git %SUB% main"
+    case_ "$g" ask "$r" "cmd.exe //c git merge main"
+    case_ "$g" ask "$r" "cmd /Q/Cgit pull"
+    case_ "$g" silent "$r" "cmd //c dir"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""
