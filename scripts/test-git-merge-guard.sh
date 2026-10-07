@@ -413,7 +413,9 @@ matrix() { # guard
     case_ "$g" silent "$r" "sudo --list"
     # Integration cycle 2: a value-taking option's abbreviation before -s.
     case_ "$g" ask "$r" "echo 'git merge main' | sudo --chd /tmp -s"
-    case_ "$g" silent "$r" "sudo -- grep -i 'git merge' README.md"
+    # `--` can be an option's value (`-p -- -s`), so it does not end the scan.
+    case_ "$g" ask "$r" "echo 'git pull' | sudo -p -- -s"
+    case_ "$g" ask "$r" "sudo -- grep -i 'git merge' README.md"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

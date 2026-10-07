@@ -667,13 +667,12 @@ def is_evaluator(words, i):
         return True
     if name == "sudo":
         # sudo's option grammar is open-ended (unambiguous long-option prefixes,
-        # including for value-taking options: `--chd /tmp -s`), so a shell flag
-        # anywhere before `--` counts. A delegated command's own flag
-        # (`sudo grep -i ...`) can then match; that costs a prompt only when
-        # the line mentions merge/pull, never a silent merge.
-        rest = [x.value for x in words[i + 1 :]]
-        rest = rest[: rest.index("--")] if "--" in rest else rest
-        return any(sudo_shell_flag(v) for v in rest)
+        # including for value-taking options: `--chd /tmp -s`; even `--` can be
+        # an option's value: `-p -- -s`), so a shell flag anywhere after sudo
+        # counts. A delegated command's own flag (`sudo grep -i ...`) can then
+        # match; that costs a prompt only when the line mentions merge/pull,
+        # never a silent merge.
+        return any(sudo_shell_flag(x.value) for x in words[i + 1 :])
     return name == "env" and any(
         w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
     )
