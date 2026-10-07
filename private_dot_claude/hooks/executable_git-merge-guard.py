@@ -168,11 +168,12 @@ GIT_VALUE_OPTIONS = {
 }
 # Shells: they read a script from stdin, and their presence puts a command
 # line under the word test. `busybox` is not one: it is a wrapper that runs
-# the applet named next, and `busybox sh` is caught by `sh`.
+# the applet named next, and `busybox sh` is caught by `sh`. `.` and `source`
+# run a file in the current shell (`. /dev/stdin <<< ...`), so they count.
 SHELLS = {
-    "ash", "bash", "csh", "dash", "elvish", "fish", "ksh", "mksh",
+    ".", "ash", "bash", "csh", "dash", "elvish", "fish", "ksh", "mksh",
     "nu", "oksh", "osh", "powershell", "pwsh", "script", "sh", "su", "tcsh",
-    "xonsh", "yash", "zsh",
+    "source", "xonsh", "yash", "zsh",
 }
 # An option whose next word is read as a script, for any program. Case
 # matters: `-C` is noclobber in bash and zsh, not a script.
@@ -208,6 +209,7 @@ WRAPPER_VALUE_OPTIONS = {
               "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines",
               "--max-chars", "--replace", "--eof", "--process-slot-var"},
 }
+SOURCE_BUILTINS = {".", "source"}
 # Search tools whose `-c` means count: the pattern after it is data.
 SEARCH_TOOLS = {"ack", "ag", "egrep", "fgrep", "grep", "rg", "zgrep"}
 # Programs that feed stdin words to the command after them.
@@ -539,6 +541,9 @@ def git_might_merge(words, i, depth=0):
     aliases = {}  # one-off alias name -> expansion (None: set from the environment)
     while j < len(words) and words[j].value.startswith("-"):
         opt = words[j].value
+        if words[j].literal and opt in ("-h", "--help", "-v", "--version"):
+            # `git --help merge` shows help; `git --version pull` prints the version.
+            return False
         name, eq, val = opt.partition("=")
         if opt.startswith("-c") and len(opt) > 2:
             # The attached form `-calias.m=merge` is git's own spelling too.
@@ -566,7 +571,10 @@ def git_might_merge(words, i, depth=0):
         return False
     slot = words[j]
     sub = slot.value.strip("\n").lower()
-    if slot.literal and sub in aliases:
+    if not slot.literal or sub in MERGE_WORDS:
+        # Checked before aliases: git ignores an alias that hides a built-in.
+        return True
+    if sub in aliases:
         # Only the invoked alias matters (`git -c alias.x=log status` runs
         # status). Expand it the way git does, with the caller's arguments
         # appended, and check the result: a `!` alias is a shell script, any
@@ -586,12 +594,15 @@ def git_might_merge(words, i, depth=0):
         if len(expanded) != 1:
             return True
         return git_might_merge(words[:j] + expanded[0].words + rest, i, depth + 1)
-    return not slot.literal or sub in MERGE_WORDS
+    return False
 
 
 def is_evaluator(words, i):
     """True when words[i] runs text it is given as a script."""
     name = base(words[i])
+    if name in SOURCE_BUILTINS:
+        # As an argument (`rg -c x .`) a dot is a path, not the builtin.
+        return i == command_index(words)
     if name in SHELLS or name in JOINERS:
         return True
     return name == "env" and any(
@@ -612,8 +623,8 @@ def command_might_merge(cmd, text, depth):
         at_command = i == ci or (i > 0 and words[i - 1].literal and base(words[i - 1]) in WRAPPERS)
         if name in DASHED and at_command:
             return True
-        if not w.literal:
-            continue
+        # A non-literal word counts when its decoded text names an evaluator
+        # (`$'bash'`); an expansion such as `$SHELL` decodes to itself and does not.
         # An evaluator's option and input shapes are open-ended (`bash -C -c`,
         # `env -S'...'`, a pipe into a compound command), so its presence puts
         # the whole script under the word test; the parse below still sees
@@ -629,7 +640,7 @@ def command_might_merge(cmd, text, depth):
         if SCRIPT_OPTION.match(w.value) and i + 1 < len(words) and not searching:
             if script_might_merge(words[i + 1].value, depth + 1):
                 return True
-        if name in SHELLS:
+        if name in SHELLS and is_evaluator(words, i):
             # Without -c a shell may read its script from stdin (`bash -s x`).
             if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
                 return True

@@ -335,6 +335,16 @@ matrix() { # guard
     case_ "$g" ask "$r" "busybox sh -c 'git pull'"
     # Integration cycle 2: the evaluator word test reads decoded words.
     case_ "$g" ask "$r" "printf \$'git \\x70ull\\n' | bash"
+    # Integration cycle 3: decoded evaluator names, built-ins over aliases,
+    # source builtins, and git's terminal options.
+    case_ "$g" ask "$r" "printf 'git pull\\n' | \$'bash'"
+    case_ "$g" ask "$r" "\$'/bin/bash' <<< 'git merge main'"
+    case_ "$g" ask "$r" "git -c alias.merge=log merge feat"
+    case_ "$g" ask "$r" ". /dev/stdin <<< 'git pull'"
+    case_ "$g" ask "$r" "source /dev/stdin <<< 'git merge feat'"
+    case_ "$g" silent "$r" "git --help merge"
+    case_ "$g" silent "$r" "git --version pull"
+    case_ "$g" silent "$r" "echo \"\$SHELL\""
 }
 
 echo "==> git-merge-guard decision matrix"
