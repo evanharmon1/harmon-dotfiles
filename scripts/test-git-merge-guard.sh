@@ -379,7 +379,10 @@ matrix() { # guard
     # sudo's shell mode is read from sudo's own options; only `herdr pane run`
     # runs text.
     case_ "$g" ask "$r" "printf 'git\\n' | xargs -I X X merge feat"
-    case_ "$g" silent "$r" "sudo grep -i 'git merge' README.md"
+    # A delegated command's own -i now matches sudo's shell flag (see the
+    # cycle-2 case below): a prompt, accepted to close sudo's option grammar.
+    case_ "$g" ask "$r" "sudo grep -i 'git merge' README.md"
+    case_ "$g" silent "$r" "sudo grep -i 'todo' README.md"
     case_ "$g" silent "$r" "herdr pane wait-output p1 --regex 'git merge'"
     # Challenge round 2: herdr global options, cmd's attached payload, and
     # sudo option values that contain s or i.
@@ -408,6 +411,9 @@ matrix() { # guard
     case_ "$g" ask "$r" "echo 'git merge main' | sudo --sh"
     case_ "$g" ask "$r" "echo 'git pull' | sudo --lo"
     case_ "$g" silent "$r" "sudo --list"
+    # Integration cycle 2: a value-taking option's abbreviation before -s.
+    case_ "$g" ask "$r" "echo 'git merge main' | sudo --chd /tmp -s"
+    case_ "$g" silent "$r" "sudo -- grep -i 'git merge' README.md"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

@@ -623,16 +623,6 @@ def git_might_merge(words, i, depth=0):
     return False
 
 
-def option_prefix(words, i):
-    """The option words right after the wrapper at words[i], before its command."""
-    takes_value = WRAPPER_VALUE_OPTIONS.get(base(words[i]), set())
-    j, prefix = i + 1, []
-    while j < len(words) and WRAPPER_ARG.match(words[j].value) and words[j].value != "--":
-        prefix.append(words[j])
-        j += 2 if words[j].value in takes_value else 1
-    return prefix
-
-
 def sudo_shell_flag(opt):
     """True when one of sudo's own options asks for a shell (`-s`, `-i`,
     `--shell`, `--login`). Short clusters are read the way getopt reads them:
@@ -676,8 +666,14 @@ def is_evaluator(words, i):
         # `coproc NAME { ...; }` runs a compound body the reader does not split.
         return True
     if name == "sudo":
-        # Only sudo's own options: `sudo grep -i ...` passes `-i` to grep.
-        return any(sudo_shell_flag(x.value) for x in option_prefix(words, i))
+        # sudo's option grammar is open-ended (unambiguous long-option prefixes,
+        # including for value-taking options: `--chd /tmp -s`), so a shell flag
+        # anywhere before `--` counts. A delegated command's own flag
+        # (`sudo grep -i ...`) can then match; that costs a prompt only when
+        # the line mentions merge/pull, never a silent merge.
+        rest = [x.value for x in words[i + 1 :]]
+        rest = rest[: rest.index("--")] if "--" in rest else rest
+        return any(sudo_shell_flag(v) for v in rest)
     return name == "env" and any(
         w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
     )
