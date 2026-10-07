@@ -57,8 +57,8 @@ at the start of every session.
 **Run every real merge as its own visible command.** Not a rule: a
 convention that keeps the merge guard useful. The `git-merge-guard` hook
 (rule 1) parses each Bash command and asks only on a real or possible
-`git merge`/`git pull`; quoted text, heredoc bodies, search patterns and
-`git merge-base` are data, so prose and flags that merely name the words need
+`git merge`/`git pull`; quoted text, heredoc bodies no shell runs, search
+patterns and `git merge-base` are data, so prose and flags that merely name the words need
 no workaround (the docstring of `~/.claude/hooks/git-merge-guard.py` lists
 what it matches). Run every `git merge` or `git pull` as its own plain
 command, never hidden in a script, an alias or an evaluated string, and never
