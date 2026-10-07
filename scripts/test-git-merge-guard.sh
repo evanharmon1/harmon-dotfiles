@@ -312,6 +312,11 @@ matrix() { # guard
     # A -c payload is a script whatever program takes it.
     case_ "$g" ask "$r" "rc -c 'git merge feat'"
     case_ "$g" silent "$r" "git commit -m 'docs: explain how git pull works' -c 'x'"
+    # Review round 2: a search tool's -c is a count, and wrapper option values.
+    case_ "$g" silent "$r" "grep -c 'git merge' README.md"
+    case_ "$g" silent "$r" "rg -c 'git pull' ."
+    case_ "$g" ask "$r" "/usr/bin/time -f %E /usr/lib/git-core/git-merge main"
+    case_ "$g" ask "$r" "caffeinate -w 123 /usr/libexec/git-core/git-merge main"
 }
 
 echo "==> git-merge-guard decision matrix"

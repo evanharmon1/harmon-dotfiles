@@ -36,7 +36,8 @@ command substitutions -- and a merge is:
   * any of the above inside text that runs: `$(...)` (and `$((...))`, which
     bash also reads as one), backticks, `<(...)`, substitutions inside
     `${...}` or an unquoted heredoc, the string after a `-c` or `-Command`
-    option of any program (`bash -c`, `csh -c`, `su -c`, `pwsh -Command`;
+    option of any program but a search tool, whose `-c` counts (`bash -c`,
+    `csh -c`, `su -c`, `pwsh -Command`;
     `$'...'` strings decoded first), the arguments of `eval`, `ssh`,
     `watch` or `env -S`, or a heredoc or here-string fed to a shell
     (whatever its arguments); `${...}` operators are not modelled, so a
@@ -186,6 +187,7 @@ WRAPPERS = {
 }
 # Wrapper options that take a separate value, so the value is not the command.
 WRAPPER_VALUE_OPTIONS = {
+    "caffeinate": {"-t", "-w"},
     "doas": {"-u", "-C"},
     "env": {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
     "exec": {"-a"},
@@ -197,11 +199,14 @@ WRAPPER_VALUE_OPTIONS = {
     "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "-R",
              "--user", "--group", "--host", "--prompt", "--chdir", "--role",
              "--type", "--other-user", "--close-from", "--command-timeout", "--chroot"},
+    "time": {"-f", "-o", "--format", "--output"},
     "timeout": {"-s", "-k", "--signal", "--kill-after"},
     "xargs": {"-I", "-J", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "-R", "-S",
               "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines",
               "--max-chars", "--replace", "--eof", "--process-slot-var"},
 }
+# Search tools whose `-c` means count: the pattern after it is data.
+SEARCH_TOOLS = {"ack", "ag", "egrep", "fgrep", "grep", "rg", "zgrep"}
 # Programs that feed stdin words to the command after them.
 ARG_FEEDERS = {"parallel", "xargs"}
 KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
@@ -585,7 +590,8 @@ def command_might_merge(cmd, text, depth):
             return True
         # A `-c` / `-Command` payload is read as a script whatever program
         # takes it, so an interpreter missing from SHELLS is still seen.
-        if SCRIPT_OPTION.match(w.value) and i + 1 < len(words):
+        searching = ci < len(words) and base(words[ci]) in SEARCH_TOOLS
+        if SCRIPT_OPTION.match(w.value) and i + 1 < len(words) and not searching:
             if script_might_merge(words[i + 1].value, depth + 1):
                 return True
         if name in SHELLS:
