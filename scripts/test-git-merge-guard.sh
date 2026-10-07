@@ -381,6 +381,13 @@ matrix() { # guard
     case_ "$g" ask "$r" "printf 'git\\n' | xargs -I X X merge feat"
     case_ "$g" silent "$r" "sudo grep -i 'git merge' README.md"
     case_ "$g" silent "$r" "herdr pane wait-output p1 --regex 'git merge'"
+    # Challenge round 2: herdr global options, cmd's attached payload, and
+    # sudo option values that contain s or i.
+    case_ "$g" ask "$r" "herdr --session foo pane run 42 'git merge main'"
+    case_ "$g" ask "$r" "cmd.exe /cgit \$SUB main"
+    case_ "$g" ask "$r" "cmd /kgit pull"
+    case_ "$g" silent "$r" "sudo -uadmin grep 'git merge' README.md"
+    case_ "$g" ask "$r" "echo 'git pull' | sudo -uadmin -s"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

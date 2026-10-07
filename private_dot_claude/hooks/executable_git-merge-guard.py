@@ -218,8 +218,6 @@ WRAPPER_VALUE_OPTIONS = {
               "--max-chars", "--replace", "--eof", "--process-slot-var"},
 }
 SOURCE_BUILTINS = {".", "source"}
-# `sudo -s` / `sudo -i` run a shell, which reads its script from stdin.
-SUDO_SHELL = re.compile(r"^-(?:[A-Za-z]*[si][A-Za-z]*|-shell|-login)$")
 # Search tools whose `-c` means count: the pattern after it is data.
 SEARCH_TOOLS = {"ack", "ag", "egrep", "fgrep", "grep", "rg", "zgrep"}
 # Programs that feed stdin words to the command after them.
@@ -636,10 +634,27 @@ def option_prefix(words, i):
     return prefix
 
 
+def sudo_shell_flag(opt):
+    """True when one of sudo's own options asks for a shell (`-s`, `-i`,
+    `--shell`, `--login`). Short clusters are read the way getopt reads them:
+    a value-taking letter ends the cluster (`-uadmin` is `-u admin`)."""
+    if opt in ("--shell", "--login"):
+        return True
+    if not opt.startswith("-") or opt.startswith("--"):
+        return False
+    for ch in opt[1:]:
+        if ch in "si":
+            return True
+        if "-" + ch in WRAPPER_VALUE_OPTIONS["sudo"]:
+            return False
+    return False
+
+
 def herdr_runs(words, i):
-    """`herdr pane run <pane> '...'` types its text into another pane's shell;
-    other herdr subcommands only read or manage panes."""
-    return [w.value for w in words[i + 1 : i + 3]] == ["pane", "run"]
+    """`herdr [global options] pane run <pane> '...'` types its text into
+    another pane's shell; other herdr subcommands only read or manage panes.
+    Any `run` word after herdr counts, so global options cannot hide it."""
+    return any(w.value == "run" for w in words[i + 1 :])
 
 
 def is_evaluator(words, i):
@@ -655,7 +670,7 @@ def is_evaluator(words, i):
         return True
     if name == "sudo":
         # Only sudo's own options: `sudo grep -i ...` passes `-i` to grep.
-        return any(SUDO_SHELL.match(x.value) for x in option_prefix(words, i))
+        return any(sudo_shell_flag(x.value) for x in option_prefix(words, i))
     return name == "env" and any(
         w.value.startswith(("-S", "--split-string")) for w in words[i + 1 :]
     )
@@ -701,6 +716,15 @@ def command_might_merge(cmd, text, depth):
         if SCRIPT_OPTION.match(w.value) and i + 1 < len(words) and not searching:
             if script_might_merge(words[i + 1].value, depth + 1):
                 return True
+        if name == "cmd":
+            # cmd also takes the command attached: `cmd /cgit pull`.
+            for k in range(i + 1, len(words)):
+                v = words[k].value
+                if re.match(r"(?i)/[ck]", v):
+                    rest = [v[2:]] + [x.value for x in words[k + 1 :]]
+                    if script_might_merge(" ".join(rest), depth + 1):
+                        return True
+                    break
         if (name in SHELLS or name in ("sudo", "parallel")) and is_evaluator(words, i):
             # Without -c a shell may read its script from stdin (`bash -s x`,
             # `sudo -s`), and `parallel` runs stdin lines as commands.
