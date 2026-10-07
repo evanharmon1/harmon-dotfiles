@@ -73,3 +73,7 @@ Library/**
 # harmon-init#542). ~/.gitconfig stays managed: it's personal config only.
 .config/git/config
 {{- end }}
+
+# Python bytecode left by running a hook from the source tree.
+**/__pycache__
+**/*.pyc

@@ -529,6 +529,9 @@ def git_might_merge(words, i):
     while j < len(words) and words[j].value.startswith("-"):
         opt = words[j].value
         name, eq, val = opt.partition("=")
+        if opt.startswith("-c") and len(opt) > 2:
+            # The attached form `-calias.m=merge` is git's own spelling too.
+            name, eq, val = "-c", "=", opt[2:]
         if name in ("-c", "--config-env"):
             val = val if eq else (words[j + 1].value if j + 1 < len(words) else "")
             # A one-off alias renames the subcommand; git folds the section case.

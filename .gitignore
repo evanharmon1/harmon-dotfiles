@@ -80,3 +80,7 @@ settings.local.json
 .env/
 # ...but keep the committed example (documents required vars; contains no secrets).
 !/.env.example
+
+# Python bytecode (running a hook from the source tree writes it).
+__pycache__/
+*.pyc

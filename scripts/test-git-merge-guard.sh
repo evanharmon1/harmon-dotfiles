@@ -146,6 +146,8 @@ matrix() { # guard
     case_ "$g" ask "$r" "git log --grep=#1 && git merge feat"
     case_ "$g" ask "$r" "git -c alias.m=merge m feat"
     case_ "$g" ask "$r" "git -c Alias.m=merge m feat"
+    case_ "$g" ask "$r" "git -calias.m=merge m feat"
+    case_ "$g" ask "$r" "git --config-env=alias.m=SUB m feat"
     case_ "$g" ask "$r" "git.exe merge feat"
     # A real comment holding a quote or a trailing backslash must not hide a
     # spliced subcommand on the same or the next line (bash-like reading).
