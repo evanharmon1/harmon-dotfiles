@@ -661,7 +661,12 @@ def script_might_merge(text, depth=0):
         return bool(MENTION.search(text) or GIT_MENTION.search(text))
     if any(MENTION.search(t) for t in uncertain):
         return True
-    return any(command_might_merge(c, text, depth) for c in commands)
+    # The word test reads decoded words and stdin too, so `printf $'git \x70ull'
+    # | bash` shows `pull` where the raw text does not.
+    decoded = "\n".join(
+        [w.value for c in commands for w in c.words] + [t for c in commands for t in c.stdin]
+    )
+    return any(command_might_merge(c, text + "\n" + decoded, depth) for c in commands)
 
 
 def might_merge(command):

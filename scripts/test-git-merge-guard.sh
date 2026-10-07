@@ -333,6 +333,8 @@ matrix() { # guard
     case_ "$g" silent "$r" "git -c alias.a=b -c alias.b=log a --oneline"
     case_ "$g" silent "$r" "busybox grep -c 'git merge' README.md"
     case_ "$g" ask "$r" "busybox sh -c 'git pull'"
+    # Integration cycle 2: the evaluator word test reads decoded words.
+    case_ "$g" ask "$r" "printf \$'git \\x70ull\\n' | bash"
 }
 
 echo "==> git-merge-guard decision matrix"
