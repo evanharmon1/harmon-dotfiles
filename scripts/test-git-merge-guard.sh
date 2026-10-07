@@ -388,6 +388,9 @@ matrix() { # guard
     case_ "$g" ask "$r" "cmd /kgit pull"
     case_ "$g" silent "$r" "sudo -uadmin grep 'git merge' README.md"
     case_ "$g" ask "$r" "echo 'git pull' | sudo -uadmin -s"
+    # Challenge round 3: /c is cmd's alone, and herdr needs the `pane run` pair.
+    case_ "$g" silent "$r" "echo /c 'git merge main'"
+    case_ "$g" silent "$r" "herdr agent read run | grep merge"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""

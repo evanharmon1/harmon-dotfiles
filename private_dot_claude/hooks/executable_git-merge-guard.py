@@ -184,8 +184,7 @@ SHELLS = {
 }
 # An option whose next word is read as a script, for any program. Case
 # matters: `-C` is noclobber in bash and zsh, not a script.
-# `cmd.exe /c` and `/k` (Windows Git Bash, WSL interop) are the same thing.
-SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command|/c|/k))$")
+SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command))$")
 # Programs whose remaining arguments, joined, are run as a command line.
 # `trap ACTION SIGNAL...` runs ACTION later; the signal names parse as harmless words.
 JOINERS = {"eval", "ssh", "trap", "watch"}
@@ -653,8 +652,10 @@ def sudo_shell_flag(opt):
 def herdr_runs(words, i):
     """`herdr [global options] pane run <pane> '...'` types its text into
     another pane's shell; other herdr subcommands only read or manage panes.
-    Any `run` word after herdr counts, so global options cannot hide it."""
-    return any(w.value == "run" for w in words[i + 1 :])
+    The `pane run` pair is found wherever it sits, so global options cannot
+    hide it, while a lone `run` argument (`herdr agent read run`) is data."""
+    values = [w.value for w in words[i + 1 :]]
+    return any(a == "pane" and b == "run" for a, b in zip(values, values[1:]))
 
 
 def is_evaluator(words, i):
@@ -717,7 +718,8 @@ def command_might_merge(cmd, text, depth):
             if script_might_merge(words[i + 1].value, depth + 1):
                 return True
         if name == "cmd":
-            # cmd also takes the command attached: `cmd /cgit pull`.
+            # `cmd.exe /c` and `/k` (Windows Git Bash, WSL interop) run what
+            # follows, attached or not (`cmd /cgit pull`); only cmd reads them so.
             for k in range(i + 1, len(words)):
                 v = words[k].value
                 if re.match(r"(?i)/[ck]", v):
