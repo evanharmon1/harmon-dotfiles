@@ -54,8 +54,8 @@ for toml in \
     yq -oy '.' "$toml" >/dev/null || fail "invalid TOML: $toml"
 done
 
-[ "$(yq '.model' "$profile")" = "gpt-5.6-sol" ] ||
-    fail "local Codex profile must use gpt-5.6-sol"
+[ "$(yq '.model' "$profile")" = "gpt-6.1-sol" ] ||
+    fail "local Codex profile must use gpt-6.1-sol"
 [ "$(yq '.model_reasoning_effort' "$profile")" = "medium" ] ||
     fail "local Codex profile must use medium reasoning"
 [ "$(yq '.sandbox_mode' "$profile")" = "workspace-write" ] ||
