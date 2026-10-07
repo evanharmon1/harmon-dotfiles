@@ -35,8 +35,9 @@ command substitutions -- and a merge is:
   * the dashed `git-merge`/`git-pull` executables run as a command;
   * any of the above inside text that runs: `$(...)` (and `$((...))`, which
     bash also reads as one), backticks, `<(...)`, substitutions inside
-    `${...}` or an unquoted heredoc, a string handed to `bash -c` (any shell,
-    `su -c`, `pwsh -Command`; `$'...'` strings decoded first), `eval`, `ssh`,
+    `${...}` or an unquoted heredoc, the string after a `-c` or `-Command`
+    option of any program (`bash -c`, `csh -c`, `su -c`, `pwsh -Command`;
+    `$'...'` strings decoded first), the arguments of `eval`, `ssh`,
     `watch` or `env -S`, or a heredoc or here-string fed to a shell
     (whatever its arguments); `${...}` operators are not modelled, so a
     `${...}` that mentions merge/pull asks;
@@ -163,12 +164,15 @@ GIT_VALUE_OPTIONS = {
     "--config-env",
     "--super-prefix",
 }
-# Programs that run a string as a script when given `-c` (or pwsh's -Command).
+# Shells: they read a script from stdin, and their presence puts a command
+# line under the word test.
 SHELLS = {
-    "ash", "bash", "busybox", "dash", "fish", "ksh", "mksh", "powershell",
-    "pwsh", "script", "sh", "su", "zsh",
+    "ash", "bash", "busybox", "csh", "dash", "elvish", "fish", "ksh", "mksh",
+    "nu", "oksh", "osh", "powershell", "pwsh", "script", "sh", "su", "tcsh",
+    "xonsh", "yash", "zsh",
 }
-# Case matters: `-C` is noclobber in bash and zsh, not a script.
+# An option whose next word is read as a script, for any program. Case
+# matters: `-C` is noclobber in bash and zsh, not a script.
 SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command))$")
 # Programs whose remaining arguments, joined, are run as a command line.
 JOINERS = {"eval", "ssh", "watch"}
@@ -545,15 +549,6 @@ def git_might_merge(words, i):
     return not slot.literal or slot.value.strip("\n").lower() in MERGE_WORDS
 
 
-def shell_payloads(words, i):
-    """The script strings handed to the shell at words[i] with -c."""
-    return [
-        words[k + 1].value
-        for k in range(i + 1, len(words) - 1)
-        if words[k].literal and SCRIPT_OPTION.match(words[k].value)
-    ]
-
-
 def is_evaluator(words, i):
     """True when words[i] runs text it is given as a script."""
     name = base(words[i])
@@ -585,10 +580,12 @@ def command_might_merge(cmd, text, depth):
         # what the word test cannot (`$'\x70ull'`, `git $x`).
         if is_evaluator(words, i) and MENTION.search(text):
             return True
-        if name in SHELLS:
-            payloads = shell_payloads(words, i)
-            if any(script_might_merge(p, depth + 1) for p in payloads):
+        # A `-c` / `-Command` payload is read as a script whatever program
+        # takes it, so an interpreter missing from SHELLS is still seen.
+        if SCRIPT_OPTION.match(w.value) and i + 1 < len(words):
+            if script_might_merge(words[i + 1].value, depth + 1):
                 return True
+        if name in SHELLS:
             # Without -c a shell may read its script from stdin (`bash -s x`).
             if any(script_might_merge(p, depth + 1) for p in cmd.stdin):
                 return True

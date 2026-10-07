@@ -304,6 +304,12 @@ matrix() { # guard
     case_ "$g" ask "$r" "bash -C -c \$'git \\x70ull'"
     case_ "$g" silent "$r" "bash -c 'git log --oneline' | head -5"
     case_ "$g" silent "$r" "bash scripts/test-git-merge-guard.sh"
+    # Challenge round 3: the csh family ships on macOS.
+    case_ "$g" ask "$r" "csh -c 'git merge feat'"
+    case_ "$g" ask "$r" "/bin/tcsh -c 'git pull'"
+    # A -c payload is a script whatever program takes it.
+    case_ "$g" ask "$r" "rc -c 'git merge feat'"
+    case_ "$g" silent "$r" "git commit -m 'docs: explain how git pull works' -c 'x'"
 }
 
 echo "==> git-merge-guard decision matrix"
