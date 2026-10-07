@@ -41,9 +41,9 @@ command substitutions -- and a merge is:
     `$'...'` strings decoded first), the arguments of `eval`, `ssh`,
     `watch` or `env -S`, or a heredoc or here-string fed to a shell
     (whatever its arguments); `${...}` operators are not modelled, so a
-    `${...}` that mentions merge/pull asks;
+    `${...}` that mentions merge/pull asks; a `trap` action counts too;
   * any mention of merge/pull anywhere in a command line that also runs an
-    evaluator (a shell, `eval`, `ssh`, `watch`, `env -S`): their option and
+    evaluator (a shell, `eval`, `ssh`, `trap`, `watch`, `env -S`): their option and
     input shapes (`bash -C -c`, `env -S'...'`, a pipe into `if ...; then sh`)
     are open-ended, so the word test covers what the parser does not.
 
@@ -176,7 +176,8 @@ SHELLS = {
 # matters: `-C` is noclobber in bash and zsh, not a script.
 SCRIPT_OPTION = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|(?i:-command|--command))$")
 # Programs whose remaining arguments, joined, are run as a command line.
-JOINERS = {"eval", "ssh", "watch"}
+# `trap ACTION SIGNAL...` runs ACTION later; the signal names parse as harmless words.
+JOINERS = {"eval", "ssh", "trap", "watch"}
 # Programs that take a command in their arguments; what follows them is at
 # command position for the dashed-executable and stdin-shell checks.
 WRAPPERS = {
@@ -590,7 +591,10 @@ def command_might_merge(cmd, text, depth):
             return True
         # A `-c` / `-Command` payload is read as a script whatever program
         # takes it, so an interpreter missing from SHELLS is still seen.
-        searching = ci < len(words) and base(words[ci]) in SEARCH_TOOLS
+        searching = ci < len(words) and (
+            base(words[ci]) in SEARCH_TOOLS
+            or (base(words[ci]) == "git" and any(x.value == "grep" for x in words[ci + 1 :]))
+        )
         if SCRIPT_OPTION.match(w.value) and i + 1 < len(words) and not searching:
             if script_might_merge(words[i + 1].value, depth + 1):
                 return True

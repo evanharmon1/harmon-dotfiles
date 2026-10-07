@@ -317,6 +317,9 @@ matrix() { # guard
     case_ "$g" silent "$r" "rg -c 'git pull' ."
     case_ "$g" ask "$r" "/usr/bin/time -f %E /usr/lib/git-core/git-merge main"
     case_ "$g" ask "$r" "caffeinate -w 123 /usr/libexec/git-core/git-merge main"
+    # Review round 3: a trap action runs later; `git grep -c` counts.
+    case_ "$g" ask "$r" "trap 'git merge main' EXIT"
+    case_ "$g" silent "$r" "git grep -c 'git merge' -- docs"
 }
 
 echo "==> git-merge-guard decision matrix"
