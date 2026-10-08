@@ -245,8 +245,8 @@ a finding):
 | `axis-unknown-value:*`               | nothing — the flag is the finding                    | always; name the unrecognized label — read it from the issue's `unknown_labels` field, never guess from `axis_labels` (a human must rename or delete it) |
 | `missing-work-type` on an org repo   | the scan's `native_type_state`; `native-type` (see 2c) only when it is `"unknown"` | state remains `"unset"` after 2a because no enabled Type is clearly applicable or its enabled-Type lookup was unavailable; state why it was not set |
 | `legacy-work-type-label` (org only)  | the scan's `native_type_state`; `native-type` (see 2c) only when it is `"unknown"` | state is `"unset"` — the label is legacy there and proves nothing; mention the label itself for cleanup |
-| `completion-candidate:all-criteria-checked` | nothing — the flag is the finding | always; category `possible completion`; evidence "all N criteria ticked, issue still open"; suggested action "confirm delivery; close as completed, or untick what is not actually done" |
-| `completion-candidate:human-only-remaining` | `"$DIR/assets/triage-scan.sh" delivery --repo "$REPO" --issue <n>` (costs one read from the budget — internally it makes the issue read, one timeline page, and one bounded read per merged cross-referencing PR to confirm that PR's own title or body names the issue) | only when `delivery`'s `verdict` is `merged-delivery` — category `possible completion`; name the evidence PR(s) (`via` is always `cross-reference`; a merged closing-keyword PR appears under `closing_references` for context only and is never evidence — see below); suggested action "verify the remaining `[HUMAN]` criteria; with explicit human authorization tick them, then close as completed". A `none` verdict is not reported; an `indeterminate` verdict, or a candidate the reading budget never reaches, goes to `## Unverified candidates` instead |
+| `completion-candidate:all-criteria-checked` | nothing — the flag is the finding | always, except on the repository's standing `(QA):` issue (labelled `human` + `umbrella`), which stays open as the QA queue when its checklist is empty (track-work §5) — never report it; category `possible completion`; evidence "all N criteria ticked, issue still open"; suggested action "confirm delivery; close as completed, or untick what is not actually done" |
+| `completion-candidate:human-only-remaining` | `"$DIR/assets/triage-scan.sh" delivery --repo "$REPO" --issue <n>` (costs one read from the budget — internally it makes the issue read, one timeline page, and one bounded read per merged cross-referencing PR to confirm that PR's own title or body names the issue) | only when `delivery`'s `verdict` is `merged-delivery` — category `possible completion`; name the evidence PR(s) (`via` is always `cross-reference`; a merged closing-keyword PR appears under `closing_references` for context only and is never evidence — see below); suggested action "move the remaining `[HUMAN]` follow-ups to their `(HUMAN):`/`(QA):` collector (track-work §5), or verify them and, with explicit human authorization, tick them; then close as completed". Never report an issue labelled `human` here — a collector's or human-only issue's `[HUMAN]` criteria are its work, not leftovers. A `none` verdict is not reported; an `indeterminate` verdict, or a candidate the reading budget never reaches, goes to `## Unverified candidates` instead |
 | `closed_flagged` state `completed`   | nothing — `unticked_criteria` is the finding         | always; note the unticked count                                            |
 | `closed_flagged` state `duplicate`   | `gh issue view <n> --repo "$REPO" --comments`        | no comment points at the surviving issue (`#<number>`)                     |
 
@@ -376,3 +376,16 @@ Triage classifies; it never decides what the tracker should contain. When the
 backlog needs issues verified against live code and closed, regrouped, or
 escalated to the maintainer as a decision, that is `/groom`'s job — a groom
 run ends by recommending a triage run, not the other way around.
+
+## References
+
+Reference material only: the contract above still decides what this skill may
+write (`tier:*` stays on the never-touch list), and a rubric is never authority
+to write a value.
+
+- [`references/classification-rubric.md`](references/classification-rubric.md)
+  — the long form of Impact, Risk, Complexity, and the derived, pinnable Tier:
+  a definition and anchors per value, the edge-case rules, and worked examples.
+- [`references/priority-rubric.md`](references/priority-rubric.md) — Priority
+  (human-only, never required, never set by triage or backfill) and Priority
+  (AI), the agent-suggested `p0`–`p4` axis the human Priority overrides.
