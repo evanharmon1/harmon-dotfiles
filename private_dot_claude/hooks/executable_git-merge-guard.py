@@ -382,7 +382,6 @@ class Parser:
 
     def read_word(self):
         s = self.s
-        start = self.i
         word = Word()
         while self.i < len(s) and s[self.i] not in METACHARS:
             c = s[self.i]
@@ -422,10 +421,6 @@ class Parser:
                     word.literal = False
                 word.value += c
                 self.i += 1
-        if word.value == "{}" and s[start : self.i] == "{}":
-            # A bare `{}` is not brace expansion; `find -exec` and `xargs -I{}`
-            # use it as a placeholder (the feeder rule handles the latter).
-            word.literal = True
         return word
 
     def at_word_end(self, i):
@@ -538,19 +533,6 @@ def command_positions(words):
     for i, w in enumerate(words):
         if w.literal and base(w) in WRAPPERS:
             positions.update(range(i + 1, len(words)))
-    return positions
-
-
-def exact_positions(words):
-    """The command word and the first command after each wrapper, skipping its
-    known options: where a bare dashed helper name (`sudo git-merge`) runs.
-    Past that slot a bare `git-merge` is far more often a search pattern
-    (`sudo grep git-merge docs/`), and it only runs from PATH when git's
-    exec-path is on it, which it is not by default."""
-    positions = {command_index(words)}
-    for i, w in enumerate(words):
-        if w.literal and base(w) in WRAPPERS:
-            positions.add(i + 1 + command_index(words[i + 1 :]))
     return positions
 
 
@@ -709,7 +691,6 @@ def command_might_merge(cmd, text, depth):
     words = cmd.words
     ci = command_index(words)
     positions = command_positions(words)
-    exact = exact_positions(words)
     for p in positions:
         tokens = feeder_tokens(words, p) if p < len(words) else None
         # A feeder's replacement string is filled at run time (`xargs -I X X`).
@@ -727,11 +708,7 @@ def command_might_merge(cmd, text, depth):
         if name == "git" and git_might_merge(words, i):
             return True
         at_command = i in positions
-        # A dashed helper asks at an exact command slot, or anywhere a wrapper
-        # could put a command when it is spelled as a path (`/usr/lib/git-core/
-        # git-merge`), which a search pattern rarely is.
-        dashed_runs = i in exact or (at_command and "/" in w.value)
-        if name in DASHED and dashed_runs:
+        if name in DASHED and at_command:
             return True
         # A non-literal word counts when its decoded text names an evaluator
         # (`$'bash'`); an expansion such as `$SHELL` decodes to itself and does not.

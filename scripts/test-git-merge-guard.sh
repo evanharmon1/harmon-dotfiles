@@ -429,12 +429,6 @@ matrix() { # guard
     case_ "$g" ask "$r" "sudo --chd /repo -u evan --pres /usr/libexec/git-core/git-pull origin main"
     case_ "$g" silent "$r" "env --chd /repo -i git status"
     case_ "$g" silent "$r" "sudo cp notes.md /tmp/notes.md"
-    # A bare dashed name past the exact command slot is a search pattern;
-    # spelled as a path, or right after the wrapper, it still runs.
-    case_ "$g" silent "$r" "sudo grep git-merge docs/"
-    case_ "$g" silent "$r" "find . -exec grep -l git-merge {} +"
-    case_ "$g" ask "$r" "sudo git-merge feat"
-    case_ "$g" ask "$r" "sudo --chd /repo /usr/lib/git-core/git-merge feat"
     case_ "$g" silent "$r" "git --help merge"
     case_ "$g" silent "$r" "git --version pull"
     case_ "$g" silent "$r" "echo \"\$SHELL\""
