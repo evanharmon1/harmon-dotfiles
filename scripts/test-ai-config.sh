@@ -23,7 +23,7 @@ cp "$opencode_config" "$opencode_tui" "$test_tmp/config/opencode/"
 # are the TOML literal handed to `fromToml`. Extract that block so the static
 # checks below read exactly what chezmoi lays over the live file.
 profile="$test_tmp/harmon-local.managed.toml"
-awk '/fromToml `$/{grab=1; next} grab && /^` -}}$/{exit} grab' "$profile_template" >"$profile"
+awk '/fromToml `[[:space:]]*$/{grab=1; next} grab && /^` -}}[[:space:]]*$/{exit} grab' "$profile_template" >"$profile"
 [ -s "$profile" ] || fail "could not find the managed TOML block in $profile_template"
 
 opencode_test() {
@@ -46,7 +46,7 @@ jq -e . "$repo/private_dot_gemini/config/hooks.json" >/dev/null ||
 # are the JSON literal handed to `fromJson`, with @HOME@ for the home directory.
 antigravity_template="$repo/private_dot_gemini/antigravity-cli/modify_private_settings.json"
 antigravity_managed="$test_tmp/antigravity.managed.json"
-awk '/replace "@HOME@" \.chezmoi\.homeDir `$/{grab=1; next} grab && /^`\) -}}$/{exit} grab' "$antigravity_template" |
+awk '/replace "@HOME@" \.chezmoi\.homeDir `[[:space:]]*$/{grab=1; next} grab && /^`\) -}}[[:space:]]*$/{exit} grab' "$antigravity_template" |
     sed 's|@HOME@|/Users/test|g' >"$antigravity_managed"
 jq -e . "$antigravity_managed" >/dev/null || fail "Antigravity CLI managed settings are not valid JSON"
 [ "$(jq -r '.statusLine.type' "$antigravity_managed")" = "command" ] ||
@@ -346,7 +346,7 @@ if command -v chezmoi >/dev/null 2>&1; then
     # trustedWorkspaces: exactly the managed baseline in order, then the
     # workspaces Antigravity added in their order, with no duplicate.
     jq -e --arg h "$HOME" --slurpfile m "$antigravity_managed" '
-        .trustedWorkspaces == ([$m[0].trustedWorkspaces[] | sub("^/Users/test"; $h)]
+        .trustedWorkspaces == ([$m[0].trustedWorkspaces[] | if startswith("/Users/test") then $h + .[11:] else . end]
             + ["/elsewhere/repo-a", "/elsewhere/repo-b"])' "$test_tmp/ag.out" >/dev/null ||
         fail "the Antigravity trustedWorkspaces are not the managed baseline then Antigravity's own, in order"
     # The deny list is authoritative: exactly the managed list.
