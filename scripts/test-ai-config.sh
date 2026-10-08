@@ -42,9 +42,14 @@ claude_enforced="$repo/.chezmoitemplates/claude-settings/enforced.json"
 claude_seeded="$repo/.chezmoitemplates/claude-settings/seeded.json"
 jq -e . "$claude_enforced" >/dev/null || fail "enforced Claude settings are not valid JSON"
 jq -e . "$claude_seeded" >/dev/null || fail "seeded Claude settings are not valid JSON"
-jq -e -n --slurpfile e "$claude_enforced" --slurpfile s "$claude_seeded" \
-    '[$e[0] | keys[]] - ["//"] as $ek | [$s[0] | keys[]] as $sk | ($ek - ($ek - $sk)) == []' >/dev/null ||
-    fail "a Claude setting is both enforced and seeded; each key needs exactly one owner"
+# Each owner holds exactly its keys: an omission, or a security-relevant key
+# moved to the seeded (live-wins) file, fails here.
+[ "$(jq -c '[keys[]] | sort' "$claude_enforced")" = \
+    '["//","enabledPlugins","hooks","permissions","sandbox","skipDangerousModePermissionPrompt","statusLine"]' ] ||
+    fail "the enforced Claude settings do not hold exactly the enforced keys"
+[ "$(jq -c '[keys[]] | sort' "$claude_seeded")" = \
+    '["agentPushNotifEnabled","effortLevel","feedbackDrafts","inputNeededNotifEnabled","model","modelSettings","preferredNotifChannel","remoteControlAtStartup","skipWorkflowUsageWarning","switchModelsOnFlag","tui","voice","voiceEnabled"]' ] ||
+    fail "the seeded Claude settings do not hold exactly the seeded keys"
 jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
     fail "Codex hooks are not valid JSON"
 jq -e . "$repo/private_dot_gemini/config/hooks.json" >/dev/null ||
@@ -415,7 +420,11 @@ if command -v chezmoi >/dev/null 2>&1; then
         | .enabledPlugins["extra@somewhere"] = true
         | .enabledPlugins[(.enabledPlugins | keys[0])] = false
         | .hooks = {}
-        | .autoMode = {environment: ["### Org-wide", "**Trusted repo**: example"]}' \
+        | .autoMode = {environment: ["### Org-wide", "**Trusted repo**: example"]}
+        | .remoteControlAtStartup = false
+        | .voice.enabled = false
+        | .disableAllHooks = true
+        | .enableAllProjectMcpServers = true' \
         "$claude_settings" >"$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.out" || fail "the Claude settings template did not render"
     [ "$(jq -r '.model' "$test_tmp/cl.out")" = "claude-sonnet-5-5" ] ||
@@ -433,6 +442,11 @@ if command -v chezmoi >/dev/null 2>&1; then
         fail "the Claude settings template did not force the managed plugins back to their managed state"
     jq -e '.autoMode.environment[1] == "**Trusted repo**: example"' "$test_tmp/cl.out" >/dev/null ||
         fail "the Claude settings template dropped Claude Code's own autoMode block"
+    # Seeding is by key presence: a preference turned off stays off.
+    jq -e '.remoteControlAtStartup == false and .voice.enabled == false' "$test_tmp/cl.out" >/dev/null ||
+        fail "the Claude settings template re-enabled a preference the user turned off"
+    jq -e 'has("disableAllHooks") or has("enableAllProjectMcpServers") | not' "$test_tmp/cl.out" >/dev/null ||
+        fail "disableAllHooks / enableAllProjectMcpServers passed through; they must be removed unless enforced"
     # Up to date, and up to date in Claude Code's own key order: kept as-is.
     cp "$test_tmp/cl.out" "$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.stable"

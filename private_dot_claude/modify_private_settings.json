@@ -15,7 +15,9 @@
     the key is missing (a fresh machine); after that the live value wins, so
     /model and the other preferences stick.
   - every other key (autoMode and whatever else Claude Code writes) passes
-    through untouched.
+    through untouched, except disableAllHooks and enableAllProjectMcpServers,
+    which are removed unless enforced: either would silently switch off a
+    control this file exists to keep.
 
   While the live file already matches, it is kept byte-for-byte, so Claude
   Code's own key order never shows as drift. A correction re-serialises it:
@@ -31,14 +33,42 @@
 {{-   $current = fromJson .chezmoi.stdin -}}
 {{-   $before = fromJson .chezmoi.stdin -}}
 {{- end -}}
-{{- /* Seed: fill only what is missing; live values win. */ -}}
-{{- $merged := merge $current $seeded -}}
-{{- /* Enforce: replace whole, except plugins, which are forced on but not exclusive. */ -}}
+{{- $merged := $current -}}
+{{- /* Seed by key presence, never by value: sprig's merge treats false as
+       missing and would re-enable a preference turned off. Two levels deep,
+       so a missing per-model entry or voice sub-setting is filled too. */ -}}
+{{- range $key, $value := $seeded -}}
+{{-   if not (hasKey $merged $key) -}}
+{{-     $_ := set $merged $key $value -}}
+{{-   else if and (kindIs "map" $value) (kindIs "map" (get $merged $key)) -}}
+{{-     $live := get $merged $key -}}
+{{-     range $sub, $subValue := $value -}}
+{{-       if not (hasKey $live $sub) -}}
+{{-         $_ := set $live $sub $subValue -}}
+{{-       end -}}
+{{-     end -}}
+{{-   end -}}
+{{- end -}}
+{{- /* Enforce: replace whole, except plugins: each listed plugin is set to its
+       managed value (true or false), and plugins installed in-session stay. */ -}}
 {{- range $key, $value := $enforced -}}
 {{-   if eq $key "enabledPlugins" -}}
-{{-     $_ := set $merged $key (mergeOverwrite (get $merged $key | default dict) $value) -}}
+{{-     $plugins := get $merged $key | default dict -}}
+{{-     if not (kindIs "map" $plugins) -}}{{- $plugins = dict -}}{{- end -}}
+{{-     range $plugin, $on := $value -}}
+{{-       $_ := set $plugins $plugin $on -}}
+{{-     end -}}
+{{-     $_ := set $merged $key $plugins -}}
 {{-   else -}}
 {{-     $_ := set $merged $key $value -}}
+{{-   end -}}
+{{- end -}}
+{{- /* Never passed through: a live disableAllHooks would switch off every
+       hook (the merge guard included) and enableAllProjectMcpServers would
+       auto-enable any project's MCP servers; both survive only if enforced. */ -}}
+{{- range $key := list "disableAllHooks" "enableAllProjectMcpServers" -}}
+{{-   if not (hasKey $enforced $key) -}}
+{{-     $_ := unset $merged $key -}}
 {{-   end -}}
 {{- end -}}
 {{- if and .chezmoi.stdin (eq (toJson $before) (toJson $merged)) -}}
