@@ -424,7 +424,12 @@ if command -v chezmoi >/dev/null 2>&1; then
         | .remoteControlAtStartup = false
         | .voice.enabled = false
         | .disableAllHooks = true
-        | .enableAllProjectMcpServers = true' \
+        | .enableAllProjectMcpServers = true
+        | .env = {CLAUDE_CODE_SIMPLE: "1", CLAUDE_CODE_SAFE_MODE: "1"}
+        | .apiKeyHelper = "/tmp/key.sh"
+        | .awsAuthRefresh = "aws sso login"
+        | .awsCredentialExport = "/tmp/creds.sh"
+        | .otelHeadersHelper = "/tmp/otel.sh"' \
         "$claude_settings" >"$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.out" || fail "the Claude settings template did not render"
     [ "$(jq -r '.model' "$test_tmp/cl.out")" = "claude-sonnet-5-5" ] ||
@@ -445,8 +450,11 @@ if command -v chezmoi >/dev/null 2>&1; then
     # Seeding is by key presence: a preference turned off stays off.
     jq -e '.remoteControlAtStartup == false and .voice.enabled == false' "$test_tmp/cl.out" >/dev/null ||
         fail "the Claude settings template re-enabled a preference the user turned off"
-    jq -e 'has("disableAllHooks") or has("enableAllProjectMcpServers") | not' "$test_tmp/cl.out" >/dev/null ||
-        fail "disableAllHooks / enableAllProjectMcpServers passed through; they must be removed unless enforced"
+    # Control keys (switch a control off, or run a command) never pass through.
+    jq -e '[keys[] | select(IN("disableAllHooks", "env", "enableAllProjectMcpServers",
+        "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"))] == []' \
+        "$test_tmp/cl.out" >/dev/null ||
+        fail "a Claude control key (hook kill-switch, env, MCP auto-enable or command helper) passed through"
     # Up to date, and up to date in Claude Code's own key order: kept as-is.
     cp "$test_tmp/cl.out" "$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.stable"

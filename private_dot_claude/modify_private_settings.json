@@ -15,9 +15,11 @@
     the key is missing (a fresh machine); after that the live value wins, so
     /model and the other preferences stick.
   - every other key (autoMode and whatever else Claude Code writes) passes
-    through untouched, except disableAllHooks and enableAllProjectMcpServers,
-    which are removed unless enforced: either would silently switch off a
-    control this file exists to keep.
+    through untouched, except the control keys, which this file owns and
+    removes unless enforced: any key that can switch a control off or run a
+    command (disableAllHooks, env, enableAllProjectMcpServers, apiKeyHelper,
+    awsAuthRefresh, awsCredentialExport, otelHeadersHelper). To set one, add
+    it to enforced.json.
 
   While the live file already matches, it is kept byte-for-byte, so Claude
   Code's own key order never shows as drift. A correction re-serialises it:
@@ -63,10 +65,13 @@
 {{-     $_ := set $merged $key $value -}}
 {{-   end -}}
 {{- end -}}
-{{- /* Never passed through: a live disableAllHooks would switch off every
-       hook (the merge guard included) and enableAllProjectMcpServers would
-       auto-enable any project's MCP servers; both survive only if enforced. */ -}}
-{{- range $key := list "disableAllHooks" "enableAllProjectMcpServers" -}}
+{{- /* Control keys are owned here, never passed through: anything that can
+       switch a control off or run a command survives only if enforced.
+       disableAllHooks, and env (CLAUDE_CODE_SIMPLE / CLAUDE_CODE_SAFE_MODE),
+       switch hooks off, the merge guard included; enableAllProjectMcpServers
+       auto-enables any project's MCP servers; the *Helper / aws* keys run a
+       command. */ -}}
+{{- range $key := list "disableAllHooks" "env" "enableAllProjectMcpServers" "apiKeyHelper" "awsAuthRefresh" "awsCredentialExport" "otelHeadersHelper" -}}
 {{-   if not (hasKey $enforced $key) -}}
 {{-     $_ := unset $merged $key -}}
 {{-   end -}}
