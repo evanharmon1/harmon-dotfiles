@@ -44,10 +44,10 @@ jq -e . "$claude_enforced" >/dev/null || fail "enforced Claude settings are not 
 jq -e . "$claude_seeded" >/dev/null || fail "seeded Claude settings are not valid JSON"
 # Each owner holds exactly its keys: an omission, or a security-relevant key
 # moved to the seeded (live-wins) file, fails here.
-[ "$(jq -c '[keys[]] | sort' "$claude_enforced")" = \
+[ "$(jq -c 'keys' "$claude_enforced")" = \
     '["//","enabledPlugins","hooks","permissions","sandbox","skipDangerousModePermissionPrompt","statusLine"]' ] ||
     fail "the enforced Claude settings do not hold exactly the enforced keys"
-[ "$(jq -c '[keys[]] | sort' "$claude_seeded")" = \
+[ "$(jq -c 'keys' "$claude_seeded")" = \
     '["agentPushNotifEnabled","effortLevel","feedbackDrafts","inputNeededNotifEnabled","model","modelSettings","preferredNotifChannel","remoteControlAtStartup","skipWorkflowUsageWarning","switchModelsOnFlag","tui","voice","voiceEnabled"]' ] ||
     fail "the seeded Claude settings do not hold exactly the seeded keys"
 jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
