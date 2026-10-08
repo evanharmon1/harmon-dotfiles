@@ -343,15 +343,16 @@ if command -v chezmoi >/dev/null 2>&1; then
         fail "the Antigravity template did not re-assert the managed model"
     [ "$(jq -r '.someRuntimeKey' "$test_tmp/ag.out")" = "7" ] ||
         fail "the Antigravity template dropped an unmanaged key"
-    jq -e --arg h "$HOME" '.trustedWorkspaces as $t
-        | ($t | index("/elsewhere/repo-a")) and ($t | index("/elsewhere/repo-b"))
-        and ($t | index($h + "/git/harmon-init")) and ([$t[] | select(. == ($h + "/git/harmon-dotfiles"))] | length == 1)' \
+    # trustedWorkspaces: exactly the managed baseline in order, then the
+    # workspaces Antigravity added in their order, with no duplicate.
+    jq -e --arg h "$HOME" --slurpfile m "$antigravity_managed" '
+        .trustedWorkspaces == ([$m[0].trustedWorkspaces[] | sub("^/Users/test"; $h)]
+            + ["/elsewhere/repo-a", "/elsewhere/repo-b"])' "$test_tmp/ag.out" >/dev/null ||
+        fail "the Antigravity trustedWorkspaces are not the managed baseline then Antigravity's own, in order"
+    # The deny list is authoritative: exactly the managed list.
+    jq -e --slurpfile m "$antigravity_managed" '.permissions.deny == $m[0].permissions.deny' \
         "$test_tmp/ag.out" >/dev/null ||
-        fail "the Antigravity template did not union managed and Antigravity-trusted workspaces without duplicates"
-    jq -e '.permissions.deny | index("command(extra)") | not' "$test_tmp/ag.out" >/dev/null ||
-        fail "the Antigravity deny list must be the managed list, not a merge"
-    jq -e '.permissions.deny | index("command(gh pr merge)")' "$test_tmp/ag.out" >/dev/null ||
-        fail "the Antigravity template lost a managed deny rule"
+        fail "the Antigravity deny list is not exactly the managed list"
     # Unmanaged members of managed objects survive a correction.
     jq -e '.permissions.allow == ["command(ls)"] and .statusLine.runtimeHint == "keep"
         and (.statusLine.command | endswith("/.gemini/antigravity-cli/statusline.sh"))' \
