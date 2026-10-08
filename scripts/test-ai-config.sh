@@ -42,12 +42,17 @@ jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
     fail "Codex hooks are not valid JSON"
 jq -e . "$repo/private_dot_gemini/config/hooks.json" >/dev/null ||
     fail "Gemini hooks are not valid JSON"
-sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" |
-    jq -e . >/dev/null || fail "Antigravity CLI settings template is not valid JSON"
-[ "$(sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" | jq -r '.statusLine.type')" = "command" ] ||
+# The Antigravity CLI settings are a chezmoi modify template: the managed keys
+# are the JSON literal handed to `fromJson`, with @HOME@ for the home directory.
+antigravity_template="$repo/private_dot_gemini/antigravity-cli/modify_private_settings.json"
+antigravity_managed="$test_tmp/antigravity.managed.json"
+awk '/replace "@HOME@" \.chezmoi\.homeDir `$/{grab=1; next} grab && /^`\) -}}$/{exit} grab' "$antigravity_template" |
+    sed 's|@HOME@|/Users/test|g' >"$antigravity_managed"
+jq -e . "$antigravity_managed" >/dev/null || fail "Antigravity CLI managed settings are not valid JSON"
+[ "$(jq -r '.statusLine.type' "$antigravity_managed")" = "command" ] ||
     fail "Antigravity CLI settings must configure command statusLine"
-[ "$(sed 's/{{\s*\.chezmoi\.homeDir\s*}}/\/Users\/test/g' "$repo/private_dot_gemini/antigravity-cli/settings.json.tmpl" | jq -r '.model')" = "Gemini 3.7 Flash (High)" ] ||
-    fail "Antigravity CLI settings must configure default model Gemini 3.7 Flash (High)"
+[ "$(jq -r '.model' "$antigravity_managed")" = "Gemini 3.8 Flash (High)" ] ||
+    fail "Antigravity CLI settings must configure default model Gemini 3.8 Flash (High)"
 # Keep managed JSONC in the strict JSON subset for portable local validation.
 jq -e . "$opencode_config" >/dev/null || fail "OpenCode config is not strict JSON"
 jq -e . "$opencode_tui" >/dev/null || fail "OpenCode TUI config is not strict JSON"
@@ -312,6 +317,59 @@ PY_MANAGED
         fail "a rendered Codex profile does not hold every managed value"
 else
     echo "    chezmoi not installed; skipping the modify-template behaviour checks"
+fi
+
+echo "==> validate the Antigravity settings modify template when chezmoi is available"
+if command -v chezmoi >/dev/null 2>&1; then
+    render_antigravity() { # home-dir -> rendered settings on stdout
+        chezmoi --source "$repo" --destination "$1" --config "$test_tmp/chezmoi.toml" \
+            --persistent-state "$1.state" cat "$1/.gemini/antigravity-cli/settings.json"
+    }
+    : >"$test_tmp/chezmoi.toml"
+    ag_home="$test_tmp/ag-seed"
+    mkdir -p "$ag_home/.gemini/antigravity-cli"
+    # A live file with a drifted managed key, an extra deny the managed list
+    # does not carry, an unmanaged key, and workspaces Antigravity trusted.
+    # .chezmoi.homeDir is the real home whatever --destination says, so the
+    # managed workspaces render under $HOME (rendered text only; nothing there
+    # is written).
+    jq -n --arg h "$HOME" '{model: "Gemini 0 Old", someRuntimeKey: 7,
+        permissions: {deny: ["command(extra)"]},
+        trustedWorkspaces: [($h + "/git/harmon-dotfiles"), "/elsewhere/repo-a", "/elsewhere/repo-b"]}' \
+        >"$ag_home/.gemini/antigravity-cli/settings.json"
+    render_antigravity "$ag_home" >"$test_tmp/ag.out" || fail "the Antigravity settings template did not render"
+    [ "$(jq -r '.model' "$test_tmp/ag.out")" = "Gemini 3.8 Flash (High)" ] ||
+        fail "the Antigravity template did not re-assert the managed model"
+    [ "$(jq -r '.someRuntimeKey' "$test_tmp/ag.out")" = "7" ] ||
+        fail "the Antigravity template dropped an unmanaged key"
+    jq -e --arg h "$HOME" '.trustedWorkspaces as $t
+        | ($t | index("/elsewhere/repo-a")) and ($t | index("/elsewhere/repo-b"))
+        and ($t | index($h + "/git/harmon-init")) and ([$t[] | select(. == ($h + "/git/harmon-dotfiles"))] | length == 1)' \
+        "$test_tmp/ag.out" >/dev/null ||
+        fail "the Antigravity template did not union managed and Antigravity-trusted workspaces without duplicates"
+    jq -e '.permissions.deny | index("command(extra)") | not' "$test_tmp/ag.out" >/dev/null ||
+        fail "the Antigravity deny list must be the managed list, not a merge"
+    jq -e '.permissions.deny | index("command(gh pr merge)")' "$test_tmp/ag.out" >/dev/null ||
+        fail "the Antigravity template lost a managed deny rule"
+    # Up to date: kept byte-for-byte.
+    cp "$test_tmp/ag.out" "$ag_home/.gemini/antigravity-cli/settings.json"
+    render_antigravity "$ag_home" >"$test_tmp/ag.stable"
+    cmp -s "$test_tmp/ag.stable" "$test_tmp/ag.out" ||
+        fail "re-rendering up-to-date Antigravity settings changed them (permanent drift)"
+    # Up to date but in Antigravity's own layout (here: compact): kept as-is.
+    jq -c . "$test_tmp/ag.out" >"$ag_home/.gemini/antigravity-cli/settings.json"
+    render_antigravity "$ag_home" >"$test_tmp/ag.compact"
+    cmp -s "$test_tmp/ag.compact" "$ag_home/.gemini/antigravity-cli/settings.json" ||
+        fail "reformatted but up-to-date Antigravity settings were rewritten instead of kept"
+    # No live file: the managed settings alone, with the baseline workspaces.
+    ag_fresh="$test_tmp/ag-fresh"
+    mkdir -p "$ag_fresh"
+    render_antigravity "$ag_fresh" | sed "s|$HOME|/Users/test|g" >"$test_tmp/ag.fresh" ||
+        fail "the Antigravity template did not render without a live file"
+    jq -e --slurpfile m "$antigravity_managed" '. == $m[0]' "$test_tmp/ag.fresh" >/dev/null ||
+        fail "fresh Antigravity settings do not render exactly the managed settings"
+else
+    echo "    chezmoi not installed; skipping the Antigravity modify-template behaviour checks"
 fi
 
 echo "==> validate Codex policy rules when the CLI is available"

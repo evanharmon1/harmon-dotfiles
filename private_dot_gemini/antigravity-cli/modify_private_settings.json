@@ -1,0 +1,104 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+  Antigravity CLI settings (~/.gemini/antigravity-cli/settings.json).
+
+  Antigravity writes its own state into this same file: every workspace you
+  trust is appended to trustedWorkspaces. A whole-file target erased those on
+  every apply (re-prompting for each repo) and showed permanent drift, so this
+  is a modify template, the pattern of private_dot_codex's harmon-local profile:
+  chezmoi passes the live file as .chezmoi.stdin and this lays the managed
+  settings over it.
+
+  - Every key in $managed is owned here and overwrites the live value
+    (permissions.deny is replaced whole: the deny list is authoritative).
+  - trustedWorkspaces is a union: the managed baseline first, then every
+    workspace Antigravity added, in its order.
+  - Every other key passes through untouched.
+  - While the live file already matches, it is kept byte-for-byte, so
+    Antigravity's own formatting never shows as drift. A correction
+    re-serialises it (key order and spacing change; values survive).
+
+  @HOME@ in $managed is replaced with the home directory at apply time.
+*/ -}}
+{{- $managed := fromJson (replace "@HOME@" .chezmoi.homeDir `
+{
+  "model": "Gemini 3.8 Flash (High)",
+  "toolPermission": "always-proceed",
+  "artifactReviewPolicy": "always-proceed",
+  "allowNonWorkspaceAccess": false,
+  "enableTerminalSandbox": false,
+  "statusLine": {
+    "type": "command",
+    "command": "@HOME@/.gemini/antigravity-cli/statusline.sh",
+    "enabled": true,
+    "stack_with_default": true
+  },
+  "showFeedbackSurvey": false,
+  "permissions": {
+    "deny": [
+      "command(sudo)",
+      "command(su)",
+      "command(rm -rf)",
+      "command(rm -fr)",
+      "command(rm -r)",
+      "command(dd)",
+      "command(mkfs)",
+      "command(shred)",
+      "command(shutdown)",
+      "command(reboot)",
+      "command(git push --force)",
+      "command(git push -f)",
+      "command(git reset --hard)",
+      "command(git clean)",
+      "command(gh pr merge)",
+      "command(gh repo delete)",
+      "command(gh release delete)",
+      "command(op item create)",
+      "command(op item edit)",
+      "command(op item delete)",
+      "write_file(~/.ssh)",
+      "write_file(~/.aws)",
+      "write_file(~/.config/op)"
+    ]
+  },
+  "trustedWorkspaces": [
+    "@HOME@/git/harmon-init",
+    "@HOME@/git/harmon-devkit",
+    "@HOME@/git/orgs/ponderousdev/foreman",
+    "@HOME@/git/harmon-dotfiles",
+    "@HOME@/git/harmon-ops",
+    "@HOME@/git/harmon-infra",
+    "@HOME@/git/orgs/harmonops/harmon-infra",
+    "@HOME@/git/evanharmon-site",
+    "@HOME@/git/orgs/sommerlawn/sommerlawn-site",
+    "@HOME@/git/orgs/sommerlawn/sommerlawn-infra",
+    "@HOME@/git/orgs/ponderousdev/omator",
+    "@HOME@/git/orgs/ponderousdev/ponderous-infra",
+    "@HOME@/git/orgs/ponderousdev/ponderous-site",
+    "@HOME@/git/orgs/ponderousdev/lawnomator-site",
+    "@HOME@/git/orgs/ponderousdev/ponderous-docs"
+  ]
+}
+`) -}}
+{{- $current := dict -}}
+{{- $before := dict -}}
+{{- if .chezmoi.stdin -}}
+{{-   $current = fromJson .chezmoi.stdin -}}
+{{-   $before = fromJson .chezmoi.stdin -}}
+{{- end -}}
+{{- $trusted := list -}}
+{{- range $managed.trustedWorkspaces -}}
+{{-   $trusted = append $trusted . -}}
+{{- end -}}
+{{- range (get $before "trustedWorkspaces" | default list) -}}
+{{-   if not (has . $trusted) -}}
+{{-     $trusted = append $trusted . -}}
+{{-   end -}}
+{{- end -}}
+{{- $merged := mergeOverwrite $current (omit $managed "trustedWorkspaces") -}}
+{{- $_ := set $merged "trustedWorkspaces" $trusted -}}
+{{- if and .chezmoi.stdin (eq (toJson $before) (toJson $merged)) -}}
+{{- .chezmoi.stdin -}}
+{{- else -}}
+{{ toPrettyJson $merged }}
+{{ end -}}
