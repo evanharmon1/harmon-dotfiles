@@ -7,3 +7,8 @@
 # checked by scripts/test-ai-config.sh instead (static managed block always,
 # full render when chezmoi is installed).
 private_dot_codex/modify_private_harmon-local.config.toml
+
+# The Antigravity CLI settings are a chezmoi modify template for the same
+# reason: Antigravity appends to trustedWorkspaces itself. The JSON it renders
+# is checked by scripts/test-ai-config.sh.
+private_dot_gemini/antigravity-cli/modify_private_settings.json
