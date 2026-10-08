@@ -334,7 +334,8 @@ if command -v chezmoi >/dev/null 2>&1; then
     # managed workspaces render under $HOME (rendered text only; nothing there
     # is written).
     jq -n --arg h "$HOME" '{model: "Gemini 0 Old", someRuntimeKey: 7,
-        permissions: {deny: ["command(extra)"]},
+        permissions: {deny: ["command(extra)"], allow: ["command(ls)"]},
+        statusLine: {command: "old", runtimeHint: "keep"},
         trustedWorkspaces: [($h + "/git/harmon-dotfiles"), "/elsewhere/repo-a", "/elsewhere/repo-b"]}' \
         >"$ag_home/.gemini/antigravity-cli/settings.json"
     render_antigravity "$ag_home" >"$test_tmp/ag.out" || fail "the Antigravity settings template did not render"
@@ -351,6 +352,18 @@ if command -v chezmoi >/dev/null 2>&1; then
         fail "the Antigravity deny list must be the managed list, not a merge"
     jq -e '.permissions.deny | index("command(gh pr merge)")' "$test_tmp/ag.out" >/dev/null ||
         fail "the Antigravity template lost a managed deny rule"
+    # Unmanaged members of managed objects survive a correction.
+    jq -e '.permissions.allow == ["command(ls)"] and .statusLine.runtimeHint == "keep"
+        and (.statusLine.command | endswith("/.gemini/antigravity-cli/statusline.sh"))' \
+        "$test_tmp/ag.out" >/dev/null ||
+        fail "the Antigravity template replaced a managed object wholesale and lost nested runtime state"
+    # Applied, the settings are private: the source carries the private_ attribute.
+    chezmoi --source "$repo" --destination "$ag_home" --config "$test_tmp/chezmoi.toml" \
+        --persistent-state "$ag_home.state" apply --force "$ag_home/.gemini/antigravity-cli/settings.json" ||
+        fail "chezmoi could not apply the Antigravity settings to a scratch home"
+    ag_mode="$(stat -c '%a' "$ag_home/.gemini/antigravity-cli/settings.json" 2>/dev/null ||
+        stat -f '%Lp' "$ag_home/.gemini/antigravity-cli/settings.json")"
+    [ "$ag_mode" = "600" ] || fail "applied Antigravity settings have mode $ag_mode, expected 600"
     # Up to date: kept byte-for-byte.
     cp "$test_tmp/ag.out" "$ag_home/.gemini/antigravity-cli/settings.json"
     render_antigravity "$ag_home" >"$test_tmp/ag.stable"
