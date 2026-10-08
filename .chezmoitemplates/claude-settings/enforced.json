@@ -1,5 +1,5 @@
 {
-  "//": "chezmoi-managed in part, from ~/git/harmon-dotfiles (.chezmoitemplates/claude-settings/): permissions, hooks, statusLine, sandbox, skipDangerousModePermissionPrompt and the listed plugins are re-asserted on every apply; preferences changed here (model, effort, tui, voice, notifications) and keys Claude Code writes itself (autoMode) are kept.",
+  "//": "chezmoi-managed in part, from ~/git/harmon-dotfiles (.chezmoitemplates/claude-settings/; #48): permissions, hooks, statusLine, sandbox, skipDangerousModePermissionPrompt and the listed plugins are re-asserted on every apply; preferences changed here (model, effort, tui, voice, notifications) are kept; autoMode passes through; any other key is removed. To change a managed value, edit those files in a PR (not chezmoi re-add, which autoCommits and pushes straight to main).",
   "permissions": {
     "allow": [
       "Bash(git:*)",

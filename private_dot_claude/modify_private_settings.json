@@ -22,6 +22,11 @@
     so a deny list never converges. To keep a new setting, add it to
     enforced.json, seeded.json, or $runtime.
 
+  Changing a managed value: edit .chezmoitemplates/claude-settings/*.json in
+  a PR. `chezmoi re-add` does not apply to a modify template, and must not be
+  reached for anyway: this repo runs chezmoi with autoCommit and autoPush, so
+  a re-add commits and pushes straight to main, bypassing review.
+
   While the live file already matches, it is kept byte-for-byte, so Claude
   Code's own key order never shows as drift. A correction re-serialises it:
   key order changes, values survive, a number beyond float64 precision would
