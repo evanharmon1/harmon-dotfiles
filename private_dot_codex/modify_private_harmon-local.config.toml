@@ -17,7 +17,9 @@
   Limits: while every managed value already holds, the live file is kept
   byte-for-byte, so Codex's own formatting never shows as drift. When a managed
   value has to be corrected, the file is re-serialised: Codex's tables and keys
-  survive, but comments and key order in the live file do not. A managed array
+  survive, but comments and key order in the live file do not, and a TOML
+  local time or datetime without an offset would be shifted by the host's time
+  zone (Codex writes none today). A managed array
   (tui.status_line) replaces the live one whole. Project trust is per exact
   path in Codex, so trusting repos stays Codex's own runtime state, not a
   managed key.
