@@ -264,8 +264,10 @@ enabled = false
 [projects."/home/u/git/example"]
 trust_level = "trusted"
 TOML
-    rendered="$(render_profile "$seed_home")" || fail "the Codex profile modify template did not render"
-    printf '%s\n' "$rendered" >"$test_tmp/rendered.toml"
+    # Renders go straight to files and are compared with cmp: command
+    # substitution would strip trailing newlines and hide a byte difference.
+    render_profile "$seed_home" >"$test_tmp/rendered.toml" ||
+        fail "the Codex profile modify template did not render"
     [ "$(yq -p toml -oy '.model' "$test_tmp/rendered.toml")" = "$(yq '.model' "$profile")" ] ||
         fail "the Codex profile template did not re-assert the managed model over a drifted value"
     [ "$(yq -p toml -oy '.projects."/home/u/git/example".trust_level' "$test_tmp/rendered.toml")" = "trusted" ] ||
@@ -279,11 +281,13 @@ TOML
     # Once every managed value holds, the file is kept byte-for-byte, so Codex's
     # own formatting never shows up as chezmoi drift.
     cp "$test_tmp/rendered.toml" "$seed_home/.codex/harmon-local.config.toml"
-    stable="$(render_profile "$seed_home")"
-    [ "$stable" = "$rendered" ] || fail "re-rendering an up-to-date Codex profile changed it (permanent drift)"
+    render_profile "$seed_home" >"$test_tmp/stable.toml"
+    cmp -s "$test_tmp/stable.toml" "$test_tmp/rendered.toml" ||
+        fail "re-rendering an up-to-date Codex profile changed it (permanent drift)"
     sed 's/^approval_policy = .*/approval_policy = "on-request"   # reformatted by Codex/' \
         "$test_tmp/rendered.toml" >"$seed_home/.codex/harmon-local.config.toml"
-    [ "$(render_profile "$seed_home")" = "$(cat "$seed_home/.codex/harmon-local.config.toml")" ] ||
+    render_profile "$seed_home" >"$test_tmp/reformatted.toml"
+    cmp -s "$test_tmp/reformatted.toml" "$seed_home/.codex/harmon-local.config.toml" ||
         fail "a reformatted but up-to-date Codex profile was rewritten instead of kept"
     # No live file yet: the managed defaults alone.
     fresh_home="$test_tmp/codex-fresh"
