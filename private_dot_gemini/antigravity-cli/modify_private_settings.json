@@ -16,7 +16,9 @@
   - Every other key passes through untouched.
   - While the live file already matches, it is kept byte-for-byte, so
     Antigravity's own formatting never shows as drift. A correction
-    re-serialises it (key order and spacing change; values survive).
+    re-serialises it: key order and spacing change, and a number beyond
+    float64 precision would be rounded (Antigravity writes none); other values
+    survive. A write by Antigravity landing during a correction is lost.
 
   @HOME@ in $managed is replaced with the home directory at apply time.
 */ -}}
