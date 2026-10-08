@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.18.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.6...v0.18.0) (2026-10-08)
+
+
+### Features
+
+* **claude:** default to Opus with per-model effort, Remote Control, and the Bash sandbox ([100ce49](https://github.com/evanharmon1/harmon-dotfiles/commit/100ce49b458dde2faa6b4aae351fe5a3edc4bb95))
+* **claude:** default to Opus with per-model effort, Remote Control, and the Bash sandbox ([bfca354](https://github.com/evanharmon1/harmon-dotfiles/commit/bfca354007fca7eef578d8d774388fac980a869d))
+* **claude:** replace git merge ask rules with a branch-aware merge guard ([edd64ba](https://github.com/evanharmon1/harmon-dotfiles/commit/edd64ba49e5eb9a8087760227507cdf9eb00a0f4))
+* **claude:** replace git merge ask rules with a branch-aware merge guard ([8ae2761](https://github.com/evanharmon1/harmon-dotfiles/commit/8ae276111725dc21383f90efcc4487efe19aa1be))
+* **codex:** default the local CLI profile to gpt-6.1-sol ([906aab8](https://github.com/evanharmon1/harmon-dotfiles/commit/906aab8662d7135e746629a6d04a29e308ee4774))
+* **codex:** default the local CLI profile to gpt-6.1-sol ([4b2fa7c](https://github.com/evanharmon1/harmon-dotfiles/commit/4b2fa7ccae4a054137832795b04c0e278dc57d68))
+
+
+### Bug Fixes
+
+* **chezmoi:** ignore harmon-init template assets so they are not deployed to HOME ([32d7d0f](https://github.com/evanharmon1/harmon-dotfiles/commit/32d7d0f42ea15fb8986f95cbf83cc27ac46417bc))
+* **chezmoi:** ignore harmon-init template assets so they are not deployed to HOME ([8fd4efa](https://github.com/evanharmon1/harmon-dotfiles/commit/8fd4efa4757f62af971504d0e905fb8dfca26ca7))
+* **claude:** ask when a git subcommand is shell-synthesized ([888f3b6](https://github.com/evanharmon1/harmon-dotfiles/commit/888f3b6033ff0a8c216c64a97e66c53507dc5010))
+* **claude:** casefold protected branches, allow pull --rebase, name shipped wrappers ([9adb45f](https://github.com/evanharmon1/harmon-dotfiles/commit/9adb45fda40ce23fc065e53c5ff9b12a10371b7b))
+* **claude:** catch attached -c alias definitions and drop committed bytecode ([f57a314](https://github.com/evanharmon1/harmon-dotfiles/commit/f57a314ad41060fdf5fb11462d692076d119541f)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** check only the invoked one-off alias, and run busybox's applet ([e8e36b5](https://github.com/evanharmon1/harmon-dotfiles/commit/e8e36b5b20a768b2f3c5dc9cf0c25e3fdf65f766)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** close six parser gaps found by challenge round 1 ([468536e](https://github.com/evanharmon1/harmon-dotfiles/commit/468536e56e3fc1655aeaaa6e3d88a8803bb839fb)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** close the cycle-3 evaluator, alias and help-option gaps ([4d6d736](https://github.com/evanharmon1/harmon-dotfiles/commit/4d6d7368589bcdceb0e1fc1bd33ed2650ee72ae6)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** close the merge guard's indirection and command-position gaps ([6d6dfcc](https://github.com/evanharmon1/harmon-dotfiles/commit/6d6dfcc35b13cef85f143ef09b772d1ce24a86be))
+* **claude:** close the merge guard's indirection and command-position gaps ([32b11cf](https://github.com/evanharmon1/harmon-dotfiles/commit/32b11cf472f90a1f93db28c5b4c8d32d542d3410)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** close three merge-guard gaps found by review in harmon-infra ([d80b30a](https://github.com/evanharmon1/harmon-dotfiles/commit/d80b30a5940ab3706da479dc40d0be549375586a))
+* **claude:** close three merge-guard gaps found by review in harmon-infra ([4e4479c](https://github.com/evanharmon1/harmon-dotfiles/commit/4e4479c2192390561722a0063838440cf4ca84be))
+* **claude:** compare full refs in the merge guard; update the constitution backstop note ([3132f1c](https://github.com/evanharmon1/harmon-dotfiles/commit/3132f1c3e319954fc7c8e57128e5507b959dcfc2))
+* **claude:** do not end sudo's shell-flag scan at -- ([e058d13](https://github.com/evanharmon1/harmon-dotfiles/commit/e058d135601bb28ab519a3043183fcb187db6eb0)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** expand the invoked one-off alias the way git does ([7c5727b](https://github.com/evanharmon1/harmon-dotfiles/commit/7c5727b3c4018c719e64c4c95a8cc55e8fff15fe)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** keep dashed helper names in search patterns silent after a wrapper ([569bec8](https://github.com/evanharmon1/harmon-dotfiles/commit/569bec8ee9c2eb4fe92f6595484c09a5d7699f66)), closes [#131](https://github.com/evanharmon1/harmon-dotfiles/issues/131)
+* **claude:** keep git merge --abort behind the approval prompt ([ce40b42](https://github.com/evanharmon1/harmon-dotfiles/commit/ce40b42f88c2ae833698a0b295f7651cbdb4081d))
+* **claude:** keep merge plumbing and dashed git-merge as mentions in the guard ([ef198dc](https://github.com/evanharmon1/harmon-dotfiles/commit/ef198dca4b0871ff4f50ab7488ee40ca4d0a5845))
+* **claude:** make the merge guard fail closed on unparsed forms and unknown defaults ([c247f84](https://github.com/evanharmon1/harmon-dotfiles/commit/c247f8456500dc239b40b125bed38e0d9d603423))
+* **claude:** match only real git merge/pull invocations, and only in the dev profile ([fe641eb](https://github.com/evanharmon1/harmon-dotfiles/commit/fe641ebaebdbe6f3f2c95403ff33af12e71092ca))
+* **claude:** match only real git merge/pull invocations, and only in the dev profile ([ef3da75](https://github.com/evanharmon1/harmon-dotfiles/commit/ef3da75b3f5188698bf7784d9d8dac64ea906b43)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** put evaluator command lines under the merge/pull word test ([afba478](https://github.com/evanharmon1/harmon-dotfiles/commit/afba478da80ff85e59d97b0bda7cc42d1af25d73)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** re-sync the global git-merge-guard with the harmon-init reference ([9e28c46](https://github.com/evanharmon1/harmon-dotfiles/commit/9e28c469eee7f2b462b9d4806f613825b4fb2131))
+* **claude:** re-sync the global git-merge-guard with the harmon-init reference ([2a4cf1c](https://github.com/evanharmon1/harmon-dotfiles/commit/2a4cf1c9e370cc5787cfabdf6ab0e3c3bd4ba88d)), closes [#118](https://github.com/evanharmon1/harmon-dotfiles/issues/118)
+* **claude:** read cmd lines by invariant, not by switch spelling ([634f5be](https://github.com/evanharmon1/harmon-dotfiles/commit/634f5be4a20447e64921189dbcdce101b3114418)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** read each command with and without comments before deciding ([63e13ab](https://github.com/evanharmon1/harmon-dotfiles/commit/63e13abf92aaebfd8e74d8a467e0b255deda5242))
+* **claude:** read every -c payload as a script, whatever program takes it ([c79cee4](https://github.com/evanharmon1/harmon-dotfiles/commit/c79cee487f9afb78bbbf2a728a2f1f66b3d2268f)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** read herdr dispatch words from expansions, and sudo option prefixes ([64b05e8](https://github.com/evanharmon1/harmon-dotfiles/commit/64b05e8e9631cd7b4797530afb638b7ede83ffa9)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** read herdr runs, cmd's attached payload, and sudo clusters robustly ([d0d8bc6](https://github.com/evanharmon1/harmon-dotfiles/commit/d0d8bc6aee92dac6f43b881db9b1b9beeb97e158)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** read sudo's shell mode anywhere before --, not by option grammar ([c9823ca](https://github.com/evanharmon1/harmon-dotfiles/commit/c9823ca63cc0295a07bab2abb1ef67093290fa7c)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** read trap actions as scripts, and treat git grep -c as a count ([78cfd88](https://github.com/evanharmon1/harmon-dotfiles/commit/78cfd8887fbf3a3eb0a941a42591f2e352b27947)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** read wrapper and env long-option abbreviations ([2d63ae2](https://github.com/evanharmon1/harmon-dotfiles/commit/2d63ae2df6420ea28686c00e09284abb57cb375e)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** run the evaluator word test over decoded words too ([9e8b1f9](https://github.com/evanharmon1/harmon-dotfiles/commit/9e8b1f93cf3f2642857c4443e5bac1923549c6e9)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** scope /c to cmd and require herdr's pane run pair ([e382c50](https://github.com/evanharmon1/harmon-dotfiles/commit/e382c50e91b26d21a2c7b0b1eaa81eedc6ce5b44)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** stop a mid-word # from hiding a merge; catch expanded subcommands ([4f626f1](https://github.com/evanharmon1/harmon-dotfiles/commit/4f626f192e63564fd4c65a320ef4a51a12bacca5))
+* **claude:** strip exact remote names and reject CDPATH-dependent cd targets ([92676d6](https://github.com/evanharmon1/harmon-dotfiles/commit/92676d6029ea285b0dc1ab43a5c3c5d9aff53a64))
+* **claude:** take git pull --rebase off the merge guard's silent path ([258f794](https://github.com/evanharmon1/harmon-dotfiles/commit/258f794627bd246a7aad4fbd518853ee39ef209c))
+* **claude:** treat a search tool's -c as a count, and read time/caffeinate options ([494ab08](https://github.com/evanharmon1/harmon-dotfiles/commit/494ab0830ef65393ad896e2c78a021c39b414ff8)), closes [#123](https://github.com/evanharmon1/harmon-dotfiles/issues/123)
+* **claude:** treat coproc as an evaluator and cmd's own expansions as unknown ([bf56ef8](https://github.com/evanharmon1/harmon-dotfiles/commit/bf56ef81cbce8764ff572a65aa2b66f84f474186)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* **claude:** treat every word after a wrapper as a possible command ([bca90ca](https://github.com/evanharmon1/harmon-dotfiles/commit/bca90ca11f2cff5c29dc0a117c0a0222134496c9))
+* **claude:** treat every word after a wrapper as a possible command ([0b4cd75](https://github.com/evanharmon1/harmon-dotfiles/commit/0b4cd75f951d9ceb45b66d1bd030b7aa95f538f7)), closes [#131](https://github.com/evanharmon1/harmon-dotfiles/issues/131)
+* **claude:** treat xargs replacement tokens as dynamic, and scope sudo and herdr ([43e686f](https://github.com/evanharmon1/harmon-dotfiles/commit/43e686f40cbe003683fcf7e136f289ff21dc7402)), closes [#128](https://github.com/evanharmon1/harmon-dotfiles/issues/128)
+* sync harmon-devkit skills to v0.50.0 ([5fa01ec](https://github.com/evanharmon1/harmon-dotfiles/commit/5fa01ec6a2e14bc321f1c48c8bbf67f16492de74))
+* sync harmon-devkit skills to v0.50.0 ([3af8c18](https://github.com/evanharmon1/harmon-dotfiles/commit/3af8c18a3afec1842b45a325a32ef758ae36816e))
+
+
+### Reverts
+
+* keep every word after a wrapper a possible command, and {} dynamic ([fa71c4d](https://github.com/evanharmon1/harmon-dotfiles/commit/fa71c4d668c39f030a25ab6696969f5a235d8a2b)), closes [#131](https://github.com/evanharmon1/harmon-dotfiles/issues/131)
+
 ## [0.17.6](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.5...v0.17.6) (2026-09-24)
 
 
