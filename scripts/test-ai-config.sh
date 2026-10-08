@@ -293,8 +293,23 @@ TOML
     fresh_home="$test_tmp/codex-fresh"
     mkdir -p "$fresh_home"
     render_profile "$fresh_home" >"$test_tmp/fresh.toml" || fail "the Codex profile template did not render without a live file"
-    [ "$(yq -p toml -oy '.approval_policy' "$test_tmp/fresh.toml")" = "on-request" ] ||
-        fail "a fresh Codex profile is missing the managed approval policy"
+    # With no live file the render is exactly the managed block: every owned
+    # default, nothing else.
+    python3 - "$test_tmp/fresh.toml" "$profile" <<'PY_FRESH' ||
+import sys, tomllib
+fresh, managed = (tomllib.load(open(p, "rb")) for p in sys.argv[1:3])
+sys.exit(0 if fresh == managed else 1)
+PY_FRESH
+        fail "a fresh Codex profile does not render exactly the managed defaults"
+    # Over a live file, every managed key holds its managed value.
+    python3 - "$test_tmp/rendered.toml" "$profile" <<'PY_MANAGED' ||
+import sys, tomllib
+out, managed = (tomllib.load(open(p, "rb")) for p in sys.argv[1:3])
+def held(m, o):
+    return all(held(v, o.get(k, {})) if isinstance(v, dict) else o.get(k) == v for k, v in m.items())
+sys.exit(0 if held(managed, out) else 1)
+PY_MANAGED
+        fail "a rendered Codex profile does not hold every managed value"
 else
     echo "    chezmoi not installed; skipping the modify-template behaviour checks"
 fi
