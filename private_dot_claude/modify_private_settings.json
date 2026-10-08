@@ -1,0 +1,48 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+  Claude Code user settings (~/.claude/settings.json), evanharmon1/harmon-dotfiles#48.
+
+  Claude Code writes this file itself (/model, plugin installs, auto-mode
+  setup), so a whole-file target had two writers and drifted by design. This
+  modify template gives each key one owner. chezmoi passes the live file as
+  .chezmoi.stdin and:
+
+  - enforced (.chezmoitemplates/claude-settings/enforced.json): replaced on
+    every apply. permissions and hooks are authoritative and replaced whole,
+    so the security config is exactly what is reviewed in git. enabledPlugins
+    has the listed plugins forced on; plugins installed in-session are kept.
+  - seeded (.chezmoitemplates/claude-settings/seeded.json): set only where
+    the key is missing (a fresh machine); after that the live value wins, so
+    /model and the other preferences stick.
+  - every other key (autoMode and whatever else Claude Code writes) passes
+    through untouched.
+
+  While the live file already matches, it is kept byte-for-byte, so Claude
+  Code's own key order never shows as drift. A correction re-serialises it:
+  key order changes, values survive, a number beyond float64 precision would
+  be rounded (Claude Code writes none), and a Claude Code write landing
+  during the correction is lost.
+*/ -}}
+{{- $enforced := include ".chezmoitemplates/claude-settings/enforced.json" | fromJson -}}
+{{- $seeded := include ".chezmoitemplates/claude-settings/seeded.json" | fromJson -}}
+{{- $current := dict -}}
+{{- $before := dict -}}
+{{- if .chezmoi.stdin -}}
+{{-   $current = fromJson .chezmoi.stdin -}}
+{{-   $before = fromJson .chezmoi.stdin -}}
+{{- end -}}
+{{- /* Seed: fill only what is missing; live values win. */ -}}
+{{- $merged := merge $current $seeded -}}
+{{- /* Enforce: replace whole, except plugins, which are forced on but not exclusive. */ -}}
+{{- range $key, $value := $enforced -}}
+{{-   if eq $key "enabledPlugins" -}}
+{{-     $_ := set $merged $key (mergeOverwrite (get $merged $key | default dict) $value) -}}
+{{-   else -}}
+{{-     $_ := set $merged $key $value -}}
+{{-   end -}}
+{{- end -}}
+{{- if and .chezmoi.stdin (eq (toJson $before) (toJson $merged)) -}}
+{{- .chezmoi.stdin -}}
+{{- else -}}
+{{ toPrettyJson $merged }}
+{{ end -}}

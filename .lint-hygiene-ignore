@@ -12,3 +12,8 @@ private_dot_codex/modify_private_harmon-local.config.toml
 # reason: Antigravity appends to trustedWorkspaces itself. The JSON it renders
 # is checked by scripts/test-ai-config.sh.
 private_dot_gemini/antigravity-cli/modify_private_settings.json
+
+# The Claude Code user settings are a chezmoi modify template for the same
+# reason (#48): Claude Code writes the file itself. Its managed values live in
+# .chezmoitemplates/claude-settings/*.json, which are plain JSON and checked.
+private_dot_claude/modify_private_settings.json

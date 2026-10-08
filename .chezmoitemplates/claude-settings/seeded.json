@@ -1,0 +1,28 @@
+{
+  "model": "opus",
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-fable-5-1": {
+      "effortLevel": "high"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "medium"
+    }
+  },
+  "tui": "fullscreen",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "skipWorkflowUsageWarning": true,
+  "preferredNotifChannel": "kitty",
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true,
+  "feedbackDrafts": "off",
+  "inputNeededNotifEnabled": true,
+  "remoteControlAtStartup": true,
+  "voiceEnabled": true
+}

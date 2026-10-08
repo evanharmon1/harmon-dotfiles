@@ -36,8 +36,15 @@ opencode_test() {
 }
 
 echo "==> parse AI harness configuration"
-jq -e . "$repo/private_dot_claude/private_settings.json" >/dev/null ||
-    fail "Claude settings are not valid JSON"
+# Claude Code user settings are a chezmoi modify template (#48) over two data
+# files: enforced (re-asserted every apply) and seeded (set only when missing).
+claude_enforced="$repo/.chezmoitemplates/claude-settings/enforced.json"
+claude_seeded="$repo/.chezmoitemplates/claude-settings/seeded.json"
+jq -e . "$claude_enforced" >/dev/null || fail "enforced Claude settings are not valid JSON"
+jq -e . "$claude_seeded" >/dev/null || fail "seeded Claude settings are not valid JSON"
+jq -e -n --slurpfile e "$claude_enforced" --slurpfile s "$claude_seeded" \
+    '[$e[0] | keys[]] - ["//"] as $ek | [$s[0] | keys[]] as $sk | ($ek - ($ek - $sk)) == []' >/dev/null ||
+    fail "a Claude setting is both enforced and seeded; each key needs exactly one owner"
 jq -e . "$repo/private_dot_codex/private_hooks.json" >/dev/null ||
     fail "Codex hooks are not valid JSON"
 jq -e . "$repo/private_dot_gemini/config/hooks.json" >/dev/null ||
@@ -76,7 +83,9 @@ done
     fail "local Codex profile must use on-request approvals"
 [ "$(yq '.project_doc_max_bytes' "$profile")" = "65536" ] ||
     fail "local Codex profile must load up to 64 KiB of project guidance"
-claude_settings="$repo/private_dot_claude/private_settings.json"
+# The managed view of the Claude settings: seeded defaults under the enforced keys.
+claude_settings="$test_tmp/claude-settings.managed.json"
+jq -s '.[0] * .[1]' "$claude_seeded" "$claude_enforced" >"$claude_settings"
 [ "$(jq -r '.model' "$claude_settings")" = "opus" ] ||
     fail "Claude must default to the opus alias"
 [ "$(jq -r '.modelSettings["claude-fable-5-1"].effortLevel' "$claude_settings")" = "high" ] ||
@@ -384,6 +393,70 @@ if command -v chezmoi >/dev/null 2>&1; then
         fail "fresh Antigravity settings do not render exactly the managed settings"
 else
     echo "    chezmoi not installed; skipping the Antigravity modify-template behaviour checks"
+fi
+
+echo "==> validate the Claude settings modify template when chezmoi is available"
+if command -v chezmoi >/dev/null 2>&1; then
+    render_claude() { # home-dir -> rendered settings on stdout
+        chezmoi --source "$repo" --destination "$1" --config "$test_tmp/chezmoi.toml" \
+            --persistent-state "$1.state" cat "$1/.claude/settings.json"
+    }
+    : >"$test_tmp/chezmoi.toml"
+    cl_home="$test_tmp/claude-seed"
+    mkdir -p "$cl_home/.claude"
+    # A live file as Claude Code leaves it: /model changed, a seeded key
+    # missing, an extra allow rule, a plugin installed in-session, a managed
+    # plugin switched off, hooks edited, and autoMode written by setup.
+    jq --arg m "claude-sonnet-5-5" '
+        .model = $m
+        | del(.feedbackDrafts)
+        | .permissions.allow += ["Bash(rm:*)"]
+        | .permissions.additionalDirectories = ["/elsewhere"]
+        | .enabledPlugins["extra@somewhere"] = true
+        | .enabledPlugins[(.enabledPlugins | keys[0])] = false
+        | .hooks = {}
+        | .autoMode = {environment: ["### Org-wide", "**Trusted repo**: example"]}' \
+        "$claude_settings" >"$cl_home/.claude/settings.json"
+    render_claude "$cl_home" >"$test_tmp/cl.out" || fail "the Claude settings template did not render"
+    [ "$(jq -r '.model' "$test_tmp/cl.out")" = "claude-sonnet-5-5" ] ||
+        fail "the Claude settings template reverted an in-session /model change (seeded keys must keep the live value)"
+    [ "$(jq -r '.feedbackDrafts' "$test_tmp/cl.out")" = "$(jq -r '.feedbackDrafts' "$claude_seeded")" ] ||
+        fail "the Claude settings template did not seed a missing preference"
+    jq -e --slurpfile e "$claude_enforced" '.permissions == $e[0].permissions and .hooks == $e[0].hooks' \
+        "$test_tmp/cl.out" >/dev/null ||
+        fail "Claude permissions and hooks must be exactly the enforced ones (authoritative)"
+    jq -e '.enabledPlugins["extra@somewhere"] == true' "$test_tmp/cl.out" >/dev/null ||
+        fail "the Claude settings template dropped an in-session plugin"
+    jq -e --slurpfile e "$claude_enforced" '. as $o
+        | $e[0].enabledPlugins | to_entries | all(.value as $v | $o.enabledPlugins[.key] == $v)' \
+        "$test_tmp/cl.out" >/dev/null ||
+        fail "the Claude settings template did not force the managed plugins back to their managed state"
+    jq -e '.autoMode.environment[1] == "**Trusted repo**: example"' "$test_tmp/cl.out" >/dev/null ||
+        fail "the Claude settings template dropped Claude Code's own autoMode block"
+    # Up to date, and up to date in Claude Code's own key order: kept as-is.
+    cp "$test_tmp/cl.out" "$cl_home/.claude/settings.json"
+    render_claude "$cl_home" >"$test_tmp/cl.stable"
+    cmp -s "$test_tmp/cl.stable" "$test_tmp/cl.out" ||
+        fail "re-rendering up-to-date Claude settings changed them (permanent drift)"
+    jq -S . "$test_tmp/cl.out" >"$cl_home/.claude/settings.json"
+    render_claude "$cl_home" >"$test_tmp/cl.sorted"
+    cmp -s "$test_tmp/cl.sorted" "$cl_home/.claude/settings.json" ||
+        fail "reordered but up-to-date Claude settings were rewritten instead of kept"
+    # No live file: exactly the managed settings.
+    cl_fresh="$test_tmp/claude-fresh"
+    mkdir -p "$cl_fresh"
+    render_claude "$cl_fresh" >"$test_tmp/cl.fresh" || fail "the Claude settings template did not render without a live file"
+    jq -e --slurpfile m "$claude_settings" '. == $m[0]' "$test_tmp/cl.fresh" >/dev/null ||
+        fail "fresh Claude settings do not render exactly the managed settings"
+    # Applied, the settings are private.
+    chezmoi --source "$repo" --destination "$cl_home" --config "$test_tmp/chezmoi.toml" \
+        --persistent-state "$cl_home.state" apply --force "$cl_home/.claude/settings.json" ||
+        fail "chezmoi could not apply the Claude settings to a scratch home"
+    cl_mode="$(stat -c '%a' "$cl_home/.claude/settings.json" 2>/dev/null ||
+        stat -f '%Lp' "$cl_home/.claude/settings.json")"
+    [ "$cl_mode" = "600" ] || fail "applied Claude settings have mode $cl_mode, expected 600"
+else
+    echo "    chezmoi not installed; skipping the Claude settings modify-template behaviour checks"
 fi
 
 echo "==> validate Codex policy rules when the CLI is available"
