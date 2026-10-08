@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel)"
-profile="$repo/private_dot_codex/private_harmon-local.config.toml"
+profile_template="$repo/private_dot_codex/modify_private_harmon-local.config.toml"
 opencode_dir="$repo/dot_config/opencode"
 opencode_config="$opencode_dir/opencode.jsonc"
 opencode_tui="$opencode_dir/tui.jsonc"
@@ -18,6 +18,13 @@ trap 'rm -rf "$test_tmp"' EXIT
 mkdir -p "$test_tmp/home" "$test_tmp/config" "$test_tmp/data" \
     "$test_tmp/cache" "$test_tmp/state" "$test_tmp/config/opencode"
 cp "$opencode_config" "$opencode_tui" "$test_tmp/config/opencode/"
+
+# The local Codex profile is a chezmoi modify template (#71): its managed keys
+# are the TOML literal handed to `fromToml`. Extract that block so the static
+# checks below read exactly what chezmoi lays over the live file.
+profile="$test_tmp/harmon-local.managed.toml"
+awk '/fromToml `$/{grab=1; next} grab && /^` -}}$/{exit} grab' "$profile_template" >"$profile"
+[ -s "$profile" ] || fail "could not find the managed TOML block in $profile_template"
 
 opencode_test() {
     HOME="$test_tmp/home" \
@@ -227,6 +234,85 @@ for runtime in 'sandbox echo ok' 'debug prompt-input'; do
     *) fail "Codex wrapper did not profile supported runtime command: $runtime" ;;
     esac
 done
+
+echo "==> validate the Codex profile modify template when chezmoi is available"
+if command -v chezmoi >/dev/null 2>&1; then
+    # Render the template the way `chezmoi apply` does, against a scratch home.
+    render_profile() { # home-dir -> rendered profile on stdout
+        chezmoi --source "$repo" --destination "$1" --config "$test_tmp/chezmoi.toml" \
+            --persistent-state "$1.state" cat "$1/.codex/harmon-local.config.toml"
+    }
+    : >"$test_tmp/chezmoi.toml"
+    seed_home="$test_tmp/codex-seed"
+    mkdir -p "$seed_home/.codex"
+    # A live file holding Codex's own runtime state and one drifted managed key.
+    cat >"$seed_home/.codex/harmon-local.config.toml" <<'TOML'
+model = "gpt-0-old"
+model_reasoning_effort = "medium"
+screen_reader_detection_done = true
+
+[tui.model_availability_nux]
+"gpt-6.1-sol" = 1
+
+[hooks.state."/home/u/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:abc"
+
+[hooks.state."browser@openai-bundled:plugin.json#hooks[0]:stop:0:0"]
+trusted_hash = "sha256:def"
+enabled = false
+
+[projects."/home/u/git/example"]
+trust_level = "trusted"
+TOML
+    # Renders go straight to files and are compared with cmp: command
+    # substitution would strip trailing newlines and hide a byte difference.
+    render_profile "$seed_home" >"$test_tmp/rendered.toml" ||
+        fail "the Codex profile modify template did not render"
+    [ "$(yq -p toml -oy '.model' "$test_tmp/rendered.toml")" = "$(yq '.model' "$profile")" ] ||
+        fail "the Codex profile template did not re-assert the managed model over a drifted value"
+    [ "$(yq -p toml -oy '.projects."/home/u/git/example".trust_level' "$test_tmp/rendered.toml")" = "trusted" ] ||
+        fail "the Codex profile template dropped Codex's project trust"
+    [ "$(yq -p toml -oy '.hooks.state."browser@openai-bundled:plugin.json#hooks[0]:stop:0:0".enabled' "$test_tmp/rendered.toml")" = "false" ] ||
+        fail "the Codex profile template dropped a disabled hook's state (it would silently re-enable)"
+    [ "$(yq -p toml -oy '.tui.model_availability_nux."gpt-6.1-sol"' "$test_tmp/rendered.toml")" = "1" ] ||
+        fail "the Codex profile template dropped Codex's notice counters"
+    [ "$(yq -p toml -oy '.screen_reader_detection_done' "$test_tmp/rendered.toml")" = "true" ] ||
+        fail "the Codex profile template dropped an unmanaged top-level key"
+    # Once every managed value holds, the file is kept byte-for-byte, so Codex's
+    # own formatting never shows up as chezmoi drift.
+    cp "$test_tmp/rendered.toml" "$seed_home/.codex/harmon-local.config.toml"
+    render_profile "$seed_home" >"$test_tmp/stable.toml"
+    cmp -s "$test_tmp/stable.toml" "$test_tmp/rendered.toml" ||
+        fail "re-rendering an up-to-date Codex profile changed it (permanent drift)"
+    sed 's/^approval_policy = .*/approval_policy = "on-request"   # reformatted by Codex/' \
+        "$test_tmp/rendered.toml" >"$seed_home/.codex/harmon-local.config.toml"
+    render_profile "$seed_home" >"$test_tmp/reformatted.toml"
+    cmp -s "$test_tmp/reformatted.toml" "$seed_home/.codex/harmon-local.config.toml" ||
+        fail "a reformatted but up-to-date Codex profile was rewritten instead of kept"
+    # No live file yet: the managed defaults alone.
+    fresh_home="$test_tmp/codex-fresh"
+    mkdir -p "$fresh_home"
+    render_profile "$fresh_home" >"$test_tmp/fresh.toml" || fail "the Codex profile template did not render without a live file"
+    # With no live file the render is exactly the managed block: every owned
+    # default, nothing else.
+    python3 - "$test_tmp/fresh.toml" "$profile" <<'PY_FRESH' ||
+import sys, tomllib
+fresh, managed = (tomllib.load(open(p, "rb")) for p in sys.argv[1:3])
+sys.exit(0 if fresh == managed else 1)
+PY_FRESH
+        fail "a fresh Codex profile does not render exactly the managed defaults"
+    # Over a live file, every managed key holds its managed value.
+    python3 - "$test_tmp/rendered.toml" "$profile" <<'PY_MANAGED' ||
+import sys, tomllib
+out, managed = (tomllib.load(open(p, "rb")) for p in sys.argv[1:3])
+def held(m, o):
+    return all(held(v, o.get(k, {})) if isinstance(v, dict) else o.get(k) == v for k, v in m.items())
+sys.exit(0 if held(managed, out) else 1)
+PY_MANAGED
+        fail "a rendered Codex profile does not hold every managed value"
+else
+    echo "    chezmoi not installed; skipping the modify-template behaviour checks"
+fi
 
 echo "==> validate Codex policy rules when the CLI is available"
 if command -v codex >/dev/null 2>&1; then

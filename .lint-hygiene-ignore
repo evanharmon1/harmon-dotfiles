@@ -1,0 +1,9 @@
+# Per-file exemptions for scripts/lint-hygiene.sh (one path or glob per line).
+# Reserved for app-managed configs the app rewrites on its own terms.
+
+# The local Codex profile is a chezmoi modify template (#71): Codex rewrites
+# the deployed file with its own runtime state, so the source holds template
+# syntax, not TOML, and the TOML check cannot parse it. The TOML it renders is
+# checked by scripts/test-ai-config.sh instead (static managed block always,
+# full render when chezmoi is installed).
+private_dot_codex/modify_private_harmon-local.config.toml

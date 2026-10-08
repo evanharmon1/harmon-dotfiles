@@ -1,0 +1,69 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+  CLI-only local Codex defaults (`codex --profile harmon-local`, selected by
+  the shell wrapper in ~/.dotfiles/.aliases; desktop and IDE clients keep the
+  unprofiled base config).
+
+  Codex writes its own runtime state into this same file: hook trust hashes
+  ([hooks.state]), per-project trust ([projects."<path>"]), and seen-notice
+  counters. A whole-file target would erase that state on every apply and show
+  permanent drift, so this is a modify template (evanharmon1/harmon-dotfiles#71):
+  chezmoi passes the live file as .chezmoi.stdin, the managed keys below are
+  laid over it, and every other key and table passes through untouched.
+
+  Only the keys in $managed are owned here. To stop managing a key, delete it
+  from $managed; the live value then stays as Codex left it.
+
+  Limits: while every managed value already holds, the live file is kept
+  byte-for-byte, so Codex's own formatting never shows as drift. When a managed
+  value has to be corrected, the file is re-serialised: Codex's tables and keys
+  survive, but comments and key order in the live file do not, and a TOML
+  local time or datetime without an offset would be shifted by the host's time
+  zone (Codex writes none today). A Codex write landing between chezmoi's
+  read and its write of a correction is lost; outside a correction the file is
+  never rewritten. A managed array
+  (tui.status_line) replaces the live one whole. Project trust is per exact
+  path in Codex, so trusting repos stays Codex's own runtime state, not a
+  managed key.
+*/ -}}
+{{- $managed := fromToml `
+model = "gpt-6.1-sol"
+model_reasoning_effort = "medium"
+project_doc_max_bytes = 65536
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+
+[features]
+hooks = true
+
+[tui]
+status_line = [
+  "project-name",
+  "git-branch",
+  "model-with-reasoning",
+  "context-remaining",
+  "five-hour-limit",
+  "weekly-limit",
+  "used-tokens",
+  "run-state",
+]
+` -}}
+{{- $current := dict -}}
+{{- $before := dict -}}
+{{- if .chezmoi.stdin -}}
+{{-   $current = fromToml .chezmoi.stdin -}}
+{{-   $before = fromToml .chezmoi.stdin -}}
+{{- end -}}
+{{- $merged := mergeOverwrite $current $managed -}}
+{{- if and .chezmoi.stdin (eq (toToml $before) (toToml $merged)) -}}
+{{- /* Every managed value already holds: keep the file byte-for-byte, so
+       Codex's own formatting never shows up as drift. */ -}}
+{{- .chezmoi.stdin -}}
+{{- else -}}
+# CLI-only local Codex defaults, managed by chezmoi (harmon-dotfiles,
+# private_dot_codex/modify_private_harmon-local.config.toml). The managed keys
+# are re-asserted on every apply; everything else here is Codex's own state and
+# is kept.
+{{ toToml $merged }}
+{{- end -}}
