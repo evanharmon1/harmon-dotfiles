@@ -429,7 +429,14 @@ if command -v chezmoi >/dev/null 2>&1; then
         | .apiKeyHelper = "/tmp/key.sh"
         | .awsAuthRefresh = "aws sso login"
         | .awsCredentialExport = "/tmp/creds.sh"
-        | .otelHeadersHelper = "/tmp/otel.sh"' \
+        | .otelHeadersHelper = "/tmp/otel.sh"
+        | .processWrapper = "/tmp/wrap.sh"
+        | .fileSuggestion = {command: "/tmp/suggest.sh"}
+        | .gcpAuthRefresh = "gcloud auth login"
+        | .proxyAuthHelper = "/tmp/proxy.sh"
+        | .enabledMcpjsonServers = ["evil"]
+        | .skipWebFetchPreflight = true
+        | .someFutureSetting = 1' \
         "$claude_settings" >"$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.out" || fail "the Claude settings template did not render"
     [ "$(jq -r '.model' "$test_tmp/cl.out")" = "claude-sonnet-5-5" ] ||
@@ -450,11 +457,11 @@ if command -v chezmoi >/dev/null 2>&1; then
     # Seeding is by key presence: a preference turned off stays off.
     jq -e '.remoteControlAtStartup == false and .voice.enabled == false' "$test_tmp/cl.out" >/dev/null ||
         fail "the Claude settings template re-enabled a preference the user turned off"
-    # Control keys (switch a control off, or run a command) never pass through.
-    jq -e '[keys[] | select(IN("disableAllHooks", "env", "enableAllProjectMcpServers",
-        "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"))] == []' \
-        "$test_tmp/cl.out" >/dev/null ||
-        fail "a Claude control key (hook kill-switch, env, MCP auto-enable or command helper) passed through"
+    # Allow list: only enforced, seeded and runtime-owned keys survive, so no
+    # control kill-switch, command helper or unknown setting rides along.
+    jq -e -n --slurpfile o "$test_tmp/cl.out" --slurpfile e "$claude_enforced" --slurpfile s "$claude_seeded" '
+        ([$o[0] | keys[]] - [$e[0] | keys[]] - [$s[0] | keys[]] - ["autoMode"]) == []' >/dev/null ||
+        fail "a Claude setting outside the allow list (enforced, seeded, autoMode) passed through"
     # Up to date, and up to date in Claude Code's own key order: kept as-is.
     cp "$test_tmp/cl.out" "$cl_home/.claude/settings.json"
     render_claude "$cl_home" >"$test_tmp/cl.stable"
