@@ -13,6 +13,14 @@ fail() {
     exit 1
 }
 
+# The modify-template behaviour checks below skip when chezmoi is missing, so a
+# local run without it still passes. CI installs a pinned chezmoi
+# (.github/actions/setup, #133), so there a missing one is a broken runner,
+# not a reason to drop the checks silently.
+if [ "${CI:-}" = "true" ] && ! command -v chezmoi >/dev/null 2>&1; then
+    fail "chezmoi is not installed in CI, so the modify-template behaviour checks cannot run"
+fi
+
 test_tmp="$(mktemp -d)"
 trap 'rm -rf "$test_tmp"' EXIT
 mkdir -p "$test_tmp/home" "$test_tmp/config" "$test_tmp/data" \

@@ -8,8 +8,8 @@ description: >-
 inputs:
   lint-tools:
     description: >-
-      Install zsh, shellcheck, shfmt, actionlint, yamllint, yq — required by
-      `task check` / `task verify`.
+      Install zsh, shellcheck, shfmt, actionlint, yamllint, yq and chezmoi —
+      required by `task check` / `task verify`.
     default: "false"
   gitleaks:
     description: Install gitleaks — required by `task security:secrets`.
@@ -156,6 +156,55 @@ runs:
             "yamllint==${YAMLLINT_VERSION}"
           ln -sfn "${yamllint_venv}/bin/yamllint" "${lint_tools_bin}/yamllint"
         fi
+    # This repo's own prerequisite, like zsh above: it is the chezmoi source
+    # directory, and scripts/test-ai-config.sh renders its modify templates
+    # with chezmoi (#133). Not a template concern, so it stays here.
+    - name: Install chezmoi
+      if: inputs.lint-tools == 'true'
+      shell: bash
+      run: |
+        # renovate: datasource=github-releases depName=twpayne/chezmoi extractVersion=^v?(?<version>.+)$
+        CHEZMOI_VERSION=2.73.0 # pin-pair: chezmoi
+        installed_chezmoi_version=
+        if command -v chezmoi >/dev/null 2>&1; then
+          # "chezmoi version v2.73.0, commit …": the third word, without its
+          # trailing comma and leading v.
+          installed_chezmoi_version="$(chezmoi --version 2>/dev/null | awk '{print $3}')" || true
+          installed_chezmoi_version="${installed_chezmoi_version%,}"
+          installed_chezmoi_version="${installed_chezmoi_version#v}"
+        fi
+        if [ "$installed_chezmoi_version" != "$CHEZMOI_VERSION" ]; then
+          runner_arch="${RUNNER_ARCH:-$(uname -m)}"
+          case "$runner_arch" in
+            X64|x86_64)
+              chezmoi_arch=amd64
+              # renovate: datasource=github-release-attachments depName=twpayne/chezmoi digestVersion=v2.73.0
+              chezmoi_sha256=b597729b687af4488a848240134cb633de8ca0f04e0d26d48f400ee2ac338ffa # pin-pair: chezmoi
+              ;;
+            ARM64|arm64|aarch64)
+              chezmoi_arch=arm64
+              # renovate: datasource=github-release-attachments depName=twpayne/chezmoi digestVersion=v2.73.0
+              chezmoi_sha256=abcb840401d3c1f2356e0f53f5d52aa10d10f572654d9626db9ad0ca4dc03355 # pin-pair: chezmoi
+              ;;
+            *)
+              echo "::error::Unsupported runner architecture for pinned chezmoi: ${runner_arch}" >&2
+              exit 1
+              ;;
+          esac
+          # Job-scoped directory prepended via GITHUB_PATH, as for gitleaks
+          # below; the archive is verified before it is extracted.
+          : "${RUNNER_TEMP:?RUNNER_TEMP is required for the job-private chezmoi install}"
+          : "${GITHUB_PATH:?GITHUB_PATH is required to publish the pinned chezmoi}"
+          chezmoi_bin="${RUNNER_TEMP}/harmon-dotfiles-chezmoi/${CHEZMOI_VERSION}"
+          mkdir -p "$chezmoi_bin"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/chezmoi.tgz" \
+            "https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}/chezmoi_${CHEZMOI_VERSION}_linux_${chezmoi_arch}.tar.gz"
+          echo "${chezmoi_sha256}  ${RUNNER_TEMP}/chezmoi.tgz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/chezmoi.tgz" -C "$chezmoi_bin" chezmoi
+          printf '%s\n' "$chezmoi_bin" >> "$GITHUB_PATH"
+          export PATH="${chezmoi_bin}:${PATH}"
+        fi
+        chezmoi --version
     - name: Install gitleaks
       if: inputs.gitleaks == 'true'
       shell: bash
