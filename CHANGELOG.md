@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.18.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.0...v0.18.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **antigravity:** manage only the owned keys of the CLI settings, default Gemini 3.8 ([42f8dc6](https://github.com/evanharmon1/harmon-dotfiles/commit/42f8dc6a2f6f2a80baa34a47e937db093ca7dbc9))
+* **antigravity:** manage only the owned keys of the CLI settings, default Gemini 3.8 ([30794c1](https://github.com/evanharmon1/harmon-dotfiles/commit/30794c1f2e52b609ed9b60e1c08f2d5d7acbb299))
+* **claude:** give each Claude Code setting one owner instead of two writers ([0afd2bf](https://github.com/evanharmon1/harmon-dotfiles/commit/0afd2bfd546b56d861c47994ae353412b86c36df))
+* **claude:** give each Claude Code setting one owner instead of two writers ([5948434](https://github.com/evanharmon1/harmon-dotfiles/commit/59484347819d6ee5715d3a49e5ebbcb7fd43f0d9)), closes [#48](https://github.com/evanharmon1/harmon-dotfiles/issues/48)
+* **claude:** own every Claude control key instead of stripping kill-switches one by one ([d1a7d46](https://github.com/evanharmon1/harmon-dotfiles/commit/d1a7d46fa7206a497bd3446728d8e30140d7662c)), closes [#48](https://github.com/evanharmon1/harmon-dotfiles/issues/48)
+* **claude:** pass through only allow-listed Claude settings ([cb568f2](https://github.com/evanharmon1/harmon-dotfiles/commit/cb568f21292ed00d2e61a184ffbc5c908bbc6762)), closes [#48](https://github.com/evanharmon1/harmon-dotfiles/issues/48)
+* **claude:** seed Claude settings by key presence, and never pass hook kill-switches ([82a4dae](https://github.com/evanharmon1/harmon-dotfiles/commit/82a4dae3ed468beeb6812f70f03067b572ddea28)), closes [#48](https://github.com/evanharmon1/harmon-dotfiles/issues/48)
+* **codex:** manage only the owned keys of the local Codex profile ([a9cc443](https://github.com/evanharmon1/harmon-dotfiles/commit/a9cc4430aaec380068356ae65748a0db4b3d6a5e))
+* **codex:** manage only the owned keys of the local Codex profile ([51d0bff](https://github.com/evanharmon1/harmon-dotfiles/commit/51d0bff202fe7107aa6d1961f0eea68b8c08674c)), closes [#71](https://github.com/evanharmon1/harmon-dotfiles/issues/71)
+
 ## [0.18.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.17.6...v0.18.0) (2026-10-08)
 
 
