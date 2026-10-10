@@ -553,31 +553,38 @@ sub_out=$(bash "$sub_sl" <<<'{"columns":120,"tasks":[
   {"id":"t5","model":"some-other-model","tokenCount":null},
   {"name":"no-id"}, "junk"]}')
 sub_row() { jq -r --arg id "$1" 'select(.id == $id) | .content' <<<"$sub_out"; }
-[ "$(sub_row t1)" = "reviewer · sonnet-5.5 · high · 12.3k · Review diff" ] ||
+[ "$(sub_row t1)" = "sonnet-5.5 · reviewer · high · 12.3k · Review diff" ] ||
     fail "subagent statusline row t1 wrong: $(sub_row t1)"
-[ "$(sub_row t2)" = "Explore · … · 800 · Find loader" ] ||
+[ "$(sub_row t2)" = "… · Explore · 800 · Find loader" ] ||
     fail "subagent statusline row t2 (unresolved model) wrong: $(sub_row t2)"
-[ "$(sub_row t3)" = "h · haiku-4.5 · 2.5M" ] || fail "subagent statusline row t3 wrong: $(sub_row t3)"
-[ "$(sub_row t4)" = "o · opus-5.5" ] || fail "subagent statusline row t4 wrong: $(sub_row t4)"
+[ "$(sub_row t3)" = "haiku-4.5 · h · 2.5M" ] || fail "subagent statusline row t3 wrong: $(sub_row t3)"
+[ "$(sub_row t4)" = "opus-5.5 · o" ] || fail "subagent statusline row t4 wrong: $(sub_row t4)"
 [ "$(sub_row t5)" = "some-other-model" ] || fail "subagent statusline row t5 (unknown model) wrong: $(sub_row t5)"
-# A narrow panel clips the description, never the model (challenge round 1).
+# A narrow panel clips the name and description, never the model: it is the
+# first field (challenge round 1, review round 1).
 sub_narrow=$(bash "$sub_sl" <<<'{"columns":40,"tasks":[{"id":"n1","name":"implementer","model":"claude-sonnet-5-5","tokenCount":103431,"description":"Implement the subagent status line so each row shows its model"}]}' |
     jq -r '.content')
 case "$sub_narrow" in
-"implementer · sonnet-5.5 · 103.4k · "*) ;;
+"sonnet-5.5 · implementer · 103.4k · "*) ;;
 *) fail "a narrow subagent row must keep the model ahead of the description: $sub_narrow" ;;
 esac
 [ "$(printf '%s' "$sub_narrow" | jq -Rr 'length')" -le 40 ] ||
     fail "a subagent row must be clipped to the reported columns: $sub_narrow"
+sub_long=$(bash "$sub_sl" <<<'{"columns":40,"tasks":[{"id":"l","name":"frontend-accessibility-reviewer","model":"claude-sonnet-5-5","description":"Audit the panel"}]}' |
+    jq -r '.content')
+case "$sub_long" in
+"sonnet-5.5 · "*) ;;
+*) fail "a long agent name must not push the model out of a narrow row: $sub_long" ;;
+esac
 # A very narrow panel is honoured, not replaced by a default width.
 sub_tiny=$(bash "$sub_sl" <<<'{"columns":8,"tasks":[{"id":"x","name":"implementer","model":"claude-sonnet-5-5"}]}' |
     jq -r '.content')
 [ "$(printf '%s' "$sub_tiny" | jq -Rr 'length')" -le 8 ] ||
     fail "an 8-column subagent row must fit 8 columns: $sub_tiny"
 # Bidi controls and line/paragraph separators never reach the row.
-sub_bidi=$(bash "$sub_sl" <<<'{"tasks":[{"id":"b","name":"a\u202eb\u2028c\u2066d","model":"claude-opus-5-5"}]}' |
+sub_bidi=$(bash "$sub_sl" <<<'{"tasks":[{"id":"b","name":"a\u202eb\u2028c\u2066d\u061ce","model":"claude-opus-5-5"}]}' |
     jq -r '.content')
-[ "$sub_bidi" = "abcd · opus-5.5" ] ||
+[ "$sub_bidi" = "opus-5.5 · abcde" ] ||
     fail "bidi and separator characters must be stripped from subagent rows: $(printf '%s' "$sub_bidi" | od -c | head -2)"
 [ "$(jq -s 'length' <<<"$sub_out")" = 5 ] ||
     fail "subagent statusline must emit exactly one line per task that has an id, got: $sub_out"
