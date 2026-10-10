@@ -178,6 +178,7 @@ for variant in "${variants[@]}"; do
         else
             for f in "${scripts[@]}"; do
                 base="${f##*/}"
+                dir="${f%/*}" # keeps any subdirectory under .chezmoiscripts/
                 if [ "${base#run_}" = "$base" ]; then
                     fail "$f is not a run_ script, so chezmoi would deploy it as a file instead of running it"
                     continue
@@ -188,8 +189,8 @@ for variant in "${variants[@]}"; do
                 name="${name#before_}"
                 name="${name#after_}"
                 name="${name%.tmpl}"
-                if ! printf '%s\n' "$managed" | grep -Fxq -- ".chezmoiscripts/$name"; then
-                    fail "$f is not picked up as a run script ($label): expected .chezmoiscripts/$name in 'chezmoi managed --include=scripts'"
+                if ! printf '%s\n' "$managed" | grep -Fxq -- "$dir/$name"; then
+                    fail "$f is not picked up as a run script ($label): expected $dir/$name in 'chezmoi managed --include=scripts'"
                 fi
             done
         fi

@@ -143,6 +143,13 @@ if [ "$have_chezmoi" -eq 1 ]; then
     printf '\n.chezmoiscripts/*\n' >>"$src/.chezmoiignore"
     expect_fail "ignored run script" "run_after_configure-claude-remote-control.sh" "$src"
 
+    # A valid run script in a subdirectory of .chezmoiscripts/ is picked up
+    # under that subdirectory, not rejected (review round 1).
+    src="$(fresh_copy nested-script)"
+    mkdir -p "$src/.chezmoiscripts/sub"
+    printf '#!/bin/sh\n' >"$src/.chezmoiscripts/sub/run_after_nested.sh"
+    out="$("$renderer" "$src" 2>&1)" || fail "a nested run script must be accepted: $out"
+
     # No .chezmoiscripts dir content is fine.
     src="$(fresh_copy no-scripts)"
     rm -rf "$src/.chezmoiscripts"
