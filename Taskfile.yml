@@ -75,6 +75,7 @@ tasks:
       - task: test:tasks
       - task: test:ci-results
       - task: test:ai-config
+      - task: test:render-templates
       - task: test:chezmoi-targets
       - task: test:claude-config
       - task: test:output
@@ -167,9 +168,12 @@ tasks:
 
   # ── Validation ─────────────────────────────────────────────────
   validate:
-    desc: Validate project config/artifacts
+    # Renders every chezmoi template and .chezmoiignore (issue #49) so a
+    # malformed one fails here instead of at `chezmoi apply` on a host. Needs
+    # chezmoi: skipped locally without it, a failure when CI=true.
+    desc: Render every chezmoi template and .chezmoiignore; check run scripts are picked up
     cmds:
-      - 'echo "No validate steps for this project type yet — see docs/CHECKLIST.md."'
+      - ./scripts/render-templates.sh
 
   guard:no-commit-to-main:
     desc: Block direct commits to main
@@ -460,6 +464,11 @@ tasks:
     desc: Validate Claude, Codex, and OpenCode config, rules, and symlinks
     cmds:
       - ./scripts/test-ai-config.sh
+
+  test:render-templates:
+    desc: Regression test for the template renderer behind `validate` (broken templates fail and are named)
+    cmds:
+      - ./scripts/test-render-templates.sh
 
   # ── Security ───────────────────────────────────────────────────
   security:

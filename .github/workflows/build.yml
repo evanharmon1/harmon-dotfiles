@@ -60,19 +60,24 @@ jobs:
       # weaker than the local gate (harmon-init#962). Each is a unit test
       # needing no container, network, or credential.
       #
-      # NOT here, deliberately: `validate` and `test`. Both are in `verify`
-      # unconditionally, but CI only invokes them from the build-test job,
-      # which is gated on use_node. So a repo with
+      # `validate` renders every chezmoi template (#49) and needs the pinned
+      # chezmoi that `lint-tools` installs, so it runs here.
+      #
+      # NOT here, deliberately: `test`. It is in `verify` unconditionally, but
+      # CI only invokes it from the build-test job, which is gated on
+      # use_node. So a repo with
       # `(include_terraform or include_ansible) and not use_node` runs real
-      # terraform/ansible checks locally and none in CI. Adding them here is
+      # terraform/ansible checks locally and none in CI. Adding it here is
       # not a one-liner — `terraform validate` needs an init step CI does not
       # have — so it is tracked as harmon-init#978 rather than fixed in the
       # same breath as these.
+      - run: task validate
       - run: task audit:agent-instructions
       - run: task test:agent-instructions-size
       - run: task test:agent-skill-links
       - run: task test:hooks
       - run: task test:ai-config
+      - run: task test:render-templates
       - run: task test:chezmoi-targets
       - run: task test:claude-config
       - run: task test:output
