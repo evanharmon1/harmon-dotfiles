@@ -1,3 +1,6 @@
+# Dev-machine package set. chezmoi deploys this file to ~/Brewfile.
+# The repo's own toolchain lives in `.Brewfile` (never deployed) — see #117.
+
 tap "1password/tap"
 tap "anomalyco/tap"
 tap "asheshgoplani/tap"
