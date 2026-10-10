@@ -569,6 +569,16 @@ case "$sub_narrow" in
 esac
 [ "$(printf '%s' "$sub_narrow" | jq -Rr 'length')" -le 40 ] ||
     fail "a subagent row must be clipped to the reported columns: $sub_narrow"
+# A very narrow panel is honoured, not replaced by a default width.
+sub_tiny=$(bash "$sub_sl" <<<'{"columns":8,"tasks":[{"id":"x","name":"implementer","model":"claude-sonnet-5-5"}]}' |
+    jq -r '.content')
+[ "$(printf '%s' "$sub_tiny" | jq -Rr 'length')" -le 8 ] ||
+    fail "an 8-column subagent row must fit 8 columns: $sub_tiny"
+# Bidi controls and line/paragraph separators never reach the row.
+sub_bidi=$(bash "$sub_sl" <<<'{"tasks":[{"id":"b","name":"a\u202eb\u2028c\u2066d","model":"claude-opus-5-5"}]}' |
+    jq -r '.content')
+[ "$sub_bidi" = "abcd · opus-5.5" ] ||
+    fail "bidi and separator characters must be stripped from subagent rows: $(printf '%s' "$sub_bidi" | od -c | head -2)"
 [ "$(jq -s 'length' <<<"$sub_out")" = 5 ] ||
     fail "subagent statusline must emit exactly one line per task that has an id, got: $sub_out"
 for payload in '{"tasks":[]}' '{}' '' 'not json' '{"tasks":null}' '{"tasks":[{"model":"claude-opus-5-5"}]}'; do

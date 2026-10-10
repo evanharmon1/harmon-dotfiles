@@ -31,9 +31,15 @@ fi
 
 jq -c '
   # Strip C0, DEL and C1 control bytes from anything echoed into a row, so a
-  # crafted agent name or description cannot inject escape sequences.
+  # crafted agent name or description cannot inject escape sequences; also
+  # the bidi format characters (U+200E/F, U+202A-202E, U+2066-2069) and the
+  # line/paragraph separators (U+2028/9), which could reorder the fields or
+  # break the row onto a second line.
   def s: (. // "") | tostring | explode
-         | map(select(. > 31 and . != 127 and (. < 128 or . > 159))) | implode;
+         | map(select(. > 31 and . != 127 and (. < 128 or . > 159)
+                      and . != 8206 and . != 8207
+                      and (. < 8232 or . > 8238)
+                      and (. < 8294 or . > 8297))) | implode;
   # claude-sonnet-5-5 -> sonnet-5.5, claude-haiku-4-5-20251001 -> haiku-4.5;
   # a trailing [1m] style suffix is kept. Anything else passes through.
   def short:
@@ -47,7 +53,7 @@ jq -c '
     elif . >= 1000 then "\((. / 100 | floor) / 10)k"
     else "\(floor)" end;
   def clip($n): if length > $n then .[0:$n - 1] + "…" else . end;
-  ((.columns | if type == "number" and . > 10 then floor else 200 end)) as $cols
+  ((.columns | if type == "number" and . >= 1 then floor else 200 end)) as $cols
   | (.tasks | if type == "array" then . else [] end)[]
   | select(type == "object" and ((.id | type) == "string") and .id != "")
   | { id: .id,
