@@ -5,8 +5,11 @@
 # in the agent panel with the same fields plus the subagent's MODEL (and its
 # effort, when one is set):
 #
-#   code-reviewer · Review the diff · sonnet-5.5 · high · 12.3k
-#   Explore · Find the config loader · … · 800
+#   code-reviewer · sonnet-5.5 · high · 12.3k · Review the diff
+#   Explore · … · 800 · Find the config loader
+#
+# The model comes before the description, so when the row is clipped to the
+# panel width it is the description that loses its tail, never the model.
 #
 # `…` stands in for the model while Claude Code has not resolved it yet (the
 # `model` field is omitted until then).
@@ -49,11 +52,11 @@ jq -c '
   | select(type == "object" and ((.id | type) == "string") and .id != "")
   | { id: .id,
       content: (
-        [ ((.name | s) as $n | if $n != "" then $n else (.agentType | s) end),
-          ((.label | s) as $l | if $l != "" then $l else (.description | s) end | clip(60)),
+        [ ((.name | s) as $n | if $n != "" then $n else (.agentType | s) end | clip(30)),
           ((.model | short) as $m | if $m != "" then $m else "…" end),
           (.effort | s),
-          (.tokenCount | tok)
+          (.tokenCount | tok),
+          ((.label | s) as $l | if $l != "" then $l else (.description | s) end | clip(60))
         ] | map(select(. != "")) | join(" · ") | clip($cols)
       ) }
 ' 2>/dev/null || true
