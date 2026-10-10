@@ -907,10 +907,10 @@ if [[ "${SECTION}" == "setup" ]]; then
 
         # Toolchain audit (brew) — slow JSON-API call; fire it in the background
         # so it overlaps the GitHub lookups. Needs no remote.
-        if [ -f Brewfile ] && command -v brew >/dev/null 2>&1; then
-            (brew bundle check --file=Brewfile >/dev/null 2>&1 &&
+        if [ -f .Brewfile ] && command -v brew >/dev/null 2>&1; then
+            (brew bundle check --file=.Brewfile >/dev/null 2>&1 &&
                 echo ok >"${d}/brew" || echo no >"${d}/brew") &
-        elif [ -f Brewfile ]; then
+        elif [ -f .Brewfile ]; then
             echo unknown >"${d}/brew"
         else
             echo na >"${d}/brew"

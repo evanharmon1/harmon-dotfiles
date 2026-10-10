@@ -20,7 +20,7 @@ environment — against the items below
 
 ## 1. Local setup
 
-- [ ] `task install` — Brewfile deps, and lefthook git hooks
+- [ ] `task install` — `.Brewfile` deps, and lefthook git hooks
 - [ ] `task verify` passes locally
 - [ ] **Vendor shared agent skills**: `.skills-sync.yaml` pins which harmon-devkit
       skill categories this repo gets (from your `skill_categories` answer). Set

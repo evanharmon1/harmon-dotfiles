@@ -75,6 +75,7 @@ tasks:
       - task: test:tasks
       - task: test:ci-results
       - task: test:ai-config
+      - task: test:chezmoi-targets
       - task: test:claude-config
       - task: test:output
       - task: test:status
@@ -450,6 +451,11 @@ tasks:
     cmds:
       - ./scripts/test-claude-config.sh
 
+  test:chezmoi-targets:
+    desc: Assert chezmoi deploys private_Brewfile as ~/Brewfile and never the repo toolchain .Brewfile
+    cmds:
+      - ./scripts/test-chezmoi-targets.sh
+
   test:ai-config:
     desc: Validate Claude, Codex, and OpenCode config, rules, and symlinks
     cmds:
@@ -528,7 +534,7 @@ tasks:
     cmds:
       # Use THIS repo's Brewfile by absolute path (never a user/global one), and
       # don't cascade-upgrade unrelated already-installed brew dependents.
-      - HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew bundle --file={{.ROOT_DIR}}/Brewfile
+      - HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew bundle --file={{.ROOT_DIR}}/.Brewfile
       - task: install:hooks
 
   install:hooks:
