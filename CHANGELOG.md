@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.18.2](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.1...v0.18.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* **chezmoi:** deploy private_Brewfile to ~/Brewfile again ([a3112a2](https://github.com/evanharmon1/harmon-dotfiles/commit/a3112a298b1324ace06f033e73e9d556d23aa5ee))
+* **chezmoi:** deploy private_Brewfile to ~/Brewfile again ([b0c46e9](https://github.com/evanharmon1/harmon-dotfiles/commit/b0c46e95cdd8df47f5f08172b3e61f000dd4a1db))
+* **chezmoi:** keep the subdirectory when checking nested run scripts ([ca8352a](https://github.com/evanharmon1/harmon-dotfiles/commit/ca8352aed057bac385c489f9ed1fbe383e5b35a5))
+* **chezmoi:** untrack the iCloud Bunch symlink that breaks chezmoi elsewhere ([5e2952d](https://github.com/evanharmon1/harmon-dotfiles/commit/5e2952d9ce8a6cd180e6074f22943a71064d38e6))
+* **chezmoi:** validate the whole source state and require .chezmoiignore ([245661f](https://github.com/evanharmon1/harmon-dotfiles/commit/245661fcc5184009febf93ebb5e01bda8d47e448))
+
 ## [0.18.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.0...v0.18.1) (2026-10-09)
 
 
