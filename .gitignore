@@ -70,6 +70,11 @@ settings.local.json
 # Scratch — anchored to root. (`.meta/` and the `*.code-workspace` are tracked;
 # `.DS_Store` above still keeps macOS cruft out of `.meta/`.)
 /todo.md
+# Bunch shortcuts are symlinks into this Mac's iCloud folder. Tracked, they
+# dangle on every other machine (CI, Linux, a fresh Mac), and chezmoi then
+# cannot read this source directory at all — not even with a .chezmoiignore
+# entry, since it stats every source path first. Keep them local (#49).
+/.meta/*.bunch
 
 #             .env
 #------------------------------------------------------------------------------

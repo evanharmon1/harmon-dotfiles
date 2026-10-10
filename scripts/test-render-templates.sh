@@ -113,19 +113,21 @@ if [ "$have_chezmoi" -eq 1 ]; then
     # only in one branch must still be caught. If a variant stopped taking a
     # branch, the clean tree would still pass, so these are the proof.
     src="$(fresh_copy gh-branch)"
-    sed -i.bak 's|^\[credential "https://gist.github.com"\]|{{ fail "boom" }}\n&|' \
+    sed -i.bak 's|^\[credential "https://gist.github.com"\]|{{ fail "boom" }}\
+&|' \
         "$src/dot_config/private_git/config.tmpl"
     rm -f "$src/dot_config/private_git/config.tmpl.bak"
-    grep -q 'fail "boom"' "$src/dot_config/private_git/config.tmpl" || fail "gh-branch mutation did not apply"
+    grep -qx '{{ fail "boom" }}' "$src/dot_config/private_git/config.tmpl" || fail "gh-branch mutation did not apply"
     expect_fail "gh-present branch" "config.tmpl" "$src"
 
     # The container, non-darwin and non-linux branches of .chezmoiignore.
     local_branch_case() {
         local name="$1" anchor="$2" dir
         dir="$(fresh_copy "$name")"
-        sed -i.bak "s|^${anchor}\$|{{ fail \"boom\" }}\n&|" "$dir/.chezmoiignore"
+        sed -i.bak "s|^${anchor}\$|{{ fail \"boom\" }}\\
+&|" "$dir/.chezmoiignore"
         rm -f "$dir/.chezmoiignore.bak"
-        grep -q 'fail "boom"' "$dir/.chezmoiignore" || fail "$name mutation did not apply"
+        grep -qx '{{ fail "boom" }}' "$dir/.chezmoiignore" || fail "$name mutation did not apply"
         expect_fail "$name" ".chezmoiignore" "$dir"
     }
     local_branch_case container-branch '\.config/git/config'
