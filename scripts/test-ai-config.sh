@@ -576,6 +576,11 @@ case "$sub_long" in
 "sonnet-5.5 · "*) ;;
 *) fail "a long agent name must not push the model out of a narrow row: $sub_long" ;;
 esac
+# The last field is the task description, not the progress label (#143).
+sub_label=$(bash "$sub_sl" <<<'{"tasks":[{"id":"d","name":"r","model":"claude-opus-5-5","description":"Review diff","label":"Reading file 3/9"}]}' |
+    jq -r '.content')
+[ "$sub_label" = "opus-5.5 · r · Review diff" ] ||
+    fail "a subagent row must show the description, not the progress label: $sub_label"
 # A very narrow panel is honoured, not replaced by a default width.
 sub_tiny=$(bash "$sub_sl" <<<'{"columns":8,"tasks":[{"id":"x","name":"implementer","model":"claude-sonnet-5-5"}]}' |
     jq -r '.content')

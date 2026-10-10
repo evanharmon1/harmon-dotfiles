@@ -63,7 +63,7 @@ jq -c '
           ((.name | s) as $n | if $n != "" then $n else (.agentType | s) end | clip(30)),
           (.effort | s),
           (.tokenCount | tok),
-          ((.label | s) as $l | if $l != "" then $l else (.description | s) end | clip(60))
+          ((.description | s) as $d | if $d != "" then $d else (.label | s) end | clip(60))
         ] | map(select(. != "")) | join(" · ") | clip($cols)
       ) }
 ' 2>/dev/null || true
