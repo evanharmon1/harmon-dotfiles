@@ -53,7 +53,7 @@ jq -e . "$claude_seeded" >/dev/null || fail "seeded Claude settings are not vali
 # Each owner holds exactly its keys: an omission, or a security-relevant key
 # moved to the seeded (live-wins) file, fails here.
 [ "$(jq -c 'keys' "$claude_enforced")" = \
-    '["//","enabledPlugins","hooks","permissions","sandbox","skipDangerousModePermissionPrompt","statusLine"]' ] ||
+    '["//","enabledPlugins","hooks","permissions","sandbox","skipDangerousModePermissionPrompt","statusLine","subagentStatusLine"]' ] ||
     fail "the enforced Claude settings do not hold exactly the enforced keys"
 [ "$(jq -c 'keys' "$claude_seeded")" = \
     '["agentPushNotifEnabled","effortLevel","feedbackDrafts","inputNeededNotifEnabled","model","modelSettings","preferredNotifChannel","remoteControlAtStartup","skipWorkflowUsageWarning","switchModelsOnFlag","tui","voice","voiceEnabled"]' ] ||
@@ -432,6 +432,7 @@ if command -v chezmoi >/dev/null 2>&1; then
         | .remoteControlAtStartup = false
         | .voice.enabled = false
         | .disableAllHooks = true
+        | .subagentStatusLine = {type: "command", command: "old"}
         | .enableAllProjectMcpServers = true
         | .env = {CLAUDE_CODE_SIMPLE: "1", CLAUDE_CODE_SAFE_MODE: "1"}
         | .apiKeyHelper = "/tmp/key.sh"
@@ -454,6 +455,9 @@ if command -v chezmoi >/dev/null 2>&1; then
     jq -e --slurpfile e "$claude_enforced" '.permissions == $e[0].permissions and .hooks == $e[0].hooks' \
         "$test_tmp/cl.out" >/dev/null ||
         fail "Claude permissions and hooks must be exactly the enforced ones (authoritative)"
+    jq -e --slurpfile e "$claude_enforced" '.subagentStatusLine == $e[0].subagentStatusLine' \
+        "$test_tmp/cl.out" >/dev/null ||
+        fail "a rendered Claude settings file must carry the enforced subagentStatusLine"
     jq -e '.enabledPlugins["extra@somewhere"] == true' "$test_tmp/cl.out" >/dev/null ||
         fail "the Claude settings template dropped an in-session plugin"
     jq -e --slurpfile e "$claude_enforced" '. as $o
@@ -533,5 +537,34 @@ case "$out_absent" in *'0%'*) fail "Antigravity statusline rendered false 0% for
 # 3. Empty payload degrades gracefully
 out_empty=$(NO_COLOR=1 STATUSLINE_HYPERLINK=0 bash "$agy_sl" <<<'')
 [ -n "$out_empty" ] || fail "Antigravity statusline returned empty output on empty payload"
+
+# 4. Claude subagent status line: one {"id","content"} JSON line per task
+# (https://code.claude.com/docs/en/statusline, "Subagent status lines").
+sub_sl="$repo/private_dot_claude/executable_subagent-statusline.sh"
+[ -x "$sub_sl" ] || fail "Claude subagent statusline script is missing or not executable"
+[ "$(jq -r '.subagentStatusLine | "\(.type) \(.command)"' "$claude_enforced")" = \
+    "command ~/.claude/subagent-statusline.sh" ] ||
+    fail "enforced Claude settings must register subagentStatusLine at ~/.claude/subagent-statusline.sh"
+sub_out=$(bash "$sub_sl" <<<'{"columns":120,"tasks":[
+  {"id":"t1","name":"reviewer","description":"Review diff","model":"claude-sonnet-5-5","effort":"high","tokenCount":12345},
+  {"id":"t2","agentType":"Explore","description":"Find loader","tokenCount":800},
+  {"id":"t3","name":"h","model":"claude-haiku-4-5-20251001","tokenCount":2500000},
+  {"id":"t4","name":"o","model":"claude-opus-5-5"},
+  {"id":"t5","model":"some-other-model","tokenCount":null},
+  {"name":"no-id"}, "junk"]}')
+sub_row() { jq -r --arg id "$1" 'select(.id == $id) | .content' <<<"$sub_out"; }
+[ "$(sub_row t1)" = "reviewer · Review diff · sonnet-5.5 · high · 12.3k" ] ||
+    fail "subagent statusline row t1 wrong: $(sub_row t1)"
+[ "$(sub_row t2)" = "Explore · Find loader · … · 800" ] ||
+    fail "subagent statusline row t2 (unresolved model) wrong: $(sub_row t2)"
+[ "$(sub_row t3)" = "h · haiku-4.5 · 2.5M" ] || fail "subagent statusline row t3 wrong: $(sub_row t3)"
+[ "$(sub_row t4)" = "o · opus-5.5" ] || fail "subagent statusline row t4 wrong: $(sub_row t4)"
+[ "$(sub_row t5)" = "some-other-model" ] || fail "subagent statusline row t5 (unknown model) wrong: $(sub_row t5)"
+[ "$(jq -s 'length' <<<"$sub_out")" = 5 ] ||
+    fail "subagent statusline must emit exactly one line per task that has an id, got: $sub_out"
+for payload in '{"tasks":[]}' '{}' '' 'not json' '{"tasks":null}' '{"tasks":[{"model":"claude-opus-5-5"}]}'; do
+    sub_empty=$(bash "$sub_sl" <<<"$payload") || fail "subagent statusline exited non-zero on: $payload"
+    [ -z "$sub_empty" ] || fail "subagent statusline should print nothing for '$payload', got: $sub_empty"
+done
 
 echo "==> AI harness configuration OK"
