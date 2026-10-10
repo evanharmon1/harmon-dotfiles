@@ -9,7 +9,8 @@
 #   Explore · … · 800 · Find the config loader
 #
 # The model comes before the description, so when the row is clipped to the
-# panel width it is the description that loses its tail, never the model.
+# panel width the description loses its tail first. Only a panel narrower
+# than the name itself (capped at 30 characters) cuts into the model.
 #
 # `…` stands in for the model while Claude Code has not resolved it yet (the
 # `model` field is omitted until then).
