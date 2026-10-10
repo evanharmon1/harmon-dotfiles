@@ -37,7 +37,7 @@ This repo is part of **harmon-platform** — my custom development platform with
 
 ```bash
 task bootstrap   # one-time machine setup (Homebrew)
-task install     # Brewfile deps + lefthook git hooks
+task install     # .Brewfile deps + lefthook git hooks
 task verify      # confirm everything passes
 ```
 

@@ -367,7 +367,7 @@
         },
         {
           "value": "brew",
-          "description": "Brewfile and private_Brewfile"
+          "description": ".Brewfile (repo toolchain) and private_Brewfile"
         },
         {
           "value": "mackup",

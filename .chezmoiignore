@@ -22,7 +22,6 @@ harmon-dotfiles.code-workspace
 
 # Repo tooling (task runner, git hooks, lint/commit, releases, deps, scripts)
 Taskfile.yml
-Brewfile
 commitlint.config.mjs
 lefthook.yml
 release-please-config.json
