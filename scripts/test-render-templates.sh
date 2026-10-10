@@ -54,8 +54,8 @@ expect_fail() {
     out="$("$renderer" "$dir" 2>&1)" || rc=$?
     [ "$rc" -ne 0 ] || fail "$name: renderer passed a broken tree: $out"
     case "$out" in
-        *"$needle"*) ;;
-        *) fail "$name: output does not name '$needle': $out" ;;
+    *"$needle"*) ;;
+    *) fail "$name: output does not name '$needle': $out" ;;
     esac
 }
 
@@ -84,6 +84,24 @@ if [ "$have_chezmoi" -eq 1 ]; then
     src="$(fresh_copy broken-ignore)"
     printf '\n{{ if }}\n' >>"$src/.chezmoiignore"
     expect_fail "broken .chezmoiignore" ".chezmoiignore" "$src"
+
+    # Templates that are not named *.tmpl are still evaluated: chezmoi treats
+    # modify_ templates and .chezmoitemplates partials as templates, so the
+    # whole-state check must catch a break in any of them.
+    for f in private_dot_claude/modify_private_settings.json \
+        private_dot_codex/modify_private_harmon-local.config.toml \
+        private_dot_gemini/antigravity-cli/modify_private_settings.json \
+        .chezmoitemplates/claude-settings/enforced.json \
+        .chezmoitemplates/claude-settings/seeded.json; do
+        src="$(fresh_copy "nontmpl-${f##*/}")"
+        printf '\n{{ if }}\n' >>"$src/$f"
+        expect_fail "broken $f" "${f##*/}" "$src"
+    done
+
+    # A missing .chezmoiignore is a failure, not a skip.
+    src="$(fresh_copy missing-ignore)"
+    rm -f "$src/.chezmoiignore"
+    expect_fail "missing .chezmoiignore" ".chezmoiignore" "$src"
 
     # An untracked, non-ignored template is rendered too.
     src="$(fresh_copy untracked)"

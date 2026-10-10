@@ -5,9 +5,20 @@
 # Usage: render-templates.sh [SOURCE_DIR]   (default: the repo root)
 #
 # What it checks, read-only and without touching the real $HOME:
-#   1. Every `*.tmpl` file (tracked, or untracked-but-not-ignored) renders.
-#   2. `.chezmoiignore` (itself a template) renders, via `chezmoi ignored`.
-#   3. Every file in `.chezmoiscripts/` is a `run_` script that chezmoi picks
+#   1. Every `*.tmpl` file (tracked, or untracked-but-not-ignored) renders on
+#      its own. This names the exact file and variant that broke.
+#   2. `.chezmoiignore` (itself a template) exists and renders, via
+#      `chezmoi ignored`. Its absence is a failure: it is what keeps repo
+#      tooling (README, Taskfile, scripts/**) out of $HOME.
+#   3. The WHOLE source state computes: `chezmoi apply --dry-run
+#      --exclude=scripts` against the empty throwaway destination. The
+#      invariant is "chezmoi can compute the complete target state from this
+#      source", so every template type chezmoi knows is evaluated without this
+#      script listing file types: `.tmpl` files, `modify_` templates (fed their
+#      current contents, empty here, the real first-apply case),
+#      `.chezmoitemplates/` partials (via the includes that use them) and
+#      `.chezmoiignore`. A dry run writes nothing and runs no scripts.
+#   4. Every file in `.chezmoiscripts/` is a `run_` script that chezmoi picks
 #      up (`chezmoi managed --include=scripts`). Naming is otherwise only
 #      validated at apply time. The executable bit is deliberately not
 #      checked: chezmoi runs scripts from a temporary copy, so it does not
@@ -44,9 +55,9 @@
 # *effects* of the rendered files — this proves they render, not that they
 # are correct.
 #
-# modify_ templates read `.chezmoi.stdin`; they are rendered here with empty
-# stdin only to prove they compile. Their behaviour is tested in
-# scripts/test-ai-config.sh.
+# modify_ templates read `.chezmoi.stdin`; step 3 runs them on empty stdin
+# (a first apply) to prove they compute. Their behaviour on real existing
+# files is tested in scripts/test-ai-config.sh.
 #
 # Without chezmoi: skipped with a message locally, a failure when CI=true
 # (the pinned install lives in .github/actions/setup, #133).
@@ -149,6 +160,15 @@ for variant in "${variants[@]}"; do
         if ! out="$(chezmoi_run "$os" "$gh" "$container" ignored 2>&1 >/dev/null)"; then
             fail ".chezmoiignore does not render, or the source state is invalid ($label): $out"
         fi
+    else
+        fail ".chezmoiignore is missing ($label): it keeps repo tooling out of \$HOME"
+    fi
+
+    # Whole source state: modify_ templates, .chezmoitemplates partials and
+    # everything else chezmoi evaluates. Dry run: nothing is written or run.
+    if ! out="$(chezmoi_run "$os" "$gh" "$container" \
+        apply --dry-run --exclude=scripts 2>&1 >/dev/null </dev/null)"; then
+        fail "chezmoi cannot compute the full target state ($label): $out"
     fi
 
     # Run scripts: once per OS is enough, they do not vary with gh/container.
@@ -180,4 +200,4 @@ if [ "$failures" -gt 0 ]; then
     echo "render-templates: $failures failure(s)" >&2
     exit 1
 fi
-echo "render-templates: ${#templates[@]} template(s) + .chezmoiignore rendered, ${#scripts[@]} run script(s) checked, ${#variants[@]} variants"
+echo "render-templates: ${#templates[@]} template(s), .chezmoiignore and the full source state rendered, ${#scripts[@]} run script(s) checked, ${#variants[@]} variants"
