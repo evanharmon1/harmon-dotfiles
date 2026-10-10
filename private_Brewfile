@@ -335,6 +335,8 @@ brew "mongosh"
 brew "mosh"
 # Open source relational database management system
 brew "mysql"
+# NCurses Disk Usage
+brew "ncdu"
 # Fast, highly customisable system info script
 brew "neofetch"
 # Ambitious Vim-fork focused on extensibility and agility
@@ -371,6 +373,8 @@ brew "php"
 brew "pidof"
 # Execute binaries from Python packages in isolated environments
 brew "pipx"
+# Fast, disk space efficient package manager
+brew "pnpm"
 # Tool for managing OCI containers and pods
 brew "podman"
 # Cowsay but with ponies
@@ -687,6 +691,8 @@ cask "ghostty"
 cask "gimp"
 # Desktop client for GitHub repositories
 cask "github"
+# Native client for GitHub Copilot
+cask "github-copilot-app"
 # Git client focusing on productivity
 cask "gitkraken"
 # Git interface focused on visual interaction
