@@ -352,6 +352,12 @@ for dir in "$fixtures_dir"/*/; do
     # kind, so ai/skills/universal/review/assets/test-finder-normalization.sh (task
     # test:finder-normalization) owns it and it is not iterated here.
     [ "$base" = "finder-normalization" ] && continue
+    # devflow-conformance/ holds the base policy and registry for harmon-init's
+    # vendored .devflow.toml v2 conformance corpus (harmon-devkit#1248;
+    # ai/schemas/README.md "Tier inputs and the shared conformance corpus") —
+    # policy inputs, not documents of any schema kind. scripts/
+    # test-devflow-conformance.sh (task test:devflow-conformance) owns it.
+    [ "$base" = "devflow-conformance" ] && continue
     # brief.envelope is the rendered-Markdown corpus exercised above.
     [ "$base" = "brief.envelope" ] && continue
     kind="$(kind_for_dir "$base")"
@@ -415,14 +421,15 @@ echo "PASS: plan-history regression fixture set is complete"
 node --input-type=module - "$schemas_dir/plan.schema.json" \
     "$fixtures_dir/plan/valid/interactive.json" \
     "$fixtures_dir/plan/valid/recomputed.json" \
+    "$fixtures_dir/plan/valid/lane-profiles.json" \
     "$validator" "$test_tmp/plan-mutations" <<'NODE'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 
-const [schemaFile, fixtureFile, expansionFixtureFile, validator, mutationDir] = process.argv.slice(2)
+const [schemaFile, fixtureFile, expansionFixtureFile, profileFixtureFile, validator, mutationDir] = process.argv.slice(2)
 const schema = JSON.parse(readFileSync(schemaFile, 'utf8'))
-const fixtures = [fixtureFile, expansionFixtureFile].map((file) => JSON.parse(readFileSync(file, 'utf8')))
+const fixtures = [fixtureFile, expansionFixtureFile, profileFixtureFile].map((file) => JSON.parse(readFileSync(file, 'utf8')))
 
 function resolveRef(ref) {
   if (typeof ref !== 'string' || !ref.startsWith('#/')) return null
@@ -1582,6 +1589,25 @@ usage_error_case \
 usage_error_case \
     "--initiated-by without --run-id is a usage error" \
     implementer "$fixtures_dir/result.implementer.schema/valid/completed.json" --initiated-by human
+
+# harmon-devkit#1272 challenge round 1: stop-and-file is a
+# filing or a decline, never a fix push.
+cp "$fixtures_dir/adjudication.schema/valid/integration-checkpoint-round-2.json" "$test_tmp/remedy-fix.json"
+node -e '
+  const fs = require("node:fs");
+  const doc = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  doc.adjudications[0].disposition = "fix";
+  doc.adjudications[0].checkpoint.remedy = "stop-and-file";
+  fs.writeFileSync(process.argv[1], JSON.stringify(doc));
+' "$test_tmp/remedy-fix.json"
+if out="$(node "$validator" adjudication "$test_tmp/remedy-fix.json" 2>&1)"; then
+    fail "a stop-and-file remedy on a fix disposition: expected rejection, validator accepted it"
+fi
+case "$out" in
+*"remedy stop-and-file requires disposition file or decline, found fix"*) ;;
+*) fail "a stop-and-file remedy on a fix disposition was rejected for the wrong reason: $out" ;;
+esac
+echo "PASS: a stop-and-file remedy on a fix disposition is rejected"
 
 # A malformed --pass file must fail immediately, naming the --pass file
 # itself, before the primary document's own cross-checks ever run.

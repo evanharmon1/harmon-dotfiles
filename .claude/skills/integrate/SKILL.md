@@ -234,12 +234,13 @@ attested without a reviewer reading it is exactly the thing a human reader must
 be able to see.
 
 **A non-zero `reserve` means no trigger is posted** (harmon-devkit#1189). The
-sequence is `reserve` → the §2 `state,isDraft,headRefOid` read → post
-`@codex review` → `attach`, each call's exit status checked on its own — never
+sequence is `reserve` → the §2 `state,isDraft,headRefOid` read → the broker
+trigger, which posts or adopts and attaches; callers do not attach again.
+Check each call's exit status on its own — never
 `reserve … | jq`, whose status is the pipe's last command, so a refused
 reservation reads as success and the trigger is orphaned when `attach` fails.
-The zero-candidate reconcile path, whose reservation already exists, enters
-that same sequence at the read. `reserve` makes no GitHub write, so the read
+A resumed `reserved` cycle, whose reservation already exists, enters that
+same sequence at the broker call, which performs the read. `reserve` makes no GitHub write, so the read
 after it is the last thing before the post, exactly as §2 requires; it must
 show `OPEN`, a draft, and the dispatched head, and any mismatch there means no
 trigger (the reservation is left for the next dispatch to reconcile). The
@@ -254,7 +255,20 @@ again, report a blocker. Exit `2` naming a changed head means the PR head was
 rewritten or superseded: the integrator posts no trigger and reports
 `codex_cycle: null`, never re-capturing a head it was not dispatched for; the
 next dispatch — yours — names the new head. The integrator agent's §4 carries
-the recipe.
+the recipe: for Codex, reserve and re-read in one Bash tool call, ending in
+`RESERVED <head>` on success; only then call the broker as one literal command:
+`<project-dir>/<skills-dir>/integrate/assets/gh-write-broker.sh trigger --repo <owner/repo> --pr <n>`.
+The broker requires a matching reserved cycle, re-reads the open draft PR and
+reserved head, posts, and attaches immediately. It prints a bare integer id;
+callers do not attach again. A failed attach names the posted id for the next
+dispatch's reconciliation or a re-run that adopts instead of posting; report
+a blocker on exit 3. Exit 2 refuses before posting; report other failures
+without blindly re-running. `<project-dir>` is Claude Code's `CLAUDE_PROJECT_DIR`; `<skills-dir>` is
+the skills sync install location. The hook approves only the unresolved
+`<project-dir>/.claude/skills/integrate/assets/gh-write-broker.sh` path; other
+locations or a symlink at `.claude/skills` still work but prompt. The same
+two-call split holds for attempt 2, and a resumed `reserved` cycle runs only
+the broker call.
 
 The two mechanisms compose and do not overlap wastefully: `carry` is strictly
 stronger (content identity, local git, no API reconstruction) and strictly
@@ -1240,11 +1254,101 @@ For every failing check and every review finding:
    what you cannot confirm; do not dismiss what you cannot refute.
 2. Classify: **confirmed**, **plausible but unproven**, or
    **false positive**.
+
+   **A second finding of the same kind calls for a surface sweep before it is
+   fixed.** Find every surface that states or feeds the rule — the earlier
+   finding's fix counts as one already-covered surface — and fix the confirmed
+   cause across the rest of that set in one remediation round. When a finding
+   shares a class with an earlier finding in the same PR (the same rule, fact,
+   or input stated or consumed in more than one place), enumerate every surface
+   by searching for a distinctive token, not by the finding's phrasing; for an
+   input set whose members are named differently, enumerate from the set's
+   definition or its consumer instead. A surface outside the PR's scope or a
+   lane's file fence is not swept: report it to the orchestrator as a scope
+   question. Record the sweep (the token searched, or a redacted label when the
+   token is itself a secret, and the surfaces found) in the fix commit's
+   message and on the finding's line in the PR body's `## Adjudication record`.
+   The sweep never overrides the checkpoint below: on a cycle that meets the
+   tell it licenses no hardening push.
+   Two recurring shapes require this check:
+
+   - **Rule copies across twins and docs** — the same fact corrected in one copy but
+     not its root/template twins or the guides that restate it.
+   - **An input surface enumerated one member at a time** — each review cycle finding
+     one more member of the same input set (for example, local Git configuration
+     inputs to a canonical-diff identity).
+
 3. Fix only confirmed findings; add or improve regression tests where
    appropriate. Never weaken or bypass a gate to get past a finding.
 4. For rejected findings, state the evidence for the rejection — a claim
    about a command or platform behavior is cheap to verify empirically
    before rejecting.
+
+### Integration exit: follow the engine, not memory
+
+Convergence is computed, never remembered (harmon-devkit#1272). After every
+integration adjudication — `adjudications/integration-r<N>.json` written and
+validated against its integrator pass — and before any remediation push, run
+
+```sh
+"$support_dir/dev-flow-exit.sh" --run <record dir> --stage integration --policy <resolved .devflow.toml> --json
+```
+
+(`$support_dir` resolved as at the top of this skill) and act on its
+`outcome`. It counts completed cycles — exempt included; a carry, an
+incomplete attempt, and a retry add none — separately from remediation
+pushes, and treats a cycle as clean when it adjudicates to zero P0/P1. A
+confirmed P0/P1 from any reviewer, a late human review included, breaks the
+clean streak. Any late round folded into an existing cycle — a round with no
+completed cycle of its own (a cap-0 pass, a carry, an incomplete attempt), or
+a same-ordinal re-dispatch — contributes only its adjudicated P0/P1 entries,
+making the cycle gating; its P2/P3 entries never change whether the cycle is
+clean or a tell.
+
+**The checkpoint is owed from cycle 2.** Every entry of an integration
+adjudication document from round 2 on carries `checkpoint`:
+`attacks_remediation` (does the finding's subject exist only because an
+earlier remediation push of this stage added it?) and, when true, a `remedy` —
+`delete`, `restructure` to an invariant, `retain` (the entry's `reason` says
+why the change needs it), or `stop-and-file`. The schema and validator refuse
+the document without it.
+
+- **`converged`** (two consecutive clean cycles) is the fixing ceiling: make
+  no further remediation push for P2s. Settle every remaining finding without
+  a push — declined with evidence, or filed together in one follow-up issue —
+  reply in each affected thread, `settle` the non-inline ones, tick the
+  deferred entries, and go to the readiness gate.
+- **`diverging`** is the tell: every finding of a cycle at or after cycle 2
+  attacks an earlier remediation push. Stop the fix loop and offer the three
+  dispositions — **delete** the added surface, **restructure** it to an
+  invariant, or **stop and file** the unresolved P2s together as one
+  follow-up — recorded as the `remedy` on the table. Never another hardening
+  push; a `retain` on an individual finding does not license one. A push that
+  deletes or restructures is permitted within the remediation cap; the engine
+  refuses (indeterminate) a record where a remediation push follows a tell
+  cycle without a recorded `delete` or `restructure` remedy.
+  `tell_with_gating_findings` is an escalation that keeps the PR draft and
+  leads with descoping — recommend removing the added surface first, with the
+  findings and provenance as evidence.
+- **`continue`** — `last_cycle_clean`: one terminal clean current-head cycle
+  with every finding settled ends the stage through the readiness gate; a
+  P2-only cycle whose findings are all declined or filed needs no second
+  cycle. `gating_findings`: fix within the remediation cap, then the next
+  cycle.
+- **`capped`** with gating findings is stop condition 2 — escalate, PR stays
+  draft. Indeterminate is never a pass: fix the record or escalate.
+
+The readiness gate reads the integration record itself, never a verdict
+reason, and infers nothing about fix pushes. An integration pass with
+findings and no adjudication is already refused (indeterminate) by the gate's
+step 6 readiness-input projection; step 9f fails when any integration
+adjudication entry holds an adjudicated P0 or P1 whose disposition is file or
+defer — filing settles P2s only (`integration-filed-gating-finding`); it stays
+indeterminate on any engine indeterminate (`integration-exit-indeterminate`);
+it is indeterminate unless the record's latest integration pass is the gated
+result — same integration_round, codex_cycle.cycle and head
+(`integration-record-unbound`) — so persist every integrator pass and its
+adjudication before gating; otherwise this condition passes.
 
 ## 4. Reply in-thread
 

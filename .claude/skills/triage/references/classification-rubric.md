@@ -32,6 +32,23 @@ leak into another:
 | Choosing a Tier because the issue feels important | The Tier is derived from Risk × Complexity, and Impact does not enter it | Set Risk and Complexity; the Tier follows |
 | Reading Impact as urgency | Ordering belongs to Priority (set by a human) and Priority (AI) (an agent's suggestion), not to Impact | Leave ordering to the Priority rubric |
 
+## Human work is a separate decision
+
+Set `human` when completion is primarily a human's: actions, decisions, QA,
+purchases, credentials, physical work, or a majority of `[HUMAN]` criteria.
+Agent assistance does not change that decision; one human box on primarily
+agent work does not by itself require the label. Follow harmon-init's **Human
+work** paragraph in
+[docs/project-management.md](https://github.com/evanharmon1/harmon-init/blob/main/docs/project-management.md).
+Count every checkbox line in the acceptance-criteria section at any indentation,
+including checked and untagged items in the total. This label does not replace
+Impact, Risk, Complexity, or Tier. Agents may add it. Triage may remove it only for a non-collector without a `[HUMAN]` majority
+whose remaining work the classifier judges agent-completable, through the guarded
+helper; every removal is reported (SKILL.md step 2e). Filing never removes it.
+Collectors keep `human` + `umbrella`.
+Removal also refuses any heading indented one to three spaces anywhere in the
+body because the acceptance-criteria section boundary is ambiguous.
+
 ## Impact
 
 Impact is the expected significance of completing the issue: what finishing it buys the product's users or the
@@ -95,8 +112,9 @@ the verification must be, and how much is unknown. Unknowns push the value up, b
 
 **Rate the difficulty, not the hours or the file count.** A mechanical change applied by one script across hundreds of
 files is as easy to understand as a change to one file, so rate the rule rather than the count. A one-line change in
-subtle concurrent code can be hard to verify, so it can rate higher than a long mechanical edit. An `xl` is a signal to
-split the issue; label it `xl` while it is still one issue.
+subtle concurrent code can be hard to verify, so it can rate higher than a long mechanical edit. Work that no automated check
+can prove — such as a visual change, prompt or model-output wording, or external-service behaviour — rates higher than
+its size alone suggests. An `xl` is a signal to split the issue; label it `xl` while it is still one issue.
 
 ### Complexity anchors
 
@@ -112,6 +130,8 @@ split the issue; label it `xl` while it is still one issue.
 
 - *"Change the default log level from info to warn in one config file."* → **xs**. One place, a known change, and one
   check proves it.
+- *"Adjust a prompt's wording to prevent tool hallucinations in an agent."* → **s**. A one-line edit, but no automated check
+  can prove model-output wording, rating it higher than its size alone suggests.
 - *"Add a retry policy to the payment client and thread idempotency keys through the client, the server, and the
   tests."* → **m**. Several components and real design choices, with fault-injection tests to write.
 - *"Move every service from the old deploy pipeline to the new one."* → **xl**. It spans many services, what each one
@@ -149,8 +169,8 @@ registry and policy work's concern, not this rubric's. Which models sit in each 
 
 The matrix below reproduces the policy matrix that harmon-init ships in `.devflow.toml` (`[tier.matrix]`), so a
 classifier can work offline. Where the repository's policy carries a matrix, **it wins on any disagreement and this
-table is the one to fix**; a repository whose policy has no matrix yet derives from this table. Look up the row for
-Complexity and the column for Risk.
+table is the one to fix**. Without a `[tier.matrix]` in the repository's policy, no Tier is derived or written: this
+table is then for reading only. Look up the row for Complexity and the column for Risk.
 
 | Complexity \ Risk | trivial | low | medium | high | critical |
 | --- | --- | --- | --- | --- | --- |
