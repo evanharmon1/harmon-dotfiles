@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.19.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.1...v0.19.0) (2026-10-11)
+
+
+### Features
+
+* **claude:** show each subagent's model in the agent panel ([81ce419](https://github.com/evanharmon1/harmon-dotfiles/commit/81ce4197dcebd4edecde9bc915f7314699e327c8))
+* **claude:** show each subagent's model in the agent panel ([4e3a404](https://github.com/evanharmon1/harmon-dotfiles/commit/4e3a404da2a092f7346929062cb543b67aa32d62))
+
+
+### Bug Fixes
+
+* **brew:** install pnpm from Homebrew only ([5873836](https://github.com/evanharmon1/harmon-dotfiles/commit/58738361e6a6e7b6f056c1a9d929219459c056e4))
+* **chezmoi:** deploy private_Brewfile to ~/Brewfile again ([a3112a2](https://github.com/evanharmon1/harmon-dotfiles/commit/a3112a298b1324ace06f033e73e9d556d23aa5ee))
+* **chezmoi:** deploy private_Brewfile to ~/Brewfile again ([b0c46e9](https://github.com/evanharmon1/harmon-dotfiles/commit/b0c46e95cdd8df47f5f08172b3e61f000dd4a1db))
+* **chezmoi:** keep the subdirectory when checking nested run scripts ([ca8352a](https://github.com/evanharmon1/harmon-dotfiles/commit/ca8352aed057bac385c489f9ed1fbe383e5b35a5))
+* **chezmoi:** untrack the iCloud Bunch symlink that breaks chezmoi elsewhere ([5e2952d](https://github.com/evanharmon1/harmon-dotfiles/commit/5e2952d9ce8a6cd180e6074f22943a71064d38e6))
+* **chezmoi:** validate the whole source state and require .chezmoiignore ([245661f](https://github.com/evanharmon1/harmon-dotfiles/commit/245661fcc5184009febf93ebb5e01bda8d47e448))
+* **claude:** honour narrow panels and strip bidi controls in subagent rows ([fcd5244](https://github.com/evanharmon1/harmon-dotfiles/commit/fcd5244b8633177ae1e771365f87603e6a3f15e0))
+* **claude:** keep the model ahead of the description in subagent rows ([fff62b8](https://github.com/evanharmon1/harmon-dotfiles/commit/fff62b84d1bd00b2e1202cab515d36ce493b853d))
+* **claude:** make the model the first field of each subagent row ([8f7b4d7](https://github.com/evanharmon1/harmon-dotfiles/commit/8f7b4d7ed38230aa8686cc97dafc6fed2e5960b0))
+* **claude:** show the task description, not the progress label ([0258a58](https://github.com/evanharmon1/harmon-dotfiles/commit/0258a58d07c35e5576d7a8243e7a0306b3f30570))
+
 ## [0.18.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.0...v0.18.1) (2026-10-09)
 
 
