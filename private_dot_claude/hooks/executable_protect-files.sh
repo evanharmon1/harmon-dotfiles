@@ -3,8 +3,8 @@
 #
 # Blocks AI modification of sensitive files: credentials, secrets, Terraform
 # state, Git control internals, and machine-level Claude/Codex managed settings.
-# Permitted exceptions include Git working state under dev-flow-v2 and
-# deferred-findings sidecars.
+# The one permitted Git exception is dev-flow working state under
+# <common>/dev-flow-v2/; deferred-findings sidecars stay blocked until #148.
 # Exit 2 tells Claude Code to refuse the tool call and surface the stderr message back to the model.
 set -euo pipefail
 
