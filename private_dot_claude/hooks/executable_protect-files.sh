@@ -113,9 +113,12 @@ fi
 # <common>/dev-flow-v2/ (computed at call time from the target path's nearest
 # existing directory). Compared component by component: no globbing, no substring
 # or suffix matching. Anything else under a .git/ directory is refused, and so is
-# any path whose root cannot be computed (fail closed).
+# any path whose root cannot be computed (fail closed). The .git component match
+# is case-insensitive to prevent case-folding bypasses on case-insensitive filesystems.
 is_git_path() {
-    case "$1" in
+    local lower
+    lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+    case "$lower" in
     */.git/* | */.git | .git | .git/*) return 0 ;;
     *) return 1 ;;
     esac
