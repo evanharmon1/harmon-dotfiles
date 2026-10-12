@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// dev-flow-exit.mjs — deterministic confidence-stage exit computation.
+// dev-flow-exit.mjs — deterministic confidence-stage exit computation, and
+// the integration stage's exit (`--stage integration`, harmon-devkit#1272:
+// see "Integration stage" below — a separate path that reads only the
+// integration adjudication record and its integrator passes).
 //
 // Implements openspec/changes/dev-flow-v2/specs/exit-computation/spec.md and
 // specs/dev-flow-v2.md § "Convergence model v0" over a run directory (see
@@ -8,7 +11,7 @@
 // (devflow-policy.mjs).
 //
 // CLI:
-//   node dev-flow-exit.mjs --run <dir> --stage <challenge|review> \
+//   node dev-flow-exit.mjs --run <dir> --stage <challenge|review|integration> \
 //     --policy <file> [--rigor <level>] [--merge-base-policy <file>] \
 //     [--current-head <sha>] [--history <file> | --repo-root <dir>] \
 //     [--heads <file>] [--closure <dir>] [--validator <path>]
@@ -79,6 +82,16 @@
 // and fail closed on drift instead of silently trusting whichever caps a
 // later .devflow.toml edit happens to resolve today. Purely additive: no
 // predicate, exit code, or verdict depends on it.
+//
+// Head ancestry evidence (harmon-devkit#1240). A round is retained only when
+// its reviewed head is PROVEN an ancestor-or-equal of --current-head; an
+// undecidable head is never retained. Without --heads, `<run>/heads.json` is
+// read when present — the location the confidence-stage skill materializes the
+// trusted head map to — so a caller that names only the run directory no
+// longer loses round N merely because round N's own fixes moved the head round
+// N+1 reviewed. A head-map walk that runs off the map (a head with no entry) is
+// inconclusive rather than a "no", and falls through to --repo-root when given;
+// only an explicit root (`parent: null`) or a cycle is a definitive "no".
 
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -617,8 +630,15 @@ function assembleLogicalRounds(stage, validPasses, adjudications, resolvedStage,
       dispatchedRounds.add(`${slotFailure.stage}:${slotFailure.round}`);
     }
   }
+  // Integration adjudications are exempt: an integration round's findings are
+  // PR review comments, so it never has a pass or slot_failures record here by
+  // design, and this confidence-stage computation never joins them to a round
+  // (adjByRound below is filtered to `stage`). Treating them as orphans made
+  // every completed run — one that reached integration — unverifiable for
+  // challenge and review alike (harmon-devkit#1240). Confidence-stage orphans
+  // are still refused.
   const orphanAdjudication = adjudications.find(
-    (entry) => !dispatchedRounds.has(`${entry.doc.stage}:${entry.doc.round}`),
+    (entry) => entry.doc.stage !== "integration" && !dispatchedRounds.has(`${entry.doc.stage}:${entry.doc.round}`),
   );
   if (orphanAdjudication) {
     throw new ExitIndeterminate(
@@ -1321,14 +1341,27 @@ function loadHeadsMap(headsFile) {
 function isAncestorOrEqual(candidate, currentHead, { headsMap, repoRoot }) {
   if (candidate === currentHead) return true;
   if (headsMap) {
+    // A walk that ends at an explicit root (`parent: null`) or loops has
+    // seen the map's whole recorded history for currentHead without meeting
+    // candidate: a definitive "no". A walk that runs off the map — a head
+    // the map holds no entry for, typically a fix commit pushed after the
+    // map was last materialized — has proven nothing either way, and used to
+    // return `false` all the same, dropping round N whenever its own fixes
+    // moved the head (harmon-devkit#1240). That case is inconclusive: fall
+    // through to --repo-root when the caller supplied one, else "unknown".
     let cur = currentHead;
     const seen = new Set();
+    let ranOffMap = false;
     while (cur && !seen.has(cur)) {
       seen.add(cur);
       if (cur === candidate) return true;
+      if (!Object.hasOwn(headsMap, cur)) {
+        ranOffMap = true;
+        break;
+      }
       cur = headsMap[cur] ? headsMap[cur].parent : null;
     }
-    return false;
+    if (!ranOffMap) return false;
   }
   if (repoRoot) {
     // `git merge-base --is-ancestor` documents exactly two meaningful exit
@@ -1547,32 +1580,38 @@ function computeVerdict({ stage, rounds, convergence, cap, minRounds, currentHea
           if (base.rounds_counted >= minRounds) {
             return { ...base, outcome: "converged", reason: "empty_round", action: "advance" };
           }
-        } else {
-          // A NONEMPTY clean round (findings exist but none are gating)
-          // needs a SECOND CONSECUTIVE clean round to converge — AGENTS.md
-          // "ends when two consecutive rounds adjudicate to zero P0 and
-          // zero P1 findings", and explicitly NOT via min_rounds ("min_rounds
-          // only governs the empty-round shortcut"). Post-merge cloud
-          // review, confirmed: this branch previously let ANY round satisfy
-          // convergence the moment rounds_counted >= minRounds, so with the
-          // common min_rounds = 1, a single nonempty all-P2 round converged
-          // immediately — never checking whether an earlier round was also
-          // clean.
-          // Array-adjacent, not round-number-adjacent, was wrong: if an
-          // intervening round was excluded from `retained` (ancestry
-          // incomparable/unknown), the array's previous ELEMENT is an
-          // earlier, non-consecutive round — e.g. retained = [round 1,
-          // round 3] with round 2 excluded, where round 1 is clean but is
-          // not round 3's immediate predecessor. That still let round 3
-          // converge on a confirmation that never actually happened.
-          // Shepherd-stage cloud finding, confirmed: require the array
-          // neighbor's OWN round number to be exactly one less, not merely
-          // its array position.
-          const previous = currentIndex > 0 ? retained[currentIndex - 1] : null;
-          const previousClean = previous && previous.round === latest.round - 1 && previous.status === "complete" && gatingFindings(previous).length === 0;
-          if (previousClean) {
-            return { ...base, outcome: "converged", reason: "predicates_satisfied", action: "advance" };
-          }
+        }
+        // Every other clean round — nonempty, or empty but below the floor —
+        // converges on the two-consecutive rule. An empty round below
+        // min_rounds used to return `continue` here without consulting the
+        // previous round, so two consecutive clean rounds failed to converge
+        // whenever the floor exceeded 2 (harmon-devkit#1240 challenge round 2;
+        // AGENTS.md: "Those rounds may be empty", "min_rounds constrains the
+        // empty-round exit alone").
+        // A clean round that does not take the empty-round exit
+        // needs a SECOND CONSECUTIVE clean round to converge — AGENTS.md
+        // "ends when two consecutive rounds adjudicate to zero P0 and
+        // zero P1 findings", and explicitly NOT via min_rounds ("min_rounds
+        // only governs the empty-round shortcut"). Post-merge cloud
+        // review, confirmed: this branch previously let ANY round satisfy
+        // convergence the moment rounds_counted >= minRounds, so with the
+        // common min_rounds = 1, a single nonempty all-P2 round converged
+        // immediately — never checking whether an earlier round was also
+        // clean.
+        // Array-adjacent, not round-number-adjacent, was wrong: if an
+        // intervening round was excluded from `retained` (ancestry
+        // incomparable/unknown), the array's previous ELEMENT is an
+        // earlier, non-consecutive round — e.g. retained = [round 1,
+        // round 3] with round 2 excluded, where round 1 is clean but is
+        // not round 3's immediate predecessor. That still let round 3
+        // converge on a confirmation that never actually happened.
+        // Shepherd-stage cloud finding, confirmed: require the array
+        // neighbor's OWN round number to be exactly one less, not merely
+        // its array position.
+        const previous = currentIndex > 0 ? retained[currentIndex - 1] : null;
+        const previousClean = previous && previous.round === latest.round - 1 && previous.status === "complete" && gatingFindings(previous).length === 0;
+        if (previousClean) {
+          return { ...base, outcome: "converged", reason: "predicates_satisfied", action: "advance" };
         }
       }
     }
@@ -1581,6 +1620,223 @@ function computeVerdict({ stage, rounds, convergence, cap, minRounds, currentHea
   if (!latest) return { ...base, outcome: "continue", reason: "no_rounds_yet", action: "dispatch", next_round: maxRoundNumber + 1 };
   if (!isCurrentHeadRound) return { ...base, outcome: "continue", reason: "invalidated", action: "dispatch", next_round: maxRoundNumber + 1 };
   return { ...base, outcome: "continue", reason: "below_threshold", action: "dispatch", next_round: maxRoundNumber + 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Integration stage (harmon-devkit#1272)
+// ---------------------------------------------------------------------------
+//
+// The integration exit is computed from the integration adjudication record
+// and the integrator passes it adjudicates — never from the confidence-stage
+// machinery above, which this path does not call and cannot change. The
+// policy is AGENTS.md § "Integration convergence" / "Integration fixing
+// ceiling" and the integration checkpoint (harmon-init#1521):
+//
+// - A COMPLETED cycle is a round whose integrator pass reports a non-null,
+//   non-carried codex_cycle with a terminal exit (0 clean, 10 findings). A
+//   carry adds no cycle; an incomplete attempt or a retry is not a completed
+//   cycle; a round repeating the latest cycle ordinal (a re-dispatch after
+//   settling) folds into that cycle. Exempt cycles count like any other.
+// - A cycle is CLEAN when it adjudicates to zero P0/P1 (P2-only is clean). A
+//   confirmed P0/P1 adjudicated in ANY integration round — a late human
+//   review included — breaks the clean streak.
+// - `converged`: two consecutive clean cycles, counted across whatever heads
+//   remediation pushes moved them to. This is the fixing ceiling: no further
+//   remediation push for P2s.
+// - `diverging`: the tell — a nonempty cycle at ordinal 2 or later whose
+//   every finding records checkpoint.attacks_remediation. A remediation push
+//   after a tell cycle is accepted only when that cycle recorded a delete or
+//   restructure remedy and nothing it kept (`retain`); otherwise the record is
+//   indeterminate.
+// - `capped`: the clean streak is broken and the charged cycles have reached
+//   the integration cap. `continue` otherwise; a single clean cycle is
+//   `continue`/`last_cycle_clean`, because one terminal clean cycle with every
+//   finding settled ends the stage through the readiness gate, not through
+//   this exit. The engine never tries to prove a P0/P1 was answered by a fix
+//   push; settling one is the readiness gate's existing conditions.
+
+const INTEGRATION_PASS_NAME = /^integration-r([1-9][0-9]*)(?:-[a-z0-9-]+)?$/;
+const PUSH_REMEDIES = ["delete", "restructure"];
+const TELL_REMEDIES = ["delete", "restructure", "stop-and-file"];
+
+function integrationIndeterminate(message, code) {
+  const err = new ExitIndeterminate(message);
+  err.code = code;
+  return err;
+}
+
+function isGatingEntry(entry) {
+  return entry.adjudicated_priority === "P0" || entry.adjudicated_priority === "P1";
+}
+
+// Loads and validates the integration half of a run directory: one
+// integrator pass per round (stage integration accepts exactly one --pass),
+// each schema- and run-bound, and each adjudication validated against its
+// own pass. Returns the rounds in ascending order.
+function loadIntegrationRounds(runDir, validatorPath) {
+  const { runRecord } = runDir;
+  if (typeof runRecord.run_id !== "string" || !runRecord.run_id) {
+    throw integrationIndeterminate("run.json has no run_id — cannot bind any integrator pass to an active run identity", "run-unbound");
+  }
+  const byRound = new Map();
+  const roundOf = (n) => {
+    if (!byRound.has(n)) byRound.set(n, { round: n, pass: null, adjudication: null });
+    return byRound.get(n);
+  };
+  for (const p of runDir.passes) {
+    const match = INTEGRATION_PASS_NAME.exec(p.name);
+    if (!match || p.envelope.role !== "integrator") continue;
+    const round = Number(match[1]);
+    const entry = roundOf(round);
+    if (entry.pass) {
+      throw integrationIndeterminate(`integration round ${round} has more than one integrator pass (${entry.pass.name}, ${p.name})`, "duplicate-pass");
+    }
+    const check = validatePassSchema(validatorPath, p.file, { runId: runRecord.run_id, initiatedBy: runRecord.initiated_by });
+    if (!check.ok) throw integrationIndeterminate(`integrator pass ${p.name} is invalid: ${check.message}`, "invalid-pass");
+    if (p.envelope.payload?.integration_round !== round) {
+      throw integrationIndeterminate(`integrator pass ${p.name} reports integration_round ${p.envelope.payload?.integration_round}, not ${round}`, "invalid-pass");
+    }
+    entry.pass = p;
+  }
+  for (const a of runDir.adjudications) {
+    if (a.doc?.stage !== "integration") continue;
+    const entry = roundOf(a.doc.round);
+    if (entry.adjudication) {
+      throw integrationIndeterminate(`integration round ${a.doc.round} has more than one adjudication document`, "duplicate-adjudication");
+    }
+    if (!entry.pass) {
+      throw integrationIndeterminate(`adjudication ${a.name} has no integrator pass for integration round ${a.doc.round}`, "adjudication-without-pass");
+    }
+    const check = validateAdjudicationSchema(validatorPath, a.file, [entry.pass.file]);
+    if (!check.ok) throw integrationIndeterminate(`adjudication ${a.name} is invalid: ${check.message}`, "invalid-adjudication");
+    entry.adjudication = a;
+  }
+  return [...byRound.values()].sort((x, y) => x.round - y.round);
+}
+
+// Any late round folded into an existing cycle — a round with no completed
+// cycle of its own, or a same-ordinal re-dispatch — contributes only its
+// adjudicated P0/P1 entries, which make the cycle gating; its P2/P3 entries
+// never change whether the cycle is clean or a tell (#1272 review rounds 1-3).
+function foldLateRound(cycle, entries) {
+  const gating = entries.filter(isGatingEntry);
+  cycle.entries.push(...gating);
+  if (gating.length > 0) cycle.clean = false;
+}
+
+function computeIntegrationExit(rounds, integrationCap) {
+  const cycles = [];
+  let streak = 0;
+  let ordinal = 0;
+  let awaiting = null;
+  for (const r of rounds) {
+    const findings = r.pass.envelope.payload?.findings ?? [];
+    if (!r.adjudication && findings.length > 0) {
+      // Only the latest round may still be awaiting its adjudication; an
+      // unadjudicated round behind an adjudicated one is a gap in the record.
+      awaiting = r.round;
+      continue;
+    }
+    if (awaiting !== null) {
+      throw integrationIndeterminate(`integration round ${awaiting} has findings but no adjudication, yet a later round ${r.round} exists`, "unadjudicated-round");
+    }
+    const entries = r.adjudication ? r.adjudication.doc.adjudications : [];
+    const roundGating = entries.some(isGatingEntry);
+    const cc = r.pass.envelope.payload?.codex_cycle ?? null;
+    // Over EVERY pass carrying a cycle, completed or not: ordinals run 1, 2,
+    // 3, …; a carry or a retry repeats the current one, a new one is exactly
+    // the next, so no cycle is ever missing from the record.
+    if (cc !== null) {
+      if (cc.cycle !== ordinal && cc.cycle !== ordinal + 1) {
+        throw integrationIndeterminate(`integration round ${r.round} reports cycle ${cc.cycle} after cycle ${ordinal} — cycle ordinals run 1, 2, 3, … with a carry or retry repeating the current one`, "cycle-sequence");
+      }
+      ordinal = cc.cycle;
+    }
+    const completed = cc !== null && !cc.carried && (cc.exit_code === 0 || cc.exit_code === 10);
+    const latest = cycles.at(-1);
+    if (!completed) {
+      // No cycle of its own: a cap-0 pass, a carried head, an incomplete
+      // attempt. It folds into the latest completed cycle; before any, it
+      // only breaks the streak.
+      if (latest) foldLateRound(latest, entries);
+      if (roundGating) streak = 0;
+      continue;
+    }
+    if (latest && cc.cycle === latest.cycle) {
+      if (cc.head !== latest.head) {
+        throw integrationIndeterminate(`integration round ${r.round} reports cycle ${cc.cycle} on ${cc.head}, but that cycle reviewed ${latest.head}`, "cycle-regression");
+      }
+      latest.rounds.push(r.round);
+      foldLateRound(latest, entries);
+      if (roundGating) streak = 0;
+      continue;
+    }
+    if (cc.cycle >= 2) {
+      const missing = entries.find((e) => e.checkpoint === undefined);
+      if (missing) {
+        throw integrationIndeterminate(`${missing.finding_id} (cycle ${cc.cycle}) records no checkpoint — integration owes it from cycle 2`, "checkpoint-missing");
+      }
+    }
+    const cycle = {
+      cycle: cc.cycle,
+      head: cc.head,
+      charged: typeof cc.charged === "number" ? cc.charged : cc.cycle,
+      rounds: [r.round],
+      entries: [...entries],
+      clean: !roundGating,
+    };
+    cycles.push(cycle);
+    streak = cycle.clean ? streak + 1 : 0;
+  }
+
+  const isTell = (c) => c.cycle >= 2 && c.entries.length > 0 && c.entries.every((e) => e.checkpoint?.attacks_remediation === true);
+  for (let i = 0; i + 1 < cycles.length; i++) {
+    const tell = cycles[i];
+    const next = cycles[i + 1];
+    // A next cycle on the same head, or one that charged nothing (an exempt
+    // base merge), followed no remediation push.
+    if (!isTell(tell) || next.head === tell.head || next.charged <= tell.charged) continue;
+    // A push remedy counts only when the entry's disposition IS that remedy:
+    // `fix` with remedy `delete` is a hardening push wearing a delete label
+    // (#1272 challenge round 1; the validator refuses the pairing).
+    const remedies = tell.entries.map((e) => e.checkpoint.remedy);
+    const pushed = tell.entries.some((e) => PUSH_REMEDIES.includes(e.checkpoint.remedy) && e.disposition === e.checkpoint.remedy);
+    if (!remedies.every((m) => TELL_REMEDIES.includes(m)) || !pushed) {
+      throw integrationIndeterminate(
+        `cycle ${tell.cycle} met the tell, but a remediation push followed it (cycle ${next.cycle} reviewed ${next.head}) without a recorded delete or restructure remedy — the tell licenses no hardening push`,
+        "tell-remediation-unrecorded",
+      );
+    }
+  }
+
+  const summary = cycles.map((c) => ({ cycle: c.cycle, rounds: c.rounds, head: c.head, clean: c.clean, tell: isTell(c) }));
+  const base = { stage: "integration", rounds_counted: cycles.length, next_round: null, clean_streak: streak, cycles: summary };
+  if (awaiting !== null) base.incomplete_round = awaiting;
+  if (integrationCap === 0) {
+    if (cycles.length > 0) {
+      throw integrationIndeterminate(`the resolved integration cap is 0 but the record holds ${cycles.length} completed Codex cycle(s)`, "cycle-under-cap-zero");
+    }
+    return { ...base, outcome: "capped", reason: "disabled", action: "advance" };
+  }
+  const latest = cycles.at(-1);
+  if (awaiting !== null) return { ...base, outcome: "continue", reason: "awaiting_adjudication", action: "adjudicate" };
+  if (!latest) return { ...base, outcome: "continue", reason: "no_completed_cycle", action: "dispatch", next_round: 1 };
+  if (isTell(latest)) {
+    return !latest.clean
+      ? { ...base, outcome: "diverging", reason: "tell_with_gating_findings", action: "escalate" }
+      : { ...base, outcome: "diverging", reason: "tell", action: "stop-fix-loop" };
+  }
+  if (streak >= 2) return { ...base, outcome: "converged", reason: "two_consecutive_clean", action: "settle-without-push" };
+  if (streak === 0 && latest.charged >= integrationCap) return { ...base, outcome: "capped", reason: "cap_reached_with_gating_findings", action: "escalate" };
+  if (streak === 0) return { ...base, outcome: "continue", reason: "gating_findings", action: "fix", next_round: latest.cycle + 1 };
+  return { ...base, outcome: "continue", reason: "last_cycle_clean", action: "settle", next_round: latest.cycle + 1 };
+}
+
+// The one entry point both the CLI and readiness-gate.sh use: load, validate,
+// compute. Throws ExitIndeterminate (with a `code`) on anything it cannot
+// establish.
+function integrationExitForRunDir(dir, { integrationCap, validatorPath = DEFAULT_VALIDATOR }) {
+  return computeIntegrationExit(loadIntegrationRounds(loadRunDir(dir), validatorPath), integrationCap);
 }
 
 // ---------------------------------------------------------------------------
@@ -1782,13 +2038,13 @@ async function main() {
   const args = parseArgs(selectFinders.rest);
   if (!args.run || !args.stage || !args.policy) {
     console.error(
-      "usage: dev-flow-exit.mjs --run <dir> --stage <challenge|review> --policy <file>\n" +
+      "usage: dev-flow-exit.mjs --run <dir> --stage <challenge|review|integration> --policy <file>\n" +
         "       [--add-finder <stage>:<slug>]... [--select-finder <stage>:<slug>]... [options]",
     );
     return 1;
   }
-  if (args.stage !== "challenge" && args.stage !== "review") {
-    console.error(`dev-flow-exit: --stage must be "challenge" or "review", got "${args.stage}"`);
+  if (args.stage !== "challenge" && args.stage !== "review" && args.stage !== "integration") {
+    console.error(`dev-flow-exit: --stage must be "challenge", "review" or "integration", got "${args.stage}"`);
     return 1;
   }
 
@@ -1835,6 +2091,23 @@ async function main() {
     }
     console.error(`dev-flow-exit: could not read --run: ${err.message}`);
     return 1;
+  }
+
+  // The integration stage has its own self-contained computation (see
+  // computeIntegrationExit). It branches off here, before any of the
+  // confidence-stage finder-selection, receipt, or round-assembly logic
+  // below, so adding it cannot move a challenge or review verdict.
+  if (args.stage === "integration") {
+    let verdict;
+    try {
+      verdict = computeIntegrationExit(loadIntegrationRounds(runDir, args.validator || DEFAULT_VALIDATOR), resolved.rounds.integration);
+    } catch (err) {
+      if (err instanceof ExitIndeterminate) return indeterminate(args, err.message, err.code ?? null);
+      throw err;
+    }
+    if (args.json) console.log(JSON.stringify(verdict, null, 2));
+    else console.log(`integration: ${verdict.outcome} (${verdict.reason}) rounds_counted=${verdict.rounds_counted} next_round=${verdict.next_round ?? "-"}`);
+    return EXIT_CODES[verdict.outcome];
   }
 
   // A per-run finder selection has to reach THIS resolution too (#796
@@ -2275,11 +2548,24 @@ async function main() {
   // result as other failures that prevent exit computation, not an
   // uncaught exception with an empty --json stdout. Shepherd-stage cloud
   // finding, confirmed.
+  // Without --heads, the run directory's own heads.json is the head map:
+  // it is where the confidence-stage skill materializes the trusted map
+  // (review/SKILL.md, `--heads <record>/heads.json`), from the same
+  // feature-owner state as every other record this invocation already
+  // trusts. A caller naming only --run otherwise had no ancestry evidence at
+  // all, so every round but the exact current-head one was dropped and two
+  // consecutive clean rounds read as one whenever round N's fixes moved the
+  // head (harmon-devkit#1240). An explicit --heads still wins.
+  const runHeadsFile = path.join(args.run, "heads.json");
+  const headsFile = args.heads || (existsSync(runHeadsFile) ? runHeadsFile : null);
   let headsMap;
   try {
-    headsMap = loadHeadsMap(args.heads);
+    headsMap = loadHeadsMap(headsFile);
   } catch (err) {
-    return indeterminate(args, `--heads could not be read as JSON: ${err.message}`);
+    // Name the file actually read: without --heads it is the run's own
+    // heads.json default, which the caller never typed.
+    const source = args.heads ? "--heads" : `the run directory's default head map ${runHeadsFile}`;
+    return indeterminate(args, `${source} could not be read as JSON: ${err.message}`);
   }
   const ancestryOpts = { headsMap, repoRoot: args["repo-root"] };
 
@@ -2562,6 +2848,8 @@ export {
   evalPredicate,
   evalExpr,
   computeVerdict,
+  computeIntegrationExit,
+  integrationExitForRunDir,
   isAncestorOrEqual,
   EXIT_CODES,
 };

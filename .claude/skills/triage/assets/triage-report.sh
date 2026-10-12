@@ -6,12 +6,22 @@
 # stale claims, blocked-without-reason, aging needs-* states, closed-completed
 # issues with unticked criteria, duplicate closes missing pointers, title
 # violations, possible-completion candidates (an open issue whose delivery
-# looks finished — advisory only), tier/method proposals. One rolling issue,
+# looks finished), human-label refusals, guarded human removals (or planned
+# removals in dry-run) with reasons and retained candidates, tier/method proposals. One rolling issue,
 # not a stream — re-runs
 # UPSERT it: the body is regenerated from the current scan every run, so an
 # entry for a resolved problem disappears on the next run and re-runs are
 # idempotent (same findings in, byte-identical body out — the timestamp is
 # injectable for tests via TRIAGE_NOW).
+#
+# Size: the body is budgeted to 60,000 bytes, under GitHub's 65,536-character
+# limit. Other entries are truncated to fit; human-removal records are never
+# dropped, because they cannot be reconstructed once labels change. When they
+# alone exceed the budget they are split into parts, all posted as comments
+# on the report issue before the body is written, and the body points at
+# them. Each part is keyed by a digest of the run's removal records, so a
+# re-run of the same entries file posts no part twice. More than 10 parts is
+# refused before any write, with the records printed.
 #
 # Identity and safety:
 #   - The report issue is identified by a stable HTML-comment marker in its
@@ -211,32 +221,78 @@ cmd_sync() {
 
     local now body entries_content
     now="${TRIAGE_NOW:-$(date -u '+%Y-%m-%d %H:%M UTC')}"
-    # GitHub caps issue bodies at 65,536 characters, and a large backlog can
-    # legitimately produce more. Truncate at a section boundary with a loud
-    # note rather than letting the write fail after labels already applied —
-    # a stale-but-present report beats an update that errors out.
-    local budget=60000
-    if [ "$(wc -c <"$entries")" -gt "$budget" ]; then
-        entries_content="$(awk -v b="$budget" '
-            {n += length($0) + 1
-             if (n > b && ($0 ~ /^### #/ || $0 ~ /^## /)) exit
-             print}' "$entries")"
-        # The awk pass cuts at section boundaries; a single section larger
-        # than the whole budget would pass through intact, so hard-cap the
-        # result as a fallback. Pure bash substring — a printf|head pipeline
-        # here dies of SIGPIPE under pipefail exactly when the cap triggers.
-        if [ "${#entries_content}" -gt "$budget" ]; then
-            entries_content="${entries_content:0:$budget}"
+    # Removal evidence cannot be reconstructed after labels change. Render it
+    # first and reserve its bytes before truncating any other report entries.
+    local removal_content other_content budget=60000 removal_size remaining_budget
+    local partition='
+        /^## / {section = ($0 == "## Human removals"); keep = section}
+        /^### #/ {keep = section || ($0 ~ /human (removed|removal planned|removal unconfirmed):/)}
+        keep == wanted {print}'
+    removal_content="$(awk -v wanted=1 "$partition" "$entries")"
+    other_content="$(awk -v wanted=0 "$partition" "$entries")"
+    removal_size="$(printf '%s' "$removal_content" | wc -c)"
+    # Removal records that do not fit in one body never live in the body at
+    # all: they are split into parts of at most `budget` bytes, every part is
+    # posted as a comment on the report issue (post_removal_parts) before the
+    # body is written, and the body only points at them. Comments are
+    # append-only, so a later failed write cannot take a record back. Each
+    # comment is keyed by a digest of this run's removal records and its part
+    # number, so a re-run of the same entries file posts nothing twice.
+    # Parts are capped at max_parts: a larger run is refused before any write
+    # (its records are printed) rather than flooding the report issue.
+    removal_parts=0 removal_digest="" parts_dir=""
+    local max_parts=10
+    if [ "$removal_size" -gt "$budget" ]; then
+        parts_dir="$(mktemp -d)"
+        trap 'rm -rf "$parts_dir"' EXIT
+        removal_parts="$(printf '%s\n' "$removal_content" |
+            split_parts "$budget" "$parts_dir")" ||
+            die 2 "could not split the removal records into parts"
+        if [ "$removal_parts" -gt "$max_parts" ]; then
+            printf '%s\n' "$removal_content" >&2
+            die 2 "refused: this run's removal records need $removal_parts" \
+                "report comments, over the cap of $max_parts — they are" \
+                "printed above; nothing was written"
         fi
-        entries_content="$entries_content
+        removal_digest="$(printf '%s' "$removal_content" | digest)" ||
+            die 2 "could not digest the removal records"
+        removal_content="## Human removals
+
+This run's removal records do not fit in one issue body. All $removal_parts parts
+are comments on this issue, each starting with
+\`<!-- harmon-triage-removals:$removal_digest:<part>/$removal_parts -->\`."
+        removal_size="$(printf '%s' "$removal_content" | wc -c)"
+    fi
+    remaining_budget=$((budget - removal_size))
+    [ -z "$removal_content" ] || remaining_budget=$((remaining_budget - 2))
+    if [ "$(printf '%s' "$other_content" | wc -c)" -gt "$remaining_budget" ]; then
+        if [ "$remaining_budget" -le 0 ]; then
+            other_content=""
+        else
+            other_content="$(awk -v b="$remaining_budget" '
+                {n += length($0) + 1
+                 if (n > b && ($0 ~ /^### #/ || $0 ~ /^## /)) exit
+                 print}' <<<"$other_content")"
+            # A single oversized non-removal section needs a hard-cap fallback.
+            if [ "${#other_content}" -gt "$remaining_budget" ]; then
+                other_content="${other_content:0:$remaining_budget}"
+            fi
+        fi
+        other_content="$other_content
 
 ## Report truncated
 
-This run produced more findings than fit in one issue body. Everything
-below the last section above was omitted — re-run after resolving some
-entries, or triage a narrower window."
-    elif [ -s "$entries" ]; then
-        entries_content="$(cat "$entries")"
+This run produced more findings than fit in one issue body. Other entries
+below the last retained section were omitted — re-run after resolving some
+entries, or triage a narrower window. Human removal records are retained in full."
+    fi
+    if [ -n "$removal_content" ]; then
+        entries_content="$removal_content"
+        [ -z "$other_content" ] || entries_content="$entries_content
+
+$other_content"
+    elif [ -n "$other_content" ]; then
+        entries_content="$other_content"
     else
         entries_content="No findings this run."
     fi
@@ -264,6 +320,11 @@ entries, or triage a narrower window."
         fi
         echo "DRY-RUN body follows:"
         printf '%s\n' "$body"
+        local i
+        for ((i = 1; i <= removal_parts; i++)); do
+            echo "DRY-RUN would post removal part $i/$removal_parts as a comment; it follows:"
+            removal_part_comment "$i"
+        done
         return 0
     fi
 
@@ -295,6 +356,10 @@ entries, or triage a narrower window."
         if [ "$is_bot" = "true" ]; then
             die 4 "refused: will not retitle bot-authored issue $repo#$target"
         fi
+        # The removal parts go first: comments are append-only, so a later
+        # failure cannot take back a part already posted, and the body that
+        # points at them is written only once they exist.
+        post_removal_parts "$repo" "$target"
         # Idempotency: identical findings must not churn the issue. The
         # timestamp line is generation metadata, so compare without it and
         # skip the edit when nothing else changed.
@@ -302,21 +367,136 @@ entries, or triage a narrower window."
             [ "$(printf '%s\n' "$body" | grep -v '^_Last generated: ')" = \
                 "$(printf '%s\n' "$live" | grep -v '^_Last generated: ')" ]; then
             echo "no content change — skipping edit of $repo#$target"
-            return 0
+        else
+            printf '%s\n' "$body" |
+                gh issue edit "$target" --repo "$repo" --title "$title" \
+                    --body-file - >/dev/null || {
+                dump_body
+                die 1 "write failed: gh issue edit $repo#$target"
+            }
+            echo "APPLIED report update to $repo#$target"
         fi
-        printf '%s\n' "$body" |
-            gh issue edit "$target" --repo "$repo" --title "$title" \
-                --body-file - >/dev/null ||
-            die 1 "write failed: gh issue edit $repo#$target"
-        echo "APPLIED report update to $repo#$target"
     else
-        local created
-        created="$(printf '%s\n' "$body" |
+        # A new report issue must exist before its comments can. With removal
+        # parts to post, it is created with a placeholder body, so no body
+        # ever points at comments that are not there yet; the real body is
+        # written once every part is posted.
+        local created create_body="$body"
+        [ "$removal_parts" -eq 0 ] || create_body="$(
+            printf '%s\n\n' "$MARKER"
+            printf '%s\n' "Rolling triage report — being written: this run's" \
+                "removal records are being posted as comments. If this text" \
+                "remains, the run failed partway and printed what it could not post."
+        )"
+        created="$(printf '%s\n' "$create_body" |
             gh issue create --repo "$repo" --title "$title" \
-                --body-file -)" ||
+                --body-file -)" || {
+            dump_body
+            dump_parts_from 1
             die 1 "write failed: gh issue create in $repo"
+        }
         echo "APPLIED report creation in $repo: $created"
+        if [ "$removal_parts" -gt 0 ]; then
+            post_removal_parts "$repo" "${created##*/}"
+            printf '%s\n' "$body" |
+                gh issue edit "${created##*/}" --repo "$repo" \
+                    --body-file - >/dev/null || {
+                dump_body
+                die 1 "write failed: gh issue edit $repo#${created##*/}"
+            }
+            echo "APPLIED report body to $repo#${created##*/}"
+        fi
     fi
+}
+
+# Removal records cannot be rebuilt once labels change, and a supervised run
+# discards its scratch entries file on exit. So whatever this run could not
+# write is printed to stderr, where the operator still has it.
+dump_body() {
+    echo "triage-report: the report body was NOT written; it follows so its" \
+        "removal records are not lost:" >&2
+    printf '%s\n' "$body" >&2
+}
+
+dump_parts_from() {
+    local i
+    [ "$removal_parts" -ge "$1" ] || return 0
+    echo "triage-report: removal parts $1–$removal_parts were NOT posted; they" \
+        "follow so they are not lost:" >&2
+    for ((i = $1; i <= removal_parts; i++)); do
+        removal_part_comment "$i" >&2
+        echo >&2
+    done
+}
+
+# split_parts BUDGET DIR — split stdin into DIR/part-1..N of at most BUDGET
+# bytes each, breaking between lines (a single line longer than BUDGET is cut
+# inside it). Prints N.
+split_parts() {
+    LC_ALL=C awk -v b="$1" -v dir="$2" '
+        function next_part() { close(f); part++; f = dir "/part-" part; len = 0 }
+        BEGIN { part = 1; f = dir "/part-1"; len = 0; printf "" > f }
+        {
+            line = $0 "\n"
+            if (len > 0 && len + length(line) > b) next_part()
+            while (length(line) > b) {
+                printf "%s", substr(line, 1, b) > f
+                line = substr(line, b + 1)
+                next_part()
+            }
+            printf "%s", line > f
+            len += length(line)
+        }
+        END { close(f); print part }'
+}
+
+digest() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | cut -c1-16
+    else
+        shasum -a 256 | cut -c1-16
+    fi
+}
+
+removal_part_marker() {
+    printf '<!-- harmon-triage-removals:%s:%s/%s -->' \
+        "$removal_digest" "$1" "$removal_parts"
+}
+
+removal_part_comment() {
+    removal_part_marker "$1"
+    printf '\n\n## Human removals (part %s of %s)\n\n' "$1" "$removal_parts"
+    cat "$parts_dir/part-$1"
+}
+
+# post_removal_parts REPO ISSUE — post removal parts 1..N as comments on the
+# report issue, skipping any a trusted author already posted with the same
+# marker (a re-run of the same entries file posts nothing twice, and completes
+# one that failed partway). On a failure, the parts not posted are printed.
+post_removal_parts() {
+    local repo="$1" issue="$2" existing i
+    [ "$removal_parts" -gt 0 ] || return 0
+    if ! existing="$(gh api "repos/$repo/issues/$issue/comments" --paginate -q '
+        .[] | select(.author_association == "OWNER"
+                     or .author_association == "MEMBER"
+                     or .author_association == "COLLABORATOR") | .body')"; then
+        dump_parts_from 1
+        die 1 "write incomplete: could not list the comments of $repo#$issue," \
+            "so its removal parts were not posted"
+    fi
+    for ((i = 1; i <= removal_parts; i++)); do
+        if grep -qF "$(removal_part_marker "$i")" <<<"$existing"; then
+            echo "removal part $i/$removal_parts is already on $repo#$issue"
+            continue
+        fi
+        if ! removal_part_comment "$i" |
+            gh issue comment "$issue" --repo "$repo" --body-file - >/dev/null; then
+            dump_parts_from "$i"
+            die 1 "write failed: removal part $i/$removal_parts on $repo#$issue;" \
+                "the records not posted are printed above"
+        fi
+        echo "APPLIED removal part $i/$removal_parts as a comment on $repo#$issue"
+    done
 }
 
 [ "$#" -ge 1 ] || usage
