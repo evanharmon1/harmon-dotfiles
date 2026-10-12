@@ -243,14 +243,15 @@ decision_b="$(printf '%s' "$result_b" | jq -r '.decision')"
 echo "==> agy adapter worktree-root Cwd resolution OK"
 
 # ---------------------------------------------------------------------------
-# protect-files: credential-shaped protection regression (#1019)
+# protect-files: credential-shaped protection regression (#1019, #124)
 # ---------------------------------------------------------------------------
-# The hook keeps only credential-shaped protections (.env, .pem, .key,
-# .claude/settings.json, .codex/config.toml, /etc/claude-code/, /etc/codex/)
-# and drops .git/, lockfiles, node_modules/, dist/, terraform state, and
-# media/PDF suffixes.
+# The hook keeps credential-shaped protections (.env, .pem, .key,
+# .claude/settings.json, machine-level .codex/config.toml, /etc/claude-code/,
+# /etc/codex/), Git control structures (refusing direct writes under .git/
+# except for dev-flow-v2/ records), and Terraform state/internals, while
+# dropping lockfiles, node_modules/, dist/, and binary/PDF suffixes.
 
-devc_protect=".devcontainer/config/claude-hooks/protect-files.sh"
+hook_protect="private_dot_claude/hooks/executable_protect-files.sh"
 
 protect_payload() {
     jq -n --arg file "$1" '{"tool_input":{"file_path":$file}}'
@@ -279,53 +280,128 @@ assert_protect_allows() {
     fi
 }
 
-if [ ! -f "$repo/$devc_protect" ]; then
-    echo "==> protect-files regression tests skipped (devcontainer assets absent)"
-elif [ ! -x "$repo/$devc_protect" ]; then
-    fail "$devc_protect exists but is not executable"
+if [ ! -f "$repo/$hook_protect" ]; then
+    fail "$hook_protect absent"
+elif [ ! -x "$repo/$hook_protect" ]; then
+    fail "$hook_protect exists but is not executable"
 else
     echo "==> protect-files blocks credential-shaped paths"
-    assert_protect_blocks "$devc_protect" ".env"
-    assert_protect_blocks "$devc_protect" "/repo/.env"
-    assert_protect_blocks "$devc_protect" "/repo/.env.local"
-    assert_protect_blocks "$devc_protect" "/repo/prod.env"
-    assert_protect_blocks "$devc_protect" "/repo/subdir/.env.local"
-    assert_protect_blocks "$devc_protect" "/repo/sub/.env.production"
-    assert_protect_blocks "$devc_protect" "/repo/.envrc"
-    assert_protect_blocks "$devc_protect" "secrets.pem"
-    assert_protect_blocks "$devc_protect" "/repo/certs/server.pem"
-    assert_protect_blocks "$devc_protect" "server.key"
-    assert_protect_blocks "$devc_protect" "/repo/keys/id_rsa.key"
-    assert_protect_blocks "$devc_protect" ".claude/settings.json"
-    assert_protect_blocks "$devc_protect" "/repo/.claude/settings.json"
-    assert_protect_blocks "$devc_protect" ".codex/config.toml"
-    assert_protect_blocks "$devc_protect" "/repo/.codex/config.toml"
-    assert_protect_blocks "$devc_protect" "/etc/claude-code/x"
-    assert_protect_blocks "$devc_protect" "/etc/claude-code/config.json"
-    assert_protect_blocks "$devc_protect" "/etc/codex/x"
+    assert_protect_blocks "$hook_protect" ".env"
+    assert_protect_blocks "$hook_protect" "/repo/.env"
+    assert_protect_blocks "$hook_protect" "/repo/.env.local"
+    assert_protect_blocks "$hook_protect" "/repo/prod.env"
+    assert_protect_blocks "$hook_protect" "/repo/subdir/.env.local"
+    assert_protect_blocks "$hook_protect" "/repo/sub/.env.production"
+    assert_protect_blocks "$hook_protect" "/repo/.envrc"
+    assert_protect_blocks "$hook_protect" "secrets.pem"
+    assert_protect_blocks "$hook_protect" "/repo/certs/server.pem"
+    assert_protect_blocks "$hook_protect" "server.key"
+    assert_protect_blocks "$hook_protect" "/repo/keys/id_rsa.key"
+    assert_protect_blocks "$hook_protect" ".claude/settings.json"
+    assert_protect_blocks "$hook_protect" "/repo/.claude/settings.json"
+    assert_protect_blocks "$hook_protect" "/etc/claude-code/x"
+    assert_protect_blocks "$hook_protect" "/etc/claude-code/config.json"
+    assert_protect_blocks "$hook_protect" "/etc/codex/x"
 
-    echo "==> protect-files allows dropped patterns (.git, lockfiles, dist, media, etc.)"
-    assert_protect_allows "$devc_protect" "/repo/.git/dev-flow-v2/runs/r/run.json"
-    assert_protect_allows "$devc_protect" "/repo/.git/deferred-findings/branch"
-    assert_protect_allows "$devc_protect" "/repo/.git/config"
-    assert_protect_allows "$devc_protect" "/repo/package-lock.json"
-    assert_protect_allows "$devc_protect" "/repo/uv.lock"
-    assert_protect_allows "$devc_protect" "/repo/node_modules/foo/index.js"
-    assert_protect_allows "$devc_protect" "/repo/dist/x.js"
-    assert_protect_allows "$devc_protect" "/repo/img.png"
-    assert_protect_allows "$devc_protect" "/repo/photo.jpg"
-    assert_protect_allows "$devc_protect" "/repo/doc.pdf"
-    assert_protect_allows "$devc_protect" "/repo/.terraform/main.tf"
-    assert_protect_allows "$devc_protect" "/repo/terraform.tfstate"
-    assert_protect_allows "$devc_protect" "/repo/ai/schemas/result.envelope.schema.json"
-    assert_protect_allows "$devc_protect" "/repo/config.environment.json"
-    assert_protect_allows "$devc_protect" "/repo/config.env.js"
-    assert_protect_allows "$devc_protect" "/repo/src/env.ts"
-    assert_protect_allows "$devc_protect" "/repo/env.config.json"
-    assert_protect_allows "$devc_protect" "/repo/prod.env.local"
-    assert_protect_allows "$devc_protect" "/repo/.env.d/README.md"
-    assert_protect_allows "$devc_protect" "/repo/.environment/schema.json"
-    assert_protect_allows "$devc_protect" ""
+    echo "==> protect-files blocks Terraform state and internals"
+    assert_protect_blocks "$hook_protect" ".terraform/main.tf"
+    assert_protect_blocks "$hook_protect" "/repo/.terraform/main.tf"
+    assert_protect_blocks "$hook_protect" "terraform.tfstate"
+    assert_protect_blocks "$hook_protect" "/repo/terraform.tfstate"
+    assert_protect_blocks "$hook_protect" "/repo/terraform.tfstate.backup"
+    assert_protect_blocks "$hook_protect" "/repo/infra/prod.tfstate"
+
+    echo "==> protect-files blocks Git control internals"
+    fixture_repo="$tmpdir/fixture-repo"
+    mkdir -p "$fixture_repo"
+    git -C "$fixture_repo" init -q
+    mkdir -p "$fixture_repo/.git/dev-flow-v2/lanes/l" "$fixture_repo/.git/worktrees/w/deferred-findings"
+
+    assert_protect_blocks "$hook_protect" ".git"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git"
+    assert_protect_blocks "$hook_protect" ".git/config"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/config"
+    assert_protect_blocks "$hook_protect" ".git/HEAD"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/HEAD"
+    assert_protect_blocks "$hook_protect" ".git/index"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/index"
+    assert_protect_blocks "$hook_protect" ".git/refs/heads/main"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/refs/heads/main"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/hooks/pre-commit"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.GIT/config"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.Git/hooks/pre-commit"
+    assert_protect_blocks "$hook_protect" ".git/worktrees/wt/refs/worktree/deferred-findings"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/wt/refs/worktree/deferred-findings"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/wt/refs/heads/deferred-findings"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/a/b/deferred-findings/sidecar.md"
+    assert_protect_blocks "$hook_protect" ".git/worktrees/w/deferred-findings/sidecar.md"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/w/deferred-findings/sidecar.md"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/branch"
+
+    echo "==> protect-files blocks credential and managed config through symlinks"
+    secret_target="$tmpdir/secret.key"
+    touch "$secret_target"
+    symlink_secret="$tmpdir/not-a-secret-name.txt"
+    ln -s "$secret_target" "$symlink_secret"
+    assert_protect_blocks "$hook_protect" "$symlink_secret"
+
+    env_target="$tmpdir/.env"
+    touch "$env_target"
+    symlink_env="$tmpdir/regular-file.conf"
+    ln -s "$env_target" "$symlink_env"
+    assert_protect_blocks "$hook_protect" "$symlink_env"
+
+    claude_target="$tmpdir/.claude/settings.json"
+    mkdir -p "$tmpdir/.claude"
+    touch "$claude_target"
+    symlink_claude="$tmpdir/my-custom-settings.json"
+    ln -s "$claude_target" "$symlink_claude"
+    assert_protect_blocks "$hook_protect" "$symlink_claude"
+
+    echo "==> protect-files blocks symlinks escaping dev-flow directories"
+    touch "$tmpdir/outside-target.txt"
+    ln -s "$tmpdir/outside-target.txt" "$fixture_repo/.git/dev-flow-v2/escape-outside"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/dev-flow-v2/escape-outside"
+
+    touch "$fixture_repo/.git/config"
+    ln -s "$fixture_repo/.git/config" "$fixture_repo/.git/dev-flow-v2/escape-to-git-config"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/dev-flow-v2/escape-to-git-config"
+
+    echo "==> protect-files blocks symlink-plus-parent traversal escaping dev-flow directory"
+    mkdir -p "$tmpdir/symlink-parent-out/child"
+    touch "$tmpdir/symlink-parent-out/victim"
+    ln -s "$tmpdir/symlink-parent-out/child" "$fixture_repo/.git/dev-flow-v2/link"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/dev-flow-v2/link/../victim"
+
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/dev-flow-v2/../config"
+
+    echo "==> protect-files blocks paths outside any repository"
+    outside_repo="$tmpdir/outside-non-repo"
+    mkdir -p "$outside_repo/.git/dev-flow-v2/lanes/l"
+    assert_protect_blocks "$hook_protect" "$outside_repo/.git/dev-flow-v2/lanes/l/report.md"
+    assert_protect_blocks "$hook_protect" "$outside_repo/.git/config"
+
+    echo "==> protect-files allows dev-flow records and dropped patterns"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/dev-flow-v2/lanes/l/report-1.md"
+    assert_protect_allows "$hook_protect" ".git/dev-flow-v2/lanes/l/report-1.md"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/dev-flow-v2/runs/r/run.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/dev-flow-v2/lanes/../runs/r/run.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/package-lock.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/uv.lock"
+    assert_protect_allows "$hook_protect" "$fixture_repo/node_modules/foo/index.js"
+    assert_protect_allows "$hook_protect" "$fixture_repo/dist/x.js"
+    assert_protect_allows "$hook_protect" "$fixture_repo/img.png"
+    assert_protect_allows "$hook_protect" "$fixture_repo/photo.jpg"
+    assert_protect_allows "$hook_protect" "$fixture_repo/doc.pdf"
+    assert_protect_allows "$hook_protect" "$fixture_repo/ai/schemas/result.envelope.schema.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/config.environment.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/config.env.js"
+    assert_protect_allows "$hook_protect" "$fixture_repo/src/env.ts"
+    assert_protect_allows "$hook_protect" "$fixture_repo/env.config.json"
+    assert_protect_allows "$hook_protect" "$fixture_repo/prod.env.local"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.env.d/README.md"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.environment/schema.json"
+    assert_protect_allows "$hook_protect" ""
 
     echo "==> protect-files regression tests OK"
 fi
