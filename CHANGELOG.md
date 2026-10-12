@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.19.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.19.0...v0.19.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **claude:** allow dev-flow-v2 records in protect-files and drop its generated-path blocks ([5d69252](https://github.com/evanharmon1/harmon-dotfiles/commit/5d69252e56cbd75f95ed486490cca6dedad610ff))
+* **claude:** match .git case-insensitively in protect-files ([2f32868](https://github.com/evanharmon1/harmon-dotfiles/commit/2f328683d01ad18279a888a4b171effe0bf8d381))
+* **claude:** relax protect-files to credential-shaped paths, mirroring harmon-init[#1313](https://github.com/evanharmon1/harmon-dotfiles/issues/1313) ([8b1adde](https://github.com/evanharmon1/harmon-dotfiles/commit/8b1addeae81f37559b8554e5975c046d6e780329))
+* **claude:** stop claiming a deferred-findings exception in protect-files ([5915f57](https://github.com/evanharmon1/harmon-dotfiles/commit/5915f570dcde0a64b0e9d091949f149fda942f58))
+* sync harmon-devkit skills to v0.55.0 ([#147](https://github.com/evanharmon1/harmon-dotfiles/issues/147)) ([37120fa](https://github.com/evanharmon1/harmon-dotfiles/commit/37120fa5e8c3971e56582e5f95ea3930acd3d137))
+
 ## [0.19.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.18.1...v0.19.0) (2026-10-11)
 
 
