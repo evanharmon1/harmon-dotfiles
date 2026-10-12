@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # protect-files.sh — PreToolUse hook for Edit|Write|MultiEdit.
 #
-# Blocks AI modification of sensitive or generated files: secrets, lockfiles,
-# git internals, dependency dirs, binary assets, terraform state, ansible vault,
-# and machine-level Claude/Codex managed settings. Exit 2 tells Claude Code to refuse the
-# tool call and surface the stderr message back to the model.
+# Blocks AI modification of sensitive files: credentials, secrets, Terraform
+# state, Git control internals, and machine-level Claude/Codex managed settings.
+# Permitted exceptions include Git working state under dev-flow-v2 and
+# deferred-findings sidecars.
+# Exit 2 tells Claude Code to refuse the tool call and surface the stderr message back to the model.
 set -euo pipefail
 
 input="$(cat)"
@@ -21,6 +22,38 @@ normalize_path() {
     *) path="${CLAUDE_PROJECT_DIR:-$PWD}/$path" ;;
     esac
 
+    # In a git worktree, .git is a gitlink file pointing to the main repo gitdir.
+    # If the path references .git/... relative to a worktree containing a .git file,
+    # resolve the .git component to the common git directory.
+    local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+    if [[ -f "$project_dir/.git" && ("$path" == "$project_dir/.git" || "$path" == "$project_dir/.git/"*) ]]; then
+        local git_common
+        git_common="$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null)" || true
+        if [[ -n "$git_common" ]]; then
+            case "$git_common" in
+            /*) ;;
+            *) git_common="$project_dir/$git_common" ;;
+            esac
+            if command -v python3 >/dev/null 2>&1; then
+                git_common="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$git_common" 2>/dev/null)" || true
+            else
+                git_common="$(realpath "$git_common" 2>/dev/null)" || true
+            fi
+            if [[ -n "$git_common" ]]; then
+                path="$git_common${path#"$project_dir/.git"}"
+            fi
+        fi
+    fi
+
+    # Resolve symlinks and parent components using filesystem semantics so
+    # symlink-plus-parent traversal attacks (e.g. .git/dev-flow-v2/link/../victim)
+    # resolve to their real target before matching.
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$path"
+        return 0
+    fi
+
+    # Fallback when python3 is unavailable
     parent="$(dirname -- "$path")"
     suffix="$(basename -- "$path")"
     while [[ ! -d "$parent" ]]; do
@@ -30,7 +63,7 @@ normalize_path() {
         parent="$next"
     done
     if [[ -d "$parent" ]]; then
-        path="$(cd -- "$parent" && pwd -P)/$suffix"
+        path="$(cd -P -- "$parent" && pwd -P)/$suffix"
     fi
     if [[ -e "$path" || -L "$path" ]]; then
         path="$(realpath -- "$path")"
@@ -42,17 +75,11 @@ resolved_path="$(normalize_path "$file_path")"
 
 # Substring patterns — matched anywhere in the path.
 protected=(
-    ".env"
-    "uv.lock"
-    "package-lock.json"
-    ".git/"
-    "node_modules/"
-    "dist/"
-    ".terraform/"
-    ".tfstate"
     ".claude/settings.json"
     "/etc/claude-code/"
     "/etc/codex/"
+    ".terraform/"
+    ".tfstate"
 )
 
 for pattern in "${protected[@]}"; do
@@ -81,16 +108,133 @@ if [[ "$resolved_path" == "$codex_config" ]]; then
     exit 2
 fi
 
-# Suffix patterns — binary assets that shouldn't be hand-edited.
-case "$file_path" in
-*/.git | .git)
-    echo "protect-files: blocked write to '$file_path' (exact .git file)" >&2
-    exit 2
-    ;;
-*.png | *.jpg | *.jpeg | *.webp | *.gif | *.ico | *.pdf | *.pem | *.key)
-    echo "protect-files: blocked write to '$file_path' (binary asset or secret)" >&2
-    exit 2
-    ;;
-esac
+# Git internals protection with carved-out dev-flow working directories.
+# A .git/ write is allowed only when its fully resolved real path lies under
+# <common>/dev-flow-v2/ (computed at call time from the target path's nearest
+# existing directory). Compared component by component: no globbing, no substring
+# or suffix matching. Anything else under a .git/ directory is refused, and so is
+# any path whose root cannot be computed (fail closed).
+is_git_path() {
+    case "$1" in
+    */.git/* | */.git | .git | .git/*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+check_git_invariant() {
+    local target="$1"
+    local common="$2"
+
+    local -a target_parts common_parts
+    local IFS="/"
+    read -r -a target_parts <<<"$target"
+    read -r -a common_parts <<<"$common"
+    unset IFS
+
+    local -a t_clean=() c_clean=()
+    local part
+    for part in "${target_parts[@]}"; do
+        [[ -n "$part" ]] && t_clean+=("$part")
+    done
+    for part in "${common_parts[@]}"; do
+        [[ -n "$part" ]] && c_clean+=("$part")
+    done
+
+    local c_len="${#c_clean[@]}"
+    local t_len="${#t_clean[@]}"
+
+    if ((t_len < c_len)); then
+        return 1
+    fi
+
+    local i
+    for ((i = 0; i < c_len; i++)); do
+        if [[ "${t_clean[i]}" != "${c_clean[i]}" ]]; then
+            return 1
+        fi
+    done
+
+    local rel_len=$((t_len - c_len))
+    if ((rel_len < 1)); then
+        return 1
+    fi
+
+    local root_comp="${t_clean[c_len]}"
+
+    # Allowed root: <common>/dev-flow-v2/
+    if [[ "$root_comp" == "dev-flow-v2" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+if is_git_path "$file_path" || is_git_path "$resolved_path"; then
+    nearest_target="$file_path"
+    case "$nearest_target" in
+    /*) ;;
+    *) nearest_target="${CLAUDE_PROJECT_DIR:-$PWD}/$nearest_target" ;;
+    esac
+
+    nearest_dir="$(dirname -- "$nearest_target")"
+    while [[ ! -d "$nearest_dir" && "$nearest_dir" != "/" && "$nearest_dir" != "." ]]; do
+        nearest_dir="$(dirname -- "$nearest_dir")"
+    done
+
+    common_dir=""
+    if [[ -d "$nearest_dir" ]]; then
+        common_dir="$(git -C "$nearest_dir" rev-parse --git-common-dir 2>/dev/null)" || true
+    fi
+
+    if [[ -z "$common_dir" ]]; then
+        nearest_res="$(dirname -- "$resolved_path")"
+        while [[ ! -d "$nearest_res" && "$nearest_res" != "/" && "$nearest_res" != "." ]]; do
+            nearest_res="$(dirname -- "$nearest_res")"
+        done
+        if [[ -d "$nearest_res" ]]; then
+            common_dir="$(git -C "$nearest_res" rev-parse --git-common-dir 2>/dev/null)" || true
+            nearest_dir="$nearest_res"
+        fi
+    fi
+
+    if [[ -z "$common_dir" ]]; then
+        echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+        exit 2
+    fi
+
+    case "$common_dir" in
+    /*) ;;
+    *) common_dir="$nearest_dir/$common_dir" ;;
+    esac
+
+    if command -v python3 >/dev/null 2>&1; then
+        common_dir="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$common_dir" 2>/dev/null)" || true
+    else
+        common_dir="$(realpath "$common_dir" 2>/dev/null)" || true
+    fi
+
+    if [[ -z "$common_dir" || ! -d "$common_dir" ]]; then
+        echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+        exit 2
+    fi
+
+    if ! check_git_invariant "$resolved_path" "$common_dir"; then
+        echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+        exit 2
+    fi
+fi
+
+# Suffix and glob patterns — sensitive credentials, matched against the
+# basename only so a directory merely starting with .env (.environment/,
+# .env.d/) does not block every file beneath it. Checked on both the requested
+# file path and its resolved target so symlink indirection cannot bypass it.
+for candidate in "${file_path##*/}" "${resolved_path##*/}"; do
+    case "$candidate" in
+    *.pem | *.key | *.env | .env*)
+        echo "protect-files: blocked write to '$file_path' (matches protected credential pattern)" >&2
+        exit 2
+        ;;
+    esac
+done
 
 exit 0
