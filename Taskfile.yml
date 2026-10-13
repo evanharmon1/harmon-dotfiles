@@ -64,9 +64,22 @@ tasks:
     cmds:
       - task: check
       - task: audit:agent-instructions
+      - task: validate
+      - task: test:suite
+      - task: test
+
+  test:suite:
+    # The ONE list of `test:*` targets that both `verify` and the required Build
+    # workflow's `lint` job run (build.yml calls this task in a single step), so
+    # the two cannot drift and nothing parses the workflow to police them.
+    # A new `test:*` guard that belongs in the gate is added HERE and nowhere
+    # else; `test:verify-ci-parity` fails if either caller stops running it.
+    # Not in this list: `build`, `validate` and `test` (the project's own tiers
+    # — CI runs them in their own job) and the `ci`-only checks.
+    desc: The test:* targets verify and the Build workflow's lint job both run
+    cmds:
       - task: test:agent-instructions-size
       - task: test:agent-skill-links
-      - task: validate
       - task: test:agent-registry
       - task: test:result-schemas
       - task: test:registry-drift
@@ -81,18 +94,22 @@ tasks:
       - task: test:output
       - task: test:status
       - task: test:gh-scopes
+      - task: test:setup-remote
       - task: test:meta-install
       - task: test:codex-review
+      - task: test:remote-codex-policy
       - task: test:lint-hygiene
+      - task: test:claude-workflow-result
       - task: test:release-title
       - task: test:claim-release-merged
       - task: test:setup-github
       - task: test:setup-github-project
+      - task: test:classification-reconcile
       - task: test:sync-devkit-release
       - task: test:worktree
       - task: test:session-cleanup
       - task: test:hooks
-      - task: test
+      - task: test:verify-ci-parity
 
   # ── Quality Checks ────────────────────────────────────────────
   check:
@@ -336,6 +353,11 @@ tasks:
     cmds:
       - ./scripts/test-tasks.sh
 
+  test:verify-ci-parity:
+    desc: Fail if the Build workflow stops calling test:suite or verify stops running it
+    cmds:
+      - ./scripts/test-verify-ci-parity.sh
+
   test:ci-results:
     desc: Unit-test CI aggregate and closing-keyword fail-closed truth tables
     cmds:
@@ -353,13 +375,23 @@ tasks:
 
   test:status:
     desc: Unit-test the status board-writes + local-credential checks (stubbed CLIs, no network)
+    # Run under a hostile ambient environment on purpose (#1395): the bot and agent
+    # profiles export FOREMAN_DEVCONTAINER and a GH_TOKEN, and Claude Code on the
+    # web presets GH_TOKEN/GITHUB_TOKEN, so the test must pass with them set. The
+    # GH_HOST, GH_REPO, GH_REST_HOST and STATUS_NO_NETWORK canaries make the test's
+    # family clear (GH_*, GITHUB_*, STATUS_*) fail if it narrows to a name list.
     cmds:
-      - ./scripts/test-status.sh
+      - env FOREMAN_DEVCONTAINER=bot GH_TOKEN=dummy GITHUB_TOKEN=dummy GH_HOST=ambient.invalid GH_REPO=ambient/repo GH_REST_HOST=ambient.invalid STATUS_NO_NETWORK=1 ./scripts/test-status.sh
 
   test:gh-scopes:
     desc: Unit-test the gh scope refresh task's refusals and post-refresh verification (stubbed gh, no network)
     cmds:
       - ./scripts/test-setup-gh-scopes.sh
+
+  test:setup-remote:
+    desc: Unit-test task setup:remote — idempotency, the lefthook shim, sibling clone/fetch cases, and the SessionStart wrapper (stubbed tools, no network)
+    cmds:
+      - ./scripts/test-setup-remote.sh
 
   test:meta-install:
     desc: Unit-test the .meta sidecar installer's ~-expansion and refusals
@@ -370,6 +402,16 @@ tasks:
     desc: Unit-test codex-review.sh target selection (offline, stubbed codex)
     cmds:
       - ./scripts/test-codex-review.sh
+
+  test:remote-codex-policy:
+    desc: Guard the remote second-model rule — no Codex credential vocabulary on a remote-environment surface (offline)
+    cmds:
+      - ./scripts/test-remote-codex-policy.sh
+
+  test:claude-workflow-result:
+    desc: Test Claude failure reporting and the optional zero-usage retry
+    cmds:
+      - ./scripts/test-claude-workflow-result.sh
 
   test:lint-hygiene:
     desc: Behavioral fixtures for lint-hygiene's trigger-phrase adjacency scan
@@ -397,15 +439,32 @@ tasks:
     cmds:
       - ./scripts/test-setup-github-project.sh
 
+  test:classification-reconcile:
+    desc: Unit-test the classification reconciler's decisions and the event workflow's filter (hermetic, no network)
+    cmds:
+      - ./scripts/test-classification-reconcile.sh
+
   test:sync-devkit-release:
     desc: "Unit-test the harmon-devkit release→sync-PR automation (offline, stubbed gh/task)"
+    # Run under a hostile ambient environment on purpose (#1395): the bot and agent
+    # profiles export FOREMAN_DEVCONTAINER and a GH_TOKEN, Claude Code on the web
+    # presets GH_TOKEN/GITHUB_TOKEN, and the sync helper reads SYNC_DEVKIT_TAG,
+    # SYNC_DEVKIT_ALLOW_DOWNGRADE and AGENT_SKILLS_DIR from its caller. The test
+    # clears those three itself; this run presets all six to prove it passes with
+    # them set.
     cmds:
-      - ./scripts/test-sync-devkit-release.sh
+      - env FOREMAN_DEVCONTAINER=bot GH_TOKEN=dummy GITHUB_TOKEN=dummy SYNC_DEVKIT_TAG=v0.48.0 SYNC_DEVKIT_ALLOW_DOWNGRADE=true AGENT_SKILLS_DIR=.agents/elsewhere ./scripts/test-sync-devkit-release.sh
 
   test:hooks:
     desc: Round-trip the Taskfile targets the Claude hooks delegate to
     cmds:
       - ./scripts/test-hooks.sh
+      - task: test:review-trigger-allow
+
+  test:review-trigger-allow:
+    desc: Exact review-trigger hook command and repository scope
+    cmds:
+      - ./scripts/test-review-trigger-allow.sh
 
 
   # ── Second-model review (Codex) ───────────────────────────────
@@ -551,6 +610,11 @@ tasks:
     cmds:
       - lefthook install
 
+  setup:remote:
+    desc: Prepare this checkout for the dev loop on a remote platform (no devcontainer hooks) — git hooks, related repos cloned then fetched beside it, frozen dependencies. Idempotent
+    cmds:
+      - ./scripts/setup-remote.sh
+
   # ── GitHub setup ───────────────────────────────────────────────
   # One-time, idempotent repo settings applied via gh (safe to re-run); run once
   # the repo exists on GitHub. The remaining setup steps need a browser or a real
@@ -568,8 +632,8 @@ tasks:
   setup:github-project:
     desc: >-
       Idempotently create/sync the owner's GitHub Project V2 board + Status
-      pipeline + Size number field (on a personal account also the other
-      metadata fields). Requires the Projects scopes — `task setup:gh-scopes`.
+      pipeline (on a personal account also its Product field). Requires the
+      Projects scopes — `task setup:gh-scopes`.
     cmds:
       - ./scripts/setup-github-project.sh --owner "evanharmon1" --title "evanharmon1 Project"
 

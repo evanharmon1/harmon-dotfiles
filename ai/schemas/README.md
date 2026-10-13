@@ -417,7 +417,8 @@ instance being validated:
   below `Z`).
 - **`run.schema.json`'s `settlements[].reference.type` must match
   `disposition`** — `fix → sha` (a 40-hex value), `file → issue_number`
-  (`^[1-9][0-9]*$`), `decline → comment_id` (non-empty) — the evidence a
+  (a bare `^[1-9][0-9]*$` or a qualified `owner/repo#<n>`),
+  `decline → comment_id` (non-empty) — the evidence a
   human or CI can actually follow has to be shaped for what it claims to be
   (`checkSettlementReferenceType`).
 - **`marker.destination` and `marker.round`** — spec § Evidence describes
@@ -825,6 +826,21 @@ decisions):
   `defer` forever in its own document; the settlement that later resolves it
   to `fix | decline | file` is a new entry in the run record instead, so
   neither document is edited to reflect the other).
+- **Split records live in `run.schema.json`'s optional `splits[]`.** Each
+  record names the mechanism removed from the change, its filed issue and
+  milestone, and the `finding_ids` it answers, together with `stage`, `round`,
+  and `split_at`. This is the run-level half of a split; the per-finding half
+  is an adjudication entry with `disposition: split` and a required
+  `issue_number` reference. Both halves allow only the confidence stages
+  `challenge` and `review`, never `integration`.
+  The validator requires non-blank mechanism, issue, and milestone strings;
+  a finding may appear in only one split, and a mechanism only once per stage.
+  Finding ids must match the split's stage and round. `split_at` cannot
+  predate `started_at` or postdate `promotion.promoted_at` when promoted.
+  With `--adjudication` (or `--no-adjudications`), every recorded finding must
+  be adjudicated exactly once as `split`, with the same issue reference in
+  the same notation. Once the run reaches any terminal outcome, every
+  supplied split adjudication must also appear in `splits[]`.
 - **`interventions[].kind` is `asked | other`.** The spec's own success
   metric draws exactly this one distinction — "any human action... except
   answering an implementer's `blocked_question`, counted separately as
@@ -847,8 +863,9 @@ decisions):
   chosen over a per-schema keyword because every schema in this family uses
   the identical timestamp shape, so a per-schema version would just be the
   same check copied six times.
-- **`producer.tier`** excludes `adaptive`: that value is a `.devflow.toml`
-  resolution *input*, never a fact about a run that already executed.
+- **`producer.tier`** excludes `adaptive`: that value is retired as a tier
+  (ADR 2026-09-30 D8) and was only ever a resolution *input*, never a fact
+  about a run that already executed.
 - **`checks[].required` is a required boolean, not an inferred one.**
   `gh pr checks --required` already distinguishes required from advisory
   checks, and a clean verdict treats them differently (see
@@ -1004,9 +1021,10 @@ decisions):
   shape (above) but validated it only structurally — `checkAdjudicationEntries`
   now applies the same per-type rule `run.schema.json`'s settlement
   reference already enforces: `type: "sha"` requires a 40-hex value,
-  `type: "issue_number"` requires a positive-integer string, `type:
-  "comment_id"` requires a non-empty-after-trim value. Without this, a
-  `reference` claiming to be a commit SHA could carry any string at all,
+  `type: "issue_number"` requires a bare positive-integer string or a
+  qualified `owner/repo#<n>` string, `type: "comment_id"` requires a
+  non-empty-after-trim value. Without this, a `reference` claiming to be a
+  commit SHA could carry any string at all,
   silently breaking any consumer that dereferences it. Covered by
   `adjudication.schema/invalid/reference-bad-sha-value.json`,
   `reference-bad-issue-number-value.json`, and
@@ -1018,16 +1036,15 @@ decisions):
   whatever `type` it happened to declare left the type itself unconstrained —
   `{disposition: "file", reference: {type: "sha", ...}}` passed despite the
   SHA never confirming a filed issue. `checkAdjudicationEntries` now applies
-  the same total mapping `run.schema.json`'s settlement reference already
-  enforces for the three dispositions a reference can meaningfully evidence
-  at adjudication time (the field's own description: "declined or filed
-  directly"): `fix` requires `sha`, `decline` requires `comment_id`, `file`
-  requires `issue_number`. Round 2 left `restructure`/`delete`/`defer`
-  unconstrained on the theory that no mapping applied to them; round 3
+  the settlement mapping from `run.schema.json`, extended to four
+  reference-bearing adjudication dispositions: `fix` requires `sha`,
+  `decline` requires `comment_id`, `file` requires `issue_number`, and
+  `split` requires an `issue_number` reference. Round 2 left
+  `restructure`/`delete`/`defer` unconstrained on the theory that no mapping applied to them; round 3
   pointed out that permissive default let `defer` silently accept a
   reference the field's own description already promises it never carries
   ("never deferred" — that evidence belongs on the eventual settlement
-  instead). Any disposition outside the three-way mapping now rejects a
+  instead). Any disposition outside the four-way mapping now rejects a
   reference outright rather than leaving it unconstrained. Covered by
   `adjudication.schema/invalid/reference-type-disposition-mismatch.json`
   (round 2), `reference-on-defer-disposition.json` (round 3), and — closing
@@ -1083,8 +1100,12 @@ focused shipped suite in one mechanically checked contract.
 
 <!-- BEGIN GENERATED FIXTURE INVENTORY -->
 - `adjudication.schema/invalid/duplicate-finding-id.json`
+- `adjudication.schema/invalid/integration-split.json`
+- `adjudication.schema/invalid/split-without-reference.json`
+- `adjudication.schema/valid/cross-repository-split.json`
 - `adjudication.schema/valid/integration-adjudication.json`
 - `adjudication.schema/valid/integration-adjudication.pass.json`
+- `adjudication.schema/valid/split.json`
 - `result.challenger.schema/invalid/completed-with-empty-attack-scenarios.json`
 - `result.challenger.schema/valid/empty-findings.json`
 - `result.implementer.schema/invalid/empty-summary-when-completed.json`
@@ -1094,7 +1115,9 @@ focused shipped suite in one mechanically checked contract.
 - `result.reviewer.schema/invalid/counts-mismatch-tally.json`
 - `result.reviewer.schema/valid/empty-findings.json`
 - `run.schema/valid/challenge-to-security-when-review-disabled.json`
+- `run.schema/valid/cross-repository-split.json`
 - `run.schema/valid/oneshot.json`
+- `run.schema/valid/split.json`
 <!-- END GENERATED FIXTURE INVENTORY -->
 
 ## Running the validator
@@ -1188,6 +1211,18 @@ restriction, every implementer-capable harness eligible — turning a
 mistaken *narrow* allowlist into the *widest possible* one instead of
 failing closed.
 
+**`[stage.integration].review_trigger` is a closed scalar, refused rather
+than defaulted when wrong.** The one non-array stage key (harmon-init#1571)
+takes exactly `after-ci`, `with-push`, or `after-ci-first`. An absent key
+resolves to `after-ci`, the serial order; any other value — a typo, a
+non-string — is a `PolicyError` (exit 1), the same present-but-wrong rule as
+the arrays above. Any other `[stage.*]` table refuses the key as unsupported,
+because no other stage requests a PR review. Every resolution path reports
+`stages.integration.review_trigger`, the built-in fallback and the historical
+decode included. The value is timing only: the readiness gate, the finders,
+and the cycles `[rounds.*]` requires are untouched, and charging a CI-failed
+head's cycle to `integration_exempt` is the integration stage's to apply.
+
 **A strategy's own requirements are cross-checked against breadth, not just
 resolved and left unchecked.** `[strategy.orchestrate]` and
 `[strategy.council]` declare `min_agents`; `crossValidate()` enforces the
@@ -1245,6 +1280,30 @@ one, per `specs/dev-flow-v2.md`'s "Shape refusal applies only to the file a
 consumer operates under." `ai/schemas/fixtures/exit/merge-base-legacy-to-v2/`,
 `merge-base-v1-to-v2/`, and `merge-base-decoder-unreachable-from-operating-path/`
 are the fixtures for this.
+
+**An absent merge-base policy has an explicit form.** For a branch that
+adds `.devflow.toml`, use `resolve --policy <branch v2 file>
+--merge-base-policy-absent`. This requires an existing `--policy` file and
+cannot be combined with `--merge-base-policy`. The candidate is validated
+independently; the built-in fallback governs, with only `--merge-base-registry`
+supplying any governing registry. A missing file supplied to
+`--merge-base-policy` still exits 2; it never means explicit absence.
+An empty `--merge-base-policy ""` is a usage error (exit 2), never permission
+for the branch policy to govern.
+Invalid flag combinations (including `--rigor-source` without `--rigor`) and
+malformed operator `--tier-overrides` / `--rigor-source` values also exit with
+usage status 2, distinct from invalid policy status 1. Successful resolution
+exits 0; exit 3 means resolved but indeterminate (cross-validation could not
+finish because no registry or no gate-target list was supplied, or the derived
+Tier could not be computed where it decides the implementer tier).
+
+With no policy file and no requested registry, the built-in fallback is
+determinate: resolution exits 0 with no registry indeterminate, provided
+the other cross-validation checks complete. A present policy without a
+supplied registry still exits 3. An explicitly requested registry file
+that cannot be read (`--registry <missing>`) still exits 2. Merge-base
+governance is unchanged: `--merge-base-policy-absent` without a governing
+`--merge-base-registry` still exits 3.
 
 **The decoder's scope is an invariant, not a field list.** On a migration
 diff, *every* merge-base-protected value — defaults, rounds, breadth,
@@ -1879,9 +1938,8 @@ Deterministic projections from this family's documents — never a second
 source of truth: every rendered fact is read from an `adjudication.schema.json`
 document, `run.schema.json`, or a result envelope, and disposition/priority
 always come from the adjudication record, never re-inferred from a raw
-reviewer/challenger finding ([#637](https://github.com/evanharmon1/harmon-devkit/issues/637),
-`openspec/changes/dev-flow-v2/specs/renderer/spec.md` (spec not yet
-committed)). Invoke via
+reviewer/challenger finding ([#637](https://github.com/evanharmon1/harmon-devkit/issues/637)).
+Invoke via
 `scripts/render-dev-flow.sh <projection> --record <dir> [options]` (a thin
 wrapper; `render-dev-flow.mjs` is the implementation, same pairing as this
 family's other scripts). Requires `gitleaks` on `PATH` (every rendered
@@ -2062,8 +2120,7 @@ old `head` can be rejected outright.
 
 ### Secret scanning
 
-`openspec/changes/dev-flow-v2/specs/evidence/spec.md` (spec not yet
-committed) § "Evidence is scanned and safely redacted": every free-text evidence projection SHALL pass the
+Every free-text evidence projection SHALL pass the
 repository's secret scanner before posting, with a detected span replaced
 by a stable placeholder and rule ID. This is a SHALL, never best-effort, so
 every standalone projection's complete rendered output, and every `publish`

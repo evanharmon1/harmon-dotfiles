@@ -299,6 +299,13 @@ even the in-org radius small:
   it from workflows that untrusted code can influence (fork `pull_request`,
   `pull_request_target`, `workflow_run`) — the provided workflows gate on
   sender / same-repo checks.
+- **Never put `workflow_dispatch` on a workflow that mints an App token.** For
+  that trigger GitHub runs the workflow definition from whichever ref the
+  operator selects, so any branch — reviewed or not — could rewrite the
+  token-minting step and use the credential. Pinning the *checkout* to `main`
+  does not help: the token already exists. Use `repository_dispatch` when a
+  manual trigger is needed; it takes the same repository write access and
+  always runs the default branch's definition.
 - **Rotate the key** periodically; GitHub Apps allow multiple keys for
   zero-downtime rotation.
 
@@ -310,6 +317,8 @@ even the in-org radius small:
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude-* workflows | repo Actions secret | re-run `claude setup-token` |
 | `SNYK_TOKEN` | optional Snyk CLI scans | local env / 1Password by default | manual |
 | TODO | TODO | TODO | TODO |
+
+The optional `CLAUDE_CODE_OAUTH_TOKEN_2` enables one zero-usage failure fallback in Claude workflows; the fallback is skipped when absent.
 
 > **`CLAUDE_CODE_OAUTH_TOKEN` must be an OAuth token, not an API key.** Generate
 > it with `claude setup-token`; the value starts **`sk-ant-oat01-`** and bills the

@@ -99,9 +99,12 @@ local diff. Work in PR-sized units; a PR handed to a human is the deliverable.
 **The loop is the stage skills; this section is the policy they run under.**
 `/orchestrator` is the session's standing operating mode; it dispatches
 `/implement` (claimed issue → gates → draft PR), `/review` (both confidence
-stages), and `/integrate` (draft → ready for review). `/claim` comes first
-but is **user-invoked** — typing it authorizes its issue writes — and `/implement`
-never claims. There is **no `dev-loop` skill** — those stages *are* the loop;
+stages), and `/integrate` (draft → ready for review). `/claim` comes first —
+the primary session or orchestrator can invoke `/claim` when appropriate without
+asking for confirmation (or it can be user-invoked) to ensure the issue is verified
+and claimed before implementation begins (preserving `/claim`'s own preflight and
+target-confirmation boundaries; subagents never claim); `/claim` owns the claim
+writes, and `/implement` never claims directly. There is **no `dev-loop` skill** — those stages *are* the loop;
 retired names map on (`gauntlet` → `review`, `shepherd` → `integrate`), and a
 pin still shipping a predecessor runs it under this policy.
 The skills carry the procedure — round mechanics, adjudication records, review
@@ -112,7 +115,7 @@ is vendored, this section is the whole contract and its invariants are owed anyw
 where a **vendored** skill states a different cap, floor, or exit condition, **this file wins**.
 
 ```text
-/claim (user) → /implement [ code → task verify → challenge → review → task security → DRAFT PR ]
+/claim → /implement [ code → task verify → challenge → review → task security → DRAFT PR ]
   → /integrate [ CI → deferred findings → reviewers → readiness gate ]
   → ready for review → human review → human merge
 ```
@@ -146,10 +149,40 @@ Binding on every stage, skill, and harness, whatever rigor resolved:
   amended, rebased, or force-pushed, at any stage.
 - **Never bypass a gate** — not the git hooks, not a stop-gate BLOCK, not a
   failed *or indeterminate* readiness condition. Fix the cause, or escalate.
-- **Every push passes its round gate, then a secret scan** — `.devflow.toml`'s
+- **Every push you author passes its round gate, then a secret scan** — `.devflow.toml`'s
   `[gates]` names them (`verify` for a code push, `check` for a docs-only one,
   `security:secrets` always, `security` before the draft PR); the `pre-push`
   hook runs what it can, otherwise run them yourself. `task ci` stays on demand.
+  A head move GitHub makes at your request (the catch-up below) authors no
+  bytes; the readiness gate's CI condition on the new head governs it instead.
+- **Catch a behind PR up on the server, at the gate.** When the base merges
+  without conflicts, first re-read `baseRefName`: if it no longer matches the
+  base the gate captured, stop, because `base-retargeted` applies and no call is
+  made. Otherwise request GitHub update-branch in merge mode with the captured
+  head as `expected_head_sha` (REST `PUT …/pulls/<n>/update-branch`;
+  `gh pr update-branch` takes no such flag), never `--rebase`, which rewrites
+  pushed history. Where available, use the integrate skill's
+  `assets/update-branch.sh` helper. The new head is the catch-up only if its
+  parents are exactly the captured head, then the base tip the gate read,
+  its committer is `GitHub <noreply@github.com>`, and its web-flow signature
+  verifies. Any other head (a concurrent push, an `expected_head_sha`
+  refusal) is not a catch-up but a newer push under the readiness gate's "no
+  newer push" condition; a head still unmoved when a bounded wait ends is
+  indeterminate, so stop and report rather than request again. Then
+  fetch the PR's head repository and branch explicitly in every local checkout,
+  fast-forward to the recorded catch-up OID (`git merge --ff-only <catch-up OID>`),
+  and confirm `HEAD` equals it before committing again. Let CI run on the
+  new head. Where Codex cloud review is on and the `integration` cap is
+  positive, ask `carry` whether the clean verdict attests it, or run the
+  ordinary current-head cycle. It spends no remediation
+  round. Only a genuine merge refusal (a conflict, a ruleset that rejects the
+  merge commit), or a base merge that must ship with a fix, falls back to a
+  local merge under the full round gate, as an ordinary remediation round. A
+  fork without maintainer edits cannot take a local merge either: stop and ask
+  for maintainer edits. A promoted PR is caught up only when the
+  maintainer asks, in place and without undoing the promotion; otherwise its
+  drift is reported, never acted on. Reconcile once, base into branch only;
+  the ledger names it a catch-up, not a remediation push.
 - **One conventional commit per adjudicated round, pushed** to the branch's own
   writable remote (`git push -u <remote> <branch>` on the first push). Per *round*,
   not per finding: five fixes are one commit, a round with nothing to fix pushes
@@ -171,7 +204,8 @@ Binding on every stage, skill, and harness, whatever rigor resolved:
   and each stage is bounded for its own reason, so a decision to stop one loop
   is never a decision about another's.
 - **Never self-apply a `rigor:`, `strategy:`, or `tier:` label** (nor the
-  retired `method:`), and never treat a label as arming anything.
+  retired `method:`), except the derived classification Tier (§ "Rigor and
+  Strategy"), and never treat a label as arming anything.
 - **Checks green is a non-terminal state.** Bot and human reviews land *after*
   checks settle, so an empty comment list read the moment `gh pr checks --watch`
   returns means "not reviewed yet", not "nothing to answer". Wait for **both**
@@ -241,15 +275,14 @@ and it is still answered the ordinary way. What a carry removes is the second
 rather than read back from the record, so a resumed session trusts nothing a
 previous process wrote. Like the exemption, this belongs to the integration
 stage and takes effect only where that stage implements it. Every surface that
-drives or checks the cycle has to carry it. A skills-pin bump brings the
-vendored ones: the checker and readiness gate under `.claude/skills/`, and the
-integrator agent under `.claude/agents/` that drives the cycle — without it the
-loop never calls `carry` and re-reviews every head. It does **not** bring this
-repository's own `ai/schemas/result.integrator.schema.json`, the composed
-`ai/schemas/result.schema.json` that embeds it, and
-`scripts/validate-result-schemas.mjs`, which otherwise reject a carried result
-for naming a reviewed commit that is not the gated head. Until all of them carry it, every head is reviewed on its own and
-no verdict is carried.
+drives or checks the cycle has to carry it, and all of them arrive through the
+skills pin: the checker and readiness gate under `.claude/skills/`, the
+integrator agent under `.claude/agents/` that drives the cycle (without it the
+loop never calls `carry` and re-reviews every head), and the `dev-flow-support`
+package vendored beside them, whose result schemas and validator the gate uses
+(so they accept a result naming a reviewed commit that is not the gated head).
+harmon-devkit `v0.47.0` is the first release that carries all of them. At an
+older pin, every head is reviewed on its own and no verdict is carried.
 
 ### Readiness gate
 
@@ -261,19 +294,26 @@ only when **all** of the following hold for its current `headRefOid`:
   *indeterminate*, not a pass — GitHub populates it asynchronously, so a read
   taken moments after the push reports nothing having run rather than nothing
   to run.
-- The current-head Codex cycle above is terminal and clean — including clean
-  by way of dispositions recorded with `settle`, or the recorded-comment
+- One terminal clean current-head Codex cycle with every finding settled
+  satisfies the Codex condition, including dispositions recorded with `settle`, or the recorded-comment
   equivalent where the checker is absent (**or where the resolved integration
   cap is 0** — a cap of 0 leaves no cloud-review cycle to trigger a fresh
   `@codex review` from, so this one condition drops out; every other
   condition on this list still applies unchanged).
+  A P2-only cycle 1 whose findings are declined or filed needs no second cycle.
+  Once two consecutive cycles adjudicate clean, no further remediation push is
+  made for P2s; settle them without a push, declined with evidence or filed
+  together as one follow-up. A confirmed P0/P1 from any reviewer, including a
+  late human review, breaks the streak and is fixed within the remaining
+  `remediation` cap.
 - Every review finding is fixed, declined with evidence, or filed as follow-up
   work.
 - Every inline review comment has its required per-thread reply.
 - Every finding the PR body defers to this stage is ticked with its
   disposition.
 - `reviewDecision` is not `CHANGES_REQUESTED`.
-- `mergeStateStatus` is none of `DIRTY`, `BEHIND`, `UNKNOWN`.
+- `mergeStateStatus` is none of `DIRTY`, `BEHIND`, `UNKNOWN`. Clear `BEHIND`
+  with update-branch (§ "Policy invariants"), never a rebase.
 - No newer push invalidated any result the gate relied on — re-read
   `headRefOid` immediately before promoting and compare.
 
@@ -323,6 +363,11 @@ body's deferred findings with the override recorded as the reason it was carried
 decline-with-evidence / file-as-follow-up. A one-step task that touches a single
 stage owes no ledger.
 
+At integration exit, the ledger names which exit ended the stage — settled clean cycle, P2 fixing
+ceiling, tell, or cap — and its qualifying cycles. Preserve separate cycle/remediation counters
+and exempt/carried counts; unresolved gating work is ⛔ blocked/escalating,
+never 🏁 converged.
+
 ## Rigor and Strategy
 
 **Rigor and strategy are resolved from `.devflow.toml`, not restated here.**
@@ -360,15 +405,20 @@ The selected `[rounds.*]` table supplies independent `challenge`, `review`,
 `integration`, and `remediation` ceilings plus `min_rounds` and the run's
 wall-clock ceiling. Challenge and review bound confidence passes;
 `integration` bounds current-head Codex review cycles; `remediation` bounds
-integration-stage fix pushes. A zero cap disables only the work it names,
-never a deterministic gate, security scan, branch rule, or human approval.
+integration-stage fix pushes. A server-side catch-up (update-branch) is not a
+fix push and spends no `remediation` round, though it still owes `carry` or a
+cycle (where the `integration` cap is positive) like any head move; a local catch-up merge is a remediation round. A zero
+cap disables only the work it names, never a deterministic gate, security scan,
+branch rule, or human approval.
 `integration` charges only cycles that review something new: one whose head
 differs from the last reviewed head **only** by a base merge that changed
 nothing under review re-reads identical code, so it spends the separate,
 equal `integration_exempt` ceiling the reader derives instead. A merge that
 resolves a conflict, or that touches any file under review, charges normally,
 and the ledger names which counter each cycle spent so `round n/cap` stays
-honest. The accounting belongs to the integration stage, so the exemption
+honest. A cycle requested before CI concluded, on a head that
+CI then fails, is the other exempt case (§ "Second-Model Review"). The accounting
+belongs to the integration stage, so the exemption
 takes effect only where that stage implements it. Until the vendored pin in
 `.claude/skills/` carries it, that skill's single cycle counter governs and no
 cycle is exempt. This is the one case where a lagging skill is **not**
@@ -390,16 +440,18 @@ see. The exemption above is the weaker, file-set test and stays for what the
 identity cannot prove; the two compose, carry first because it is both stricter
 and cheaper. The same carve-out in full, including why CI still re-runs
 unconditionally, is under § "Dev Loop" → the current-head Codex contract, and
-the same caveat applies — and it is more than a pin: until the vendored
-assets AND this repository's own result schemas (the integrator schema and the
-composed one embedding it) and validator all carry it, no verdict is carried.
+the same caveat applies: carry needs the vendored assets at harmon-devkit
+`v0.47.0` or later, and at an older pin no verdict is carried.
 
 **Role tiers refine the resolved rigor level; they never replace it.** Each
 `[rigor.<level>]` profile carries `orchestrator_tier`, `implementer_tier`,
 `challenger_tier`, `reviewer_tier`, and `integrator_tier`; `[role.*]` supplies
-the role's baseline tier and ordered family/harness preferences. Unqualified
-`tier:<value>` input targets the implementer; `tier:<role>:<value>` targets
-one of those five roles. Resolve conflicts on `tier_order`, disclose every
+the role's baseline tier and ordered family/harness preferences. An
+unqualified operator tier instruction targets the implementer, and
+`tier:<role>:<value>` targets one of those five roles. An unqualified
+`tier:<value>` label is not a role override: it is the issue's stored Tier, a
+cache of the derived Tier, or the pinned Tier when `tier:pinned` is also
+present. Resolve role-label conflicts on `tier_order`, disclose every
 off-profile choice, and never silently change model family or vendor.
 
 **When the change under review edits `.devflow.toml`, `agent-registry.json`,
@@ -430,7 +482,11 @@ not authorized (attribution to *some* actor is not authorization).
 provenance end-to-end from its own trusted-actor configuration, re-read
 immediately before acting, and otherwise falls back to the config default
 with a warning. An agent never applies a `rigor:*`, `strategy:*`, or
-`tier:*` label to itself.
+`tier:*` label to itself — except the derived classification Tier: an
+unqualified `tier:<value>` is a cache of Risk × Complexity (ADR 2026-09-30),
+so writing it records what the issue is, not how it is run. Choosing an
+execution-policy tier for oneself (`tier:<role>:*`, `tier:pinned`) stays
+forbidden.
 **Any off-default resolution, and any off-profile role tier, is
 disclosed in the PR body** — both are a visible line for the human reviewer,
 never something inferred from behavior.
@@ -466,14 +522,38 @@ cap allowed.
   green and the ruleset would allow it. Open the draft PR and integrate it —
   checks green with reviews unpolled is not the stopping point — then promote
   it through the readiness gate, report, and stop; merging is always a human
-  decision. `gh pr ready` is *not* a merge and you may run it — but only out of
+  decision. (The `git-merge-guard` hook in `.claude/settings.json` backstops
+  this: it parses each command and asks before any real or possible
+  `git merge`/`git pull` it cannot verify lands on a feature branch; quoted
+  text and heredoc bodies that no shell runs, search patterns and
+  `git merge-base` are data. The project settings ask on pushes to main and
+  force-pushes (prefix rules: a backstop, not a boundary) and retain this repo’s explicit `gh pr merge` asks alongside the
+  host settings. The merge guard is sourced from the chezmoi-managed
+  `private_dot_claude/hooks/executable_git-merge-guard.py`. The hook
+  applies on the host only;
+  with `FOREMAN_DEVCONTAINER` set to `bot` or `agent` it makes no merge checks.
+  Beside it,
+  `.claude/hooks/review-trigger-allow.py` is a PreToolUse(Bash) hook that
+  approves without a prompt exactly three review-trigger commands: the
+  integrate broker's Codex trigger (where skills sync installs the integrate
+  skill), and `gh pr comment` with the fixed Gemini or Claude review body, each
+  for the origin repository and a numeric PR (see the hook's docstring for the
+  exact accepted forms). It gives no decision for anything else, so the normal
+  permissions apply. It too is active on the host only,
+  and also makes no decision when `GH_HOST` names a host other than
+  github.com. The bot and agent profiles carry no merge guard at all —
+  the agent profile explicitly allows `gh pr merge` — and the "Protect Main"
+  ruleset (code-owner approval + green checks) is the boundary there.)
+  `gh pr ready` is *not* a merge and you may run it — but only out of
   a passing readiness gate, never to signal "I think this looks done".
 - **Reply to every inline PR review comment in its own thread** — bot
   reviewers and humans alike. Treat findings as
   hypotheses: verify each against the code, fix what's confirmed, and post the
   rejection reasoning with evidence otherwise. Post replies with
   `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment-id>/replies -f body=…`
-  (comment IDs from `gh api …/pulls/<n>/comments`). A rollup summary comment
+  (comment IDs from `gh api …/pulls/<n>/comments`; the agent posture uses
+  `/usr/local/bin/gh-api-read …/pulls/<n>/comments` for this read and denies
+  raw `gh api`). A rollup summary comment
   on the PR is optional in addition, never a substitute for per-thread
   replies.
 - Releases are intentional: release-please keeps a rolling release PR from
@@ -494,6 +574,40 @@ cap allowed.
   the form to re-run after a body edit; `task ci` runs it first for the same
   reason. Fix the issue's criteria — or drop the closing keyword to `Refs` —
   rather than bypassing it.
+
+### Remote environments
+
+On a remote checkout (Claude Code on the web, Codex cloud — anywhere with
+no devcontainer), run `task setup:remote` first if preparation has not run.
+In a single-repository web session, the repository's remote-only `SessionStart`
+hook runs it automatically and prints a summary; if the hook did not run (a
+multi-repository session or a platform without the hook), run it once yourself.
+It is idempotent — it installs the lefthook git hooks, clones then fetches the
+repos in `.devcontainer/related-repos.txt` (when present) beside the checkout,
+and installs dependencies from the lockfile. Fetching
+updates remote-tracking refs without moving a sibling's checkout or local work.
+Those siblings are reference context, not pushable where the platform only
+allows pushes to the session's own repository and branch. The pre-push hook is
+not a substitute for `task verify`, so run it yourself.
+
+**Second model on a remote lane.** Every remote lane gets a Codex second-model
+review on the ChatGPT plan with no human step: ephemeral cloud VMs never hold
+Codex credentials, and a persistent environment may hold exactly one Codex login
+of its own. On an **ephemeral cloud** the orchestrator runs `task challenge` and
+`task review` against the lane's pushed branch from its own local pane, where
+Codex is already logged in, and the lane's PR body records that review in its
+stage ledger as `reviewed from <host> at <head>` — that orchestrator-side review
+is the lane's second model, in the sense § Second-Model Review requires, and
+Codex cloud review of the PR covers the integration stage.
+A **persistent environment** (the agent devcontainer, Sprites) gets its one
+Codex login when the **maintainer** provisions it: the maintainer runs
+`codex login` once on that environment, and an agent never does (§ Hard Rules:
+a credential write needs the maintainer's explicit request). It then runs Codex
+locally; the login stays on that environment and is never copied to another
+machine. An ephemeral cloud session does not install the plugins a repository
+enables, so the Codex Claude Code plugin runs only where a persistent login
+exists. Nothing here sets or asks for an OpenAI API key: the plan, not API
+credit, pays for it.
 
 ## Second-Model Review (Codex)
 
@@ -572,6 +686,37 @@ a review, so missing it reports a finished cycle as incomplete. A non-inline
 finding is answered and its disposition recorded on the PR in the ordinary way;
 there is no `settle` call to make and none is owed.
 
+**When each of those triggers is posted is a resolved policy value, not this
+prose.** `[stage.integration].review_trigger` in `.devflow.toml` — the policy
+reader's `stages.integration.review_trigger`, `after-ci` when the key is
+absent — times every review the integration stage requests, each
+`[stage.integration].finders` entry alike. `after-ci` waits for CI on the head
+to conclude green, then posts; `with-push` posts with the push while CI runs
+alongside; `after-ci-first` waits for CI on the PR's first head, then posts
+with the push after each remediation push. It decides only **when** a review
+is requested: it never suppresses a cycle the resolved rounds policy requires
+and never adds a request beyond what that policy requires, so the one
+legitimate second review cycle on an unchanged head is the one forensic
+rigor's `min_rounds = 2` requires. Under every value:
+
+- the readiness gate is unchanged — every check concluded green and a terminal
+  clean current-head review are both still required;
+- under `with-push` or `after-ci-first`, a cycle whose head's CI then concludes
+  failed spends `integration_exempt`, not `integration`. Evidence decides the
+  charge — the CI conclusion on that exact head, read when the cycle is
+  classified — and an indeterminate CI result charges `integration` normally.
+  Its findings are adjudicated as usual, and the fix push still spends a
+  `remediation` round;
+- when CI fails while a review requested alongside it is pending, the cycle
+  still waits for that review's terminal result, or is reported incomplete;
+- carry and the base-merge exemption apply exactly as § "Dev Loop" and
+  § "Rigor and Strategy" state, whatever the timing;
+- re-running a CI-only infrastructure failure never re-requests a review.
+
+Like carry, the timing takes effect only where the vendored integration stage
+implements it; at a pin that does not, every request waits for CI, which is
+`after-ci`.
+
 **Codex Automatic reviews must stay disabled.** Codex triggers a cloud review
 on three events: opening a PR for review, marking a draft ready, and an
 explicit `@codex review`. The first two fire too late to inform a draft
@@ -621,11 +766,51 @@ exit the cap is no longer the only thing standing between you and a loop that
 feeds on itself, so the check has to happen where it first can. At round 2,
 for every finding, say on the adjudication table whether its subject exists
 only because an **earlier round of this same stage** added it. A finding that
-does gets adjudicated with one of three dispositions written out: **delete**
+does gets adjudicated with one of four dispositions written out: **delete**
 the scaffolding (which moots the finding — see below), **restructure it to
-invariants** (deletion by abstraction — see below), or state that it is in
-scope and why the change genuinely needs it. What is not allowed is hardening
-round-1's scaffolding by reflex and letting round 3 attack the result.
+invariants** (deletion by abstraction — see below), **split the mechanism out**
+(only when and exactly as harmon-devkit's `specs/dev-flow-v2.md` § "The split
+strategy" allows: its eligibility condition, all four parts, and no exception
+to the stage's exits or cap), or state that it is in scope and why the change
+genuinely needs it. What is not allowed is hardening round-1's scaffolding by
+reflex and letting round 3 attack the result.
+
+**Integration owes the same checkpoint from Codex cycle 2 onward.** Before
+any remediation push, record for every finding on the adjudication table whether
+its subject exists only because an earlier remediation push of this integration
+stage added it. For each such finding, write one of the three dispositions:
+**delete** the scaffolding, **restructure it to invariants**, or retain it with
+an explicit explanation of why it is in scope and the change needs it. This
+provenance checkpoint is owed at every cycle from cycle 2, not just once.
+
+A nonempty integration cycle whose findings are **all** about subjects added by
+an earlier remediation push is the unmistakable **tell**: the stage is feeding
+on its own fixes. Answer it by deleting the added code, restructuring it to an
+invariant, or stopping and filing the unresolved P2s together as one follow-up
+issue; never make another hardening push. Record the delete / restructure /
+stop-and-file disposition on the adjudication table. A keep-with-reason
+disposition on an individual finding does not authorize another hardening push
+when the whole cycle meets the tell.
+
+The tell forbids another hardening push. A push that deletes or restructures
+the self-feeding surface is permitted within the `remediation` cap; otherwise
+settle its P2s by filing. Record the remedy on the table.
+
+**Filing settles P2s only.** A tell cycle holding a confirmed P0/P1 is an
+escalation that **keeps the PR draft**. Escalation for a self-feeding integration
+stage **leads with descoping**: recommend removing the added surface first,
+with the findings and provenance as evidence. Filing a confirmed P0/P1 never
+authorizes promotion.
+
+**A second finding of the same kind calls for a surface sweep before it is
+fixed.** Find every surface that states or feeds the rule — the earlier finding's
+fix counts as one already-covered surface — then fix the confirmed cause across
+the rest of that set in one remediation round. The sweep never overrides the
+checkpoint above: on a cycle that meets the tell it licenses no hardening push.
+Two recurring shapes require this check: copies of a rule across root/template twins and documentation, and
+an input surface being enumerated one member at a time (for example, local Git
+configuration inputs to canonical-diff identity). Fixing only the newly named
+copy or input invites the next cycle to rediscover the same defect elsewhere.
 
 **Deleting the added code is a legitimate way to converge.** When a
 round's findings are about scaffolding rather than the change, weigh removing
@@ -750,6 +935,31 @@ instead of iterating further — escalation at the cap is for P0/P1 that
 **persist**, nothing else. The maintainer may always ask for more rounds —
 convergence is a floor on when you may stop, not a ceiling on what they can
 order.
+
+**Integration convergence:** a Codex cycle is **clean** when it adjudicates to
+zero P0/P1; P2-only counts as clean. One terminal clean current-head cycle with
+every finding settled ends the stage; a P2-only cycle 1 whose findings are
+all declined or filed needs no second cycle on that unchanged head.
+
+Enforcement in the exit engine and integrate skill is
+[evanharmon1/harmon-devkit#1272](https://github.com/evanharmon1/harmon-devkit/issues/1272).
+
+**Integration fixing ceiling: two consecutive clean Codex cycles.** Once two
+consecutive cycles adjudicate clean, no further remediation push is made for
+P2 findings; settle them without a push, declined with evidence or filed
+together as one follow-up issue. A confirmed P0/P1 from any reviewer, including
+a late human review, breaks the clean streak and is fixed within the remaining
+`remediation` cap as before. Record each disposition, reply in affected threads,
+record non-inline dispositions with `settle` (or the recorded-comment equivalent
+where the checker is absent), and tick deferred PR-body entries. The readiness
+gate accepts that settlement; every other readiness condition still applies.
+
+Count completed Codex cycles, including exempt cycles, separately from remediation
+pushes; a carry adds no cycle, and an incomplete attempt or retry is not another
+completed cycle. Independent `integration`, `integration_exempt`, and
+`remediation` caps still apply. At a cap, persistent P0/P1 or an unreviewed head
+is an escalation and the PR stays draft; no cap waives a verdict. This policy
+adds no `.devflow.toml` key and never bypasses a failed or indeterminate gate.
 
 One caveat on the automatic stop-gate: the codex plugin's Stop hook applies
 its **own** notion of a material finding and may BLOCK on something you have

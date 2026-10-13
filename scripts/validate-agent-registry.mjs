@@ -77,6 +77,12 @@ if (errors.length === 0) {
   }
 
   for (const family of registry.families) {
+    // A family with no model line has nothing to claim, dispatch, or record:
+    // the implementer-record labels and org fields (#1517) would provision a
+    // family whose `model:*` / `model-version:*` values never exist.
+    if (family.models.length === 0) {
+      semanticError(`family ${family.slug} has no model lines — models[] needs at least one`)
+    }
     for (const slug of duplicateSlugs(family.models)) {
       semanticError(`family ${family.slug} has duplicate model slug: ${slug}`)
     }
@@ -125,7 +131,7 @@ if (errors.length === 0) {
 
     // Provider-rewired harnesses are named claude-code-<fixed-family>, optionally
     // with a -local suffix for a local-endpoint variant of the same family (ADR
-    // 0005 D9 amendment) — claude-code-qwen-local stays fixed to family "qwen",
+    // 2026-08-07 D9 amendment) — claude-code-qwen-local stays fixed to family "qwen",
     // not a separate "qwen-local" family.
     if (harness.provider_rewired) {
       const expected = constraint.kind === 'fixed' ? `claude-code-${constraint.family}` : null
@@ -428,6 +434,41 @@ if (errors.length === 0) {
     }
   }
 
+  // ── trusted_orchestrator_actor_ids (#741; specs/dev-flow-v2.md 'Evidence')
+  // The structural schema already binds the shape (array, minItems 1,
+  // uniqueItems, integer items). Two things it cannot say: the >= 1 bound
+  // (no `minimum` — the breakdown skill's restrictive schema-subset engine
+  // for fetched remote registries does not support it, and a 0/negative id
+  // is not a GitHub actor), and DISTINCTNESS from finder identities — the
+  // allowlist authenticates run records and evidence comments, a finder's
+  // trusted_actor_id authenticates that bot's findings, and one id must
+  // never serve both: a review bot listed here could vouch for a forged run
+  // record. Absence is schema-legal (a consumer registry predating the field
+  // still validates) and is instead fail-closed by every consumer at the
+  // registry revision in effect for a write — see the schema's own
+  // description and ai/schemas/README.md 'Trust'.
+  if (Object.hasOwn(registry, 'trusted_orchestrator_actor_ids')) {
+    const finderIds = new Map(
+      registry.finders
+        .filter((finder) => typeof finder.trusted_actor_id === 'string')
+        .map((finder) => [finder.trusted_actor_id, finder.slug])
+    )
+    for (const id of registry.trusted_orchestrator_actor_ids) {
+      if (!Number.isInteger(id) || id < 1) {
+        semanticError(
+          `trusted_orchestrator_actor_ids entry ${JSON.stringify(id)} must be a positive integer GitHub actor id`
+        )
+        continue
+      }
+      const finderSlug = finderIds.get(String(id))
+      if (finderSlug) {
+        semanticError(
+          `trusted_orchestrator_actor_ids entry ${id} is finder ${finderSlug}'s own trusted_actor_id — a finder identity vouches for findings, never for a run record, and the two allowlists must stay distinct`
+        )
+      }
+    }
+  }
+
   // ── model tiers (specs/dev-flow-v2.md 'Model strata live in registry
   // inventory', #635) — group every model by (family, tier); a rung with more
   // than one model needs exactly one default, a singleton rung needs none. ──
@@ -450,6 +491,114 @@ if (errors.length === 0) {
           `family ${family.slug} has ${defaults.length} default models at tier ${tier} (${defaults.map((m) => m.slug).join(', ')}) — at most one may be default`
         )
       }
+    }
+  }
+
+  // ── model lines and versions (#1516) — a model entry is a LINE whose slug
+  // never embeds a version; its releases live in `versions`, newest first.
+  // The policy readers reason about `models[].tier` per line, so the line
+  // tier must be its one current version's tier: a line needs exactly one
+  // current version (one with none would still lend its tier to the readers),
+  // and a version may override the tier only once it is retired. ──────────
+  const VERSION_SLUG = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/
+  // A segment that is a bare number, or a single letter plus a number
+  // (`5`, `v4`, `k3`), is a version, not a product word.
+  const VERSION_SEGMENT = /^[a-z]?[0-9]+$/
+  // Version order (newest first): split each slug into components on `.`
+  // and `-` and compare them left to right. Two numeric components compare
+  // as numbers (`3.10` is newer than `3.9`); any other pair compares as
+  // strings by code point. A slug that runs out of components first is the
+  // older one (`3` before `3.1`). Returns > 0 when `a` is newer than `b`.
+  const compareVersions = (a, b) => {
+    const left = a.split(/[.-]/)
+    const right = b.split(/[.-]/)
+    for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      if (index >= left.length) return -1
+      if (index >= right.length) return 1
+      const [x, y] = [left[index], right[index]]
+      if (/^[0-9]+$/.test(x) && /^[0-9]+$/.test(y)) {
+        if (Number(x) !== Number(y)) return Number(x) - Number(y)
+      } else if (x !== y) {
+        return x < y ? -1 : 1
+      }
+    }
+    return 0
+  }
+  for (const family of registry.families) {
+    for (const model of family.models) {
+      const where = `family ${family.slug} model line ${model.slug}`
+      const embedded = model.slug.split('-').find((segment) => VERSION_SEGMENT.test(segment))
+      if (embedded) {
+        semanticError(
+          `${where} embeds a version in its slug (segment ${embedded}) — name the line, and record the version in versions[]`
+        )
+      }
+      for (const version of model.versions) {
+        if (!VERSION_SLUG.test(version.slug)) {
+          semanticError(
+            `${where} version slug ${JSON.stringify(version.slug)} must be lowercase alphanumeric segments separated by . or -`
+          )
+        }
+      }
+      const seen = new Set()
+      for (const version of model.versions) {
+        if (seen.has(version.slug))
+          semanticError(`${where} has duplicate version slug: ${version.slug}`)
+        seen.add(version.slug)
+      }
+      if (model.versions.every((version) => VERSION_SLUG.test(version.slug))) {
+        for (let index = 1; index < model.versions.length; index++) {
+          const [newer, older] = [model.versions[index - 1].slug, model.versions[index].slug]
+          if (compareVersions(newer, older) <= 0) {
+            semanticError(
+              `${where} lists version ${older} after ${newer} — versions must be newest first`
+            )
+          }
+        }
+      }
+      const current = model.versions.filter((version) => version.retired === false)
+      if (current.length !== 1) {
+        semanticError(
+          `${where} has ${current.length} current (non-retired) versions — exactly one is required (${current.map((version) => version.slug).join(', ') || 'none'})`
+        )
+      } else if (model.versions[0] !== current[0]) {
+        semanticError(
+          `${where} lists current version ${current[0].slug} after ${model.versions[0].slug} — versions are newest first and the current one leads`
+        )
+      }
+      for (const version of current) {
+        if (Object.hasOwn(version, 'tier')) {
+          semanticError(
+            `${where} current version ${version.slug} overrides the line tier — only a retired version may carry its own tier; the line tier is the current version's`
+          )
+        }
+      }
+    }
+  }
+
+  // ── reasoning efforts (#1516) — one registry-wide ladder in canonical
+  // order; each harness draws its accepted efforts from it, in ladder order.
+  const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  const ladderRank = (ladder) => ladder.map((effort) => EFFORT_ORDER.indexOf(effort))
+  const ascending = (ranks) => ranks.every((rank, index) => index === 0 || rank > ranks[index - 1])
+  if (!ascending(ladderRank(registry.effort_ladder))) {
+    semanticError(
+      `effort_ladder ${JSON.stringify(registry.effort_ladder)} is out of order — it must follow ${EFFORT_ORDER.join(' < ')}`
+    )
+  }
+  const ladder = new Set(registry.effort_ladder)
+  for (const harness of registry.harnesses) {
+    const outside = harness.efforts.filter((effort) => !ladder.has(effort))
+    if (outside.length > 0) {
+      semanticError(
+        `harness ${harness.slug} declares effort(s) ${outside.join(', ')} that are not on effort_ladder`
+      )
+    } else if (
+      !ascending(harness.efforts.map((effort) => registry.effort_ladder.indexOf(effort)))
+    ) {
+      semanticError(
+        `harness ${harness.slug} efforts ${JSON.stringify(harness.efforts)} are out of ladder order`
+      )
     }
   }
 

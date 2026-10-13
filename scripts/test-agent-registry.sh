@@ -26,13 +26,82 @@ trap 'rm -rf "$test_tmp"' EXIT
 mutated="${test_tmp}/agent-registry.json"
 mutated_schema="${test_tmp}/agent-registry.schema.json"
 
+# Exercise the pinned breakdown module itself, with transport responses supplied
+# from this checkout. Consumers without synced breakdown assets skip at runtime.
+breakdown_asset=".agents/skills/breakdown/assets/discover-label-vocabulary.mjs"
+if [ ! -f "$breakdown_asset" ]; then
+    breakdown_asset=".claude/skills/breakdown/assets/discover-label-vocabulary.mjs"
+fi
+if [ -f "$breakdown_asset" ]; then
+    node --input-type=module - "$breakdown_asset" "$registry" "$schema" \
+        >"${test_tmp}/breakdown.json" <<'NODE' || fail "pinned breakdown rejected this checkout's registries"
+import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const [asset, registry, schema] = process.argv.slice(2)
+const files = new Map([
+  ['agent-registry.json', registry],
+  ['agent-registry.schema.json', schema],
+  ['label-registry.json', 'label-registry.json'],
+  ['label-registry.schema.json', 'label-registry.schema.json']
+])
+const fetched = new Set()
+const commit = '1'.repeat(40)
+const api = 'repos/fixture/registry'
+const originalExecFileSync = childProcess.execFileSync
+childProcess.execFileSync = (command, args) => {
+  if (command.endsWith('/triage-apply.sh')) {
+    assert.deepEqual(args, ['classification-axes', '--repo', 'fixture/registry'])
+    return JSON.stringify({
+      owner_type: 'User', storage: 'label', required: [],
+      axes: Object.fromEntries(['impact', 'risk', 'complexity'].map(
+        (axis) => [axis, { provisioned: false, values: [] }]
+      ))
+    })
+  }
+  assert.equal(command, 'gh', 'unexpected subprocess in pinned discovery')
+  assert.equal(args[0], 'api')
+  const endpoint = args.find((argument) => argument.startsWith(`${api}/`) || argument === api)
+  if (endpoint === api) return JSON.stringify({ default_branch: 'main', owner: { type: 'User' } })
+  if (endpoint === `${api}/branches/main`) return JSON.stringify({ commit: { sha: commit } })
+  if (endpoint === `${api}/git/trees/${commit}`) {
+    return JSON.stringify({ truncated: false, tree: [...files.keys()].map((path) => ({ path })) })
+  }
+  if (endpoint === `${api}/labels`) return '[[]]'
+  const file = endpoint?.slice(`${api}/contents/`.length)
+  assert.equal(endpoint, `${api}/contents/${file}`)
+  assert.ok(files.has(file), `unexpected file fetch: ${file}`)
+  assert.ok(args.includes(`ref=${commit}`), 'registry fetch must use the captured commit')
+  fetched.add(file)
+  return JSON.stringify({ type: 'file', encoding: 'base64',
+    content: readFileSync(files.get(file)).toString('base64') })
+}
+syncBuiltinESMExports()
+process.argv = [process.execPath, resolve(asset), '--repo', 'fixture/registry']
+try {
+  await import(pathToFileURL(resolve(asset)).href)
+  assert.deepEqual(fetched, new Set(files.keys()), 'discovery must validate both local registries')
+} finally {
+  childProcess.execFileSync = originalExecFileSync
+  syncBuiltinESMExports()
+}
+NODE
+    echo "PASS: pinned breakdown accepts this checkout's registries without labels.suggest"
+else
+    echo "SKIP: pinned breakdown asset is not vendored"
+fi
+
 rejects() {
     local description="$1"
     local mutation="$2"
     local expected="$3"
     local output
 
-    if ! node --input-type=module - "$registry" "$mutated" "$mutation" <<'NODE'
+    node --input-type=module - "$registry" "$mutated" "$mutation" <<'NODE' || {
 import { readFile, writeFile } from 'node:fs/promises'
 
 const [inputPath, outputPath, mutation] = process.argv.slice(2)
@@ -86,7 +155,13 @@ switch (mutation) {
     adapter('claude').harness = null
     break
   case 'harness-axis':
-    registry.labels.suggest.axis = 'harness'
+    registry.labels.claim.axis = 'harness'
+    break
+  case 'retired-suggest-namespace':
+    registry.labels.suggest = { ...registry.labels.claim, prefix: 'suggest' }
+    break
+  case 'retired-suggest-prefix':
+    registry.labels.claim.prefix = 'suggest'
     break
   case 'public-mock':
     adapter('mock').provision_label = true
@@ -203,12 +278,104 @@ switch (mutation) {
     // so a role-less finder could still name a real result_schema.
     finder('codex-cloud').result_schema = 'ai/schemas/result.integrator.schema.json'
     break
+  // ── trusted_orchestrator_actor_ids (#741) ─────────────────────────────
+  case 'allowlist-missing':
+    // Schema-legal by design (a consumer registry predating the field still
+    // validates); consumers fail closed at the revision in effect instead.
+    // Exercised through accepts(), not rejects().
+    delete registry.trusted_orchestrator_actor_ids
+    break
+  case 'allowlist-empty':
+    registry.trusted_orchestrator_actor_ids = []
+    break
+  case 'allowlist-string-id':
+    // The finder field is a digits-only STRING; this one is integers only —
+    // a digits-only string here is the plausible copy-paste mistake and
+    // must be rejected structurally, never coerced.
+    registry.trusted_orchestrator_actor_ids = ['37220977']
+    break
+  case 'allowlist-float-id':
+    registry.trusted_orchestrator_actor_ids = [37220977.5]
+    break
+  case 'allowlist-duplicate-id':
+    registry.trusted_orchestrator_actor_ids = [37220977, 37220977]
+    break
+  case 'allowlist-zero-id':
+    registry.trusted_orchestrator_actor_ids = [0]
+    break
+  case 'allowlist-negative-id':
+    registry.trusted_orchestrator_actor_ids = [-1]
+    break
+  case 'allowlist-finder-identity':
+    // codex-cloud's own bot id — a finder identity vouches for findings,
+    // never for a run record; the two allowlists must stay distinct.
+    registry.trusted_orchestrator_actor_ids = [Number(finder('codex-cloud').trusted_actor_id)]
+    break
+  case 'allowlist-not-an-array':
+    registry.trusted_orchestrator_actor_ids = 37220977
+    break
   // ── model tier defaults (#635) ─────────────────────────────────────────
   case 'tier-rung-no-default':
     delete modelOf('qwen', 'coder-plus').default
     break
   case 'tier-rung-multi-default':
     modelOf('qwen', 'coder-next').default = true
+    break
+  // ── model lines and versions (#1516) ──────────────────────────────────
+  case 'line-missing-versions':
+    delete modelOf('claude', 'opus').versions
+    break
+  case 'line-slug-embeds-version':
+    modelOf('claude', 'opus').slug = 'opus-5'
+    break
+  case 'line-slug-embeds-prefixed-version':
+    modelOf('deepseek', 'pro').slug = 'v4-pro'
+    break
+  case 'version-slug-bad-shape':
+    modelOf('claude', 'opus').versions[0].slug = '5_5'
+    break
+  case 'duplicate-version-slug':
+    modelOf('gemini', 'flash').versions[2].slug = '3.7'
+    break
+  case 'two-current-versions':
+    modelOf('glm', 'glm').versions[1].retired = false
+    break
+  case 'no-current-version':
+    modelOf('claude', 'opus').versions[0].retired = true
+    break
+  case 'current-version-not-first':
+    modelOf('gemini', 'flash').versions.reverse()
+    break
+  case 'versions-not-newest-first': {
+    // 3.8, 3.6, 3.7 — current first, but the retired tail is out of order.
+    const versions = modelOf('gemini', 'flash').versions
+    versions.splice(1, 2, versions[2], versions[1])
+    break
+  }
+  case 'current-version-tier-override':
+    modelOf('claude', 'opus').versions[0].tier = 'apex'
+    break
+  // ── reasoning efforts (#1516) ──────────────────────────────────────────
+  case 'effort-ladder-missing':
+    delete registry.effort_ladder
+    break
+  case 'effort-ladder-out-of-order':
+    registry.effort_ladder = ['low', 'minimal', 'medium', 'high', 'xhigh', 'max']
+    break
+  case 'effort-ladder-unknown-level':
+    registry.effort_ladder.push('turbo')
+    break
+  case 'harness-missing-efforts':
+    delete harness('codex-cli').efforts
+    break
+  case 'harness-effort-off-ladder':
+    registry.effort_ladder = registry.effort_ladder.filter((effort) => effort !== 'max')
+    break
+  case 'harness-efforts-out-of-order':
+    harness('codex-cli').efforts.reverse()
+    break
+  case 'harness-duplicate-effort':
+    harness('codex-cli').efforts.push('high')
     break
   // ── harness write-restriction (#635) ────────────────────────────────────
   case 'harness-write-restricted-without-capability':
@@ -220,9 +387,9 @@ switch (mutation) {
 
 await writeFile(outputPath, `${JSON.stringify(registry, null, 2)}\n`)
 NODE
-    then
         fail "could not build mutation: $description"
-    fi
+        return
+    }
     if output="$(node "$validator" "$mutated" "$schema" 2>&1)"; then
         fail "validator accepted mutation: $description"
     fi
@@ -231,6 +398,63 @@ NODE
     *) fail "$description failed for the wrong reason: $output" ;;
     esac
     echo "PASS: rejects $description"
+}
+
+accepts() {
+    local description="$1"
+    local mutation="$2"
+    local output
+
+    node --input-type=module - "$registry" "$mutated" "$mutation" <<'NODE' || {
+import { readFile, writeFile } from 'node:fs/promises'
+
+const [inputPath, outputPath, mutation] = process.argv.slice(2)
+const registry = JSON.parse(await readFile(inputPath, 'utf8'))
+const harness = (slug) => registry.harnesses.find((entry) => entry.slug === slug)
+
+switch (mutation) {
+  case 'allowlist-missing':
+    delete registry.trusted_orchestrator_actor_ids
+    break
+  case 'versions-newest-first': {
+    // 3.8, 3.7, 3.6 — stated explicitly so the case does not lean on the data.
+    const flash = registry.families
+      .find((entry) => entry.slug === 'gemini')
+      .models.find((entry) => entry.slug === 'flash')
+    const bySlug = new Map(flash.versions.map((version) => [version.slug, version]))
+    flash.versions = ['3.8', '3.7', '3.6'].map((slug) => bySlug.get(slug))
+    break
+  }
+  case 'versions-numeric-order': {
+    // 3.10 is newer than 3.9: components compare as numbers, not strings.
+    const opus = registry.families
+      .find((entry) => entry.slug === 'claude')
+      .models.find((entry) => entry.slug === 'opus')
+    opus.versions = [
+      { slug: '3.10', display_name: 'Opus 3.10', retired: false },
+      { slug: '3.9', display_name: 'Opus 3.9', retired: true }
+    ]
+    break
+  }
+  case 'effort-ladder-subset':
+    registry.effort_ladder = registry.effort_ladder.filter((effort) => effort !== 'minimal')
+    for (const entry of registry.harnesses) {
+      entry.efforts = entry.efforts.filter((effort) => effort !== 'minimal')
+    }
+    break
+  default:
+    throw new Error(`unknown accepted mutation: ${mutation}`)
+}
+
+await writeFile(outputPath, `${JSON.stringify(registry, null, 2)}\n`)
+NODE
+        fail "could not build accepted mutation: $description"
+        return
+    }
+    if ! output="$(node "$validator" "$mutated" "$schema" 2>&1)"; then
+        fail "validator rejected $description: $output"
+    fi
+    echo "PASS: accepts $description"
 }
 
 build_schema_case() {
@@ -346,9 +570,15 @@ rejects "a provider-rewired harness slug with an unsanctioned suffix" \
 rejects "production adapters without a harness mapping" \
     'production-without-harness' \
     'needs a production harness mapping'
-rejects "harness-centric suggestion labels" \
+rejects "harness-centric claim labels" \
     'harness-axis' \
     'must equal "model"'
+rejects "the retired suggest namespace" \
+    'retired-suggest-namespace' \
+    'unexpected property suggest'
+rejects "the retired suggest prefix in the claim contract" \
+    'retired-suggest-prefix' \
+    'must be one of'
 rejects "public labels for the test-only mock adapter" \
     'public-mock' \
     'test-only Foreman adapter mock cannot dispatch or provision a public label'
@@ -439,9 +669,113 @@ rejects "a multi-model family-tier rung with no default" \
 rejects "a multi-model family-tier rung with two defaults" \
     'tier-rung-multi-default' \
     'at most one may be default'
+rejects "a model line without a versions list" \
+    'line-missing-versions' \
+    'missing required property versions'
+rejects "a line slug with a bare version segment" \
+    'line-slug-embeds-version' \
+    'embeds a version in its slug (segment 5)'
+rejects "a line slug with a prefixed version segment" \
+    'line-slug-embeds-prefixed-version' \
+    'embeds a version in its slug (segment v4)'
+rejects "a version slug outside the dotted-segment shape" \
+    'version-slug-bad-shape' \
+    'must be lowercase alphanumeric segments separated by . or -'
+rejects "duplicate version slugs within one line" \
+    'duplicate-version-slug' \
+    'has duplicate version slug: 3.7'
+rejects "two current versions on one line" \
+    'two-current-versions' \
+    'has 2 current (non-retired) versions'
+rejects "a line with no current version" \
+    'no-current-version' \
+    'has 0 current (non-retired) versions'
+rejects "a current version listed after a retired one" \
+    'current-version-not-first' \
+    'the current one leads'
+rejects "versions that are not newest first (3.8, 3.6, 3.7)" \
+    'versions-not-newest-first' \
+    'lists version 3.7 after 3.6 — versions must be newest first'
+rejects "a tier override on a current version" \
+    'current-version-tier-override' \
+    'only a retired version may carry its own tier'
+rejects "a registry with no effort_ladder" \
+    'effort-ladder-missing' \
+    'missing required property effort_ladder'
+rejects "an effort_ladder out of canonical order" \
+    'effort-ladder-out-of-order' \
+    'effort_ladder ["low","minimal","medium","high","xhigh","max"] is out of order'
+rejects "an effort_ladder level outside the closed vocabulary" \
+    'effort-ladder-unknown-level' \
+    'must be one of'
+rejects "a harness with no efforts list" \
+    'harness-missing-efforts' \
+    'missing required property efforts'
+rejects "a harness effort that is not on the ladder" \
+    'harness-effort-off-ladder' \
+    'harness claude-code declares effort(s) max that are not on effort_ladder'
+rejects "harness efforts out of ladder order" \
+    'harness-efforts-out-of-order' \
+    'harness codex-cli efforts ["xhigh","high","medium","low","minimal"] are out of ladder order'
+rejects "a repeated harness effort" \
+    'harness-duplicate-effort' \
+    'items must be unique'
 rejects "a write-restricted role on a harness that cannot restrict writes" \
     'harness-write-restricted-without-capability' \
     'must not dispatch a write-restricted role'
+
+# ── trusted_orchestrator_actor_ids (#741) ───────────────────────────────────
+# The registry's own copy must carry the maintainer's live actor id (looked
+# up, never guessed), and it must be exactly the shape consumers read: JSON
+# integers. A consumer's jq reader compares against a number, so a
+# digits-only string here would silently authenticate nobody.
+if [ -f template/agent-registry.schema.json ] && [ "$registry" = "agent-registry.json" ]; then
+    node --input-type=module - "$registry" <<'NODE'
+import { readFile } from 'node:fs/promises'
+
+const registry = JSON.parse(await readFile(process.argv[2], 'utf8'))
+const ids = registry.trusted_orchestrator_actor_ids
+if (!Array.isArray(ids) || ids.length === 0) {
+  throw new Error('harmon-init root registry must populate trusted_orchestrator_actor_ids')
+}
+if (!ids.every((id) => Number.isInteger(id) && id >= 1)) {
+  throw new Error(`trusted_orchestrator_actor_ids must be positive integers: ${JSON.stringify(ids)}`)
+}
+NODE
+    echo "PASS: harmon-init root registry populates trusted_orchestrator_actor_ids with integer ids"
+fi
+accepts "a registry with no trusted_orchestrator_actor_ids at all (schema-legal; consumers fail closed at the revision in effect)" \
+    'allowlist-missing'
+accepts "versions listed newest first (3.8, 3.7, 3.6)" \
+    'versions-newest-first'
+accepts "numeric version components compared as numbers (3.10 before 3.9)" \
+    'versions-numeric-order'
+accepts "an effort_ladder that omits a level but keeps canonical order" \
+    'effort-ladder-subset'
+rejects "an empty trusted_orchestrator_actor_ids allowlist" \
+    'allowlist-empty' \
+    'trusted_orchestrator_actor_ids: must contain at least 1 item(s)'
+rejects "a digits-only STRING in trusted_orchestrator_actor_ids (integers only, never coerced)" \
+    'allowlist-string-id' \
+    'trusted_orchestrator_actor_ids[0]: expected integer, found string'
+rejects "a non-integer number in trusted_orchestrator_actor_ids" \
+    'allowlist-float-id' \
+    'trusted_orchestrator_actor_ids[0]: expected integer, found number'
+rejects "a duplicate id in trusted_orchestrator_actor_ids" \
+    'allowlist-duplicate-id' \
+    'trusted_orchestrator_actor_ids: items must be unique'
+rejects "a zero id in trusted_orchestrator_actor_ids" \
+    'allowlist-zero-id' \
+    'must be a positive integer GitHub actor id'
+rejects "a negative id in trusted_orchestrator_actor_ids" \
+    'allowlist-negative-id' \
+    'must be a positive integer GitHub actor id'
+rejects "a finder's own trusted_actor_id listed as a trusted orchestrator" \
+    'allowlist-finder-identity' \
+    "is finder codex-cloud's own trusted_actor_id"
+rejects "a scalar trusted_orchestrator_actor_ids (must be an array)" \
+    'allowlist-not-an-array' \
+    'trusted_orchestrator_actor_ids: expected array, found integer'
 
 node --input-type=module - "$schema" "$mutated_schema" <<'NODE'
 import { readFile, writeFile } from 'node:fs/promises'
