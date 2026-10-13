@@ -148,6 +148,19 @@ workspace its variables on the tabs/panes you create inside it) — and they
 are the right place for gate variables an orchestrator sets under explicit
 human authorization (never in the worker's prompt). When to reach for a worktree at all is [worktrees.md](worktrees.md).
 
+A worker in its own worktree can keep up with the default branch without a
+prompt: the `git-merge-guard` hook stays silent for one literal merge or pull
+at a time, run in that worktree — `git pull --no-rebase origin main --no-edit`,
+or `git fetch origin` and then `git merge origin/main --no-edit` as two Bash
+calls. Joined with `&&` they ask, as do `git merge --abort` and
+`git pull --rebase`. Both silent forms need a resolvable remote HEAD (usually
+`git remote set-head origin --auto`). The hook parses each command, so a
+heredoc commit message or PR body that merely mentions `merge` or `pull` is
+data and stays silent; text a shell runs (`bash -c`, `$(...)`, a heredoc fed
+to a shell) is checked like any other command. All of this applies in the dev
+profile: with `FOREMAN_DEVCONTAINER` set to `bot` or `agent` the hook makes no
+merge checks at all, and the "Protect Main" ruleset is the boundary there.
+
 ## Fan-out: orchestrating many workers from one session
 
 A Claude Code (or any) session running inside a Herdr pane can act as an
@@ -191,6 +204,23 @@ therefore allow it outright:
 "Bash(herdr agent start:*)"
 ```
 
+Claude Code judges a compound command segment by segment, and this grant covers
+only the launch segment: anything else on the line is decided on its own (for
+example by another allow rule, by Claude Code's read-only auto-approval, or by
+an ask or deny rule), and whenever that decision is left to the auto-mode
+classifier, the classifier sees the whole line and denies a skip-permissions
+launch. In practice, launch bare
+and literal: `herdr agent start …` as the whole command, with the lane name,
+pane ID, model and paths written out. A variable set in an earlier Bash call
+does not exist in a later one (each call is its own shell), so there is nothing
+to reference, and the pane's working directory was set when the tab or pane was
+created (`tab create --cwd` / `pane split --cwd`), so there is nothing to `cd`
+into:
+
+```bash
+herdr agent start lane-1 --kind agy --pane w1:p2 -- --dangerously-skip-permissions --model gemini-3.8-flash-high
+```
+
 The prefix form is deliberate: the flags after `--` vary per harness and per
 policy, and a rule that has to be re-edited per flag defeats its purpose. It
 reaches named sessions too: `--session` is accepted **after** the subcommand as
@@ -209,7 +239,8 @@ permit start a child with no approval layer at all — so an orchestrator that
 can launch a worker can reach anything its own `ask` rules would have stopped
 (this repo asks on `gh pr merge`; on any `git merge`/`git pull` that the
 `git-merge-guard` hook cannot verify lands on a feature branch; on
-`git push origin main`; and on force-pushes) simply by asking a child to do it. That is accepted here for two
+`git push origin main`; and on force-pushes — prefix rules are a backstop,
+not a boundary) simply by asking a child to do it. That is accepted here for two
 reasons, neither of which is "it is safe": the orchestrator already holds
 `Bash(task:*)`, an unconditional grant over a checked-out Taskfile, so no new
 capability class is created; and the fan-out brief is trusted by construction

@@ -74,6 +74,12 @@
     "ask": [
       "Bash(gh pr merge)",
       "Bash(gh pr merge:*)",
+      "Bash(task codex:gate:enable)",
+      "Bash(task codex:gate:enable:*)",
+      "Bash(task codex:gate:disable)",
+      "Bash(task codex:gate:disable:*)",
+      "Bash(./scripts/codex-gate.sh:*)",
+      "Bash(scripts/codex-gate.sh:*)",
       "Bash(git push origin main)",
       "Bash(git push origin main:*)",
       "Bash(git push -f:*)",
@@ -81,7 +87,28 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 120,
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/session-start-remote.sh\" || printf '%s\\n' 'WARNING: SessionStart remote preparation: could not run; run task setup:remote.'"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/review-trigger-allow.py\" || true"
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [
