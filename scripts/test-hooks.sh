@@ -134,7 +134,9 @@ COMMAND
 
 for commit_hook in \
     "$repo/.claude/hooks/enforce-conventional-commits.sh" \
-    "$repo/.devcontainer/config/claude-hooks/enforce-conventional-commits.sh"; do
+    "$repo/.devcontainer/config/claude-hooks/enforce-conventional-commits.sh" \
+    "$repo/template/.claude/hooks/enforce-conventional-commits.sh" \
+    "$repo/template/[% if devcontainer %].devcontainer[% endif %]/config/claude-hooks/enforce-conventional-commits.sh"; do
     [ -f "$commit_hook" ] || continue
     echo "==> conventional commit extraction: $commit_hook"
     printf 'fix: file message\n' >"$tmpdir/msg.txt"
