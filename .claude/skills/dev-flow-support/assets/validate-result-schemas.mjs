@@ -946,6 +946,9 @@ function checkIntegratorSettledAtAgreement(envelope, errors) {
 // status vs payload verdict), so this is the envelope-level receipt check,
 // like checkImplementerStatus.
 function checkIntegratorBlockedStatus(envelope, errors) {
+  if (Object.hasOwn(envelope.payload, 'blocker') && envelope.status !== 'blocked') {
+    errors.push('$result.payload.blocker: requires envelope status blocked')
+  }
   if (envelope.status === 'blocked' && envelope.payload.verdict === 'clean') {
     errors.push('$result.payload.verdict: cannot be clean when the envelope status is blocked')
   }
@@ -2031,6 +2034,28 @@ function checkLaneAssemblies(document, errors) {
   }
 }
 
+// checkRemediationPushes — a remediation push is recorded on the integration
+// transition that re-enters integration after it (harmon-devkit#1386): the
+// first integration entry follows no remediation loop, so it never carries
+// one, and no other stage does. Findings are unique so one push answers each
+// finding once.
+function checkRemediationPushes(document, errors) {
+  let integrationSeen = false
+  for (const [index, transition] of (document.stage_transitions ?? []).entries()) {
+    const remediation = transition.remediation
+    const reentry = transition.stage === 'integration' && integrationSeen
+    if (transition.stage === 'integration') integrationSeen = true
+    if (remediation === undefined || remediation === null || typeof remediation !== 'object') continue
+    if (!reentry) {
+      errors.push(`$run.stage_transitions[${index}].remediation: is permitted only on an integration transition that re-enters integration`)
+    }
+    const findings = Array.isArray(remediation.findings) ? remediation.findings : []
+    if (new Set(findings).size !== findings.length) {
+      errors.push(`$run.stage_transitions[${index}].remediation.findings: finding ids must be unique`)
+    }
+  }
+}
+
 // isChronologicallyBefore A B — true iff timestamp A is strictly before B.
 // Compares via Date, not raw string ordering: two otherwise-identical
 // instants can be spelled with or without a fractional-seconds suffix
@@ -2114,6 +2139,25 @@ function checkRunChronology(document, errors) {
         errors.push(`$run.splits[${index}].split_at: ${split.split_at} must not be before started_at ${startedAt}`)
       }
     }
+  }
+  // An occurrence is [entered_at, next entered_at): the instant of a
+  // transition belongs to the new stage. Repeated confidence stages each
+  // contribute their own interval. The final occurrence closes when the
+  // run ends: every non-null outcome in run.schema.json is terminal.
+  const terminalTime = document.promotion
+    ? Date.parse(document.promotion.promoted_at)
+    : document.outcome !== null && document.outcome_transitions.length > 0
+      ? document.outcome_transitions.reduce((latest, entry) => Math.max(latest, Date.parse(entry.at)), -Infinity)
+      : null
+  for (const [index, split] of (document.splits ?? []).entries()) {
+    const splitTime = Date.parse(split.split_at)
+    const inStage = transitions.some((transition, transitionIndex) =>
+      transition.stage === split.stage && splitTime >= Date.parse(transition.entered_at) &&
+      (transitionIndex === transitions.length - 1
+        ? terminalTime === null || splitTime <= terminalTime
+        : splitTime < Date.parse(transitions[transitionIndex + 1].entered_at))
+    )
+    if (!inStage) errors.push(`$run.splits[${index}].split_at: must fall within an occurrence of stage ${split.stage}`)
   }
   // Upper bound: a settlement resolves a finding BEFORE the run can be
   // promoted (the readiness gate requires every deferred finding settled
@@ -3089,6 +3133,27 @@ function checkSlotFailureKeys(document, errors) {
   }
 }
 
+// checkCapAuthorizationKeys — one maintainer authorization per (stage, round)
+// over the resolved cap (harmon-devkit#1239). Two entries for the same round
+// cannot both be the instruction that admitted it, so the record names one.
+// Whether the round really lies above the cap is the exit engine's and the
+// renderer's check (lib/cap-authorizations.mjs): this document carries no
+// policy to compare against.
+function checkCapAuthorizationKeys(document, errors) {
+  const firstIndexByKey = new Map()
+  for (const [index, entry] of (document.cap_authorizations ?? []).entries()) {
+    const key = JSON.stringify([entry.stage, entry.round])
+    const firstIndex = firstIndexByKey.get(key)
+    if (firstIndex !== undefined) {
+      errors.push(
+        `$run.cap_authorizations[${index}]: duplicates cap_authorizations[${firstIndex}] key (${entry.stage}, ${entry.round})`
+      )
+      continue
+    }
+    firstIndexByKey.set(key, index)
+  }
+}
+
 // checkReceiptsRecord — an independent --receipts file is a run-directory
 // subset, not necessarily a complete persisted run record. Validate the two
 // fields strict mode trusts with the canonical run schema definitions before
@@ -3530,6 +3595,7 @@ function main() {
     if (errors.length === 0) {
       checkEvidenceStagesVisited(instance, instance, '$run', errors)
       checkSlotFailureKeys(instance, errors)
+      checkCapAuthorizationKeys(instance, errors)
       if (options.receiptsRecord) {
         checkReceiptsRecord(instance, options.receiptsRecord, schema, errors)
       }
@@ -3546,6 +3612,7 @@ function main() {
       checkSettlementReferenceType(instance, errors)
       checkStageTransitionsOrder(instance, errors)
       checkLaneAssemblies(instance, errors)
+      checkRemediationPushes(instance, errors)
       checkRunChronology(instance, errors)
       // --no-adjudications asserts "confirmed zero", which runs the SAME
       // checks as one-or-more --adjudication documents, just against the

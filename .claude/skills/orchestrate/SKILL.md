@@ -130,8 +130,8 @@ Git directory with `git rev-parse --git-common-dir`; a linked worktree's `.git`
 path is a file and is never the shared-state root. Planning is orchestrator
 judgement written down, not a new autonomous planner: the schema, validator,
 and append-only recompute rule make its deterministic parts checkable.
-A second writer of the same `plan.json` is a blocker, not a race to lock
-against.
+A second writer of the same `plan.json` is a blocker: the slate lock in
+§ "Durable orchestrator state" refuses it, by slate id and by the work itself.
 
 Build and publish the plan in this order:
 
@@ -186,10 +186,19 @@ Build and publish the plan in this order:
    the full tier procedure (step 0 included) and append a validated revision
    containing `lane_profiles`. Do not infer past lane refinements from the
    global baseline. If inputs cannot be recovered, stop as indeterminate.
-6. **Emit and validate.** Write the closed record and validate it with
+6. **Reserve, emit and validate.** Before writing `plan.json` at all, take the
+   slate lock with its explicit issue set:
+   `dev-flow-support/assets/run-record.mjs lock acquire --slate <slate-id>
+   --session <session> --issues <n,n,…>`, adding `--milestone <n>` for a
+   milestone-backed slate (the milestone exists only in the lock). A second
+   orchestrator naming the same work is refused here, before it can publish a
+   plan or dispatch anything. Then write the closed record and validate it with
    `node dev-flow-support/assets/validate-result-schemas.mjs plan <plan.json>`. Refuse dispatch
    on a structural error, a broken revision digest, an incomplete overlap set,
-   a graph/projection mismatch, an ownership error, or a cap violation.
+   a graph/projection mismatch, an ownership error, or a cap violation. Both
+   writers refuse while the canonical plan names an issue outside the
+   reservation, so a later revision that adds issues widens the reservation
+   with `lock acquire --issues` first.
    Immediately before each lane dispatch, compare the live target head with the
    last revision's `plan.base_sha`; when they differ, recompute and validate the
    plan before dispatching.
@@ -205,6 +214,115 @@ Build and publish the plan in this order:
    candidate with the `plan` kind, rename it over the canonical record, then
    validate the canonical readback. Either validation or rename failure is a
    blocker; dispatch and merge-queue mutation remain paused.
+   The mechanical half of a base move — bump `base_sha`, retire done issues
+   and their lanes, extend the chain — is
+   `dev-flow-support/assets/plan-revise.mjs base-move`, which runs exactly
+   that sequence. It refuses, naming the paths or issues, whenever the move
+   needs judgment: the new commits touch a live lane's fence or candidate
+   files, or a done issue releases a dependent. Fence expansions, overlap
+   choices and wave changes stay yours; write them as a complete revision.
+
+## Durable orchestrator state
+
+Everything you need in order to resume lives under the Git common directory,
+never in the session scratchpad. A scratchpad does not survive a session
+restart, and one that was wiped mid-slate took every dispatch file, ruling
+and watcher script with it (harmon-devkit#1296). The scratchpad is for
+throwaway work only.
+
+- **Run records:** `<git-common-dir>/dev-flow-v2/runs/<run-id>/run.json`,
+  beside `monitor.json`.
+- **Slate plan:** `<git-common-dir>/dev-flow-v2/slates/<slate-id>/plan.json`.
+- **Your own working files** — dispatch files, rendered briefs, ruling files,
+  watcher state:
+  `<git-common-dir>/dev-flow-v2/slates/<slate-id>/orchestrator/<run-id>/<attempt-nonce>/`,
+  keyed by run id and attempt nonce the way lane reports are.
+  `assets/dev-flow-monitor.sh orchestrator-dir --slate-id ID --run-id ID
+  --nonce NONCE` prints the path.
+
+Use `dev-flow-support/assets/run-record.mjs` for the run-record operations
+it supports, never a hand edit:
+
+- `transition`, which also appends the matching transition receipt;
+- `intervention`;
+- `bind-pr`;
+- `close`.
+
+Promotion is decided out of the readiness gate by the session that owns
+integration — the orchestrator in an orchestrated run, the `/integrate`
+session in a solo run — and that session records it with `run-record.mjs
+promote`.
+
+A run belongs to exactly one slate. Its first helper write needs the run to be
+a lane in some revision of that slate's plan, and records the slate in
+`runs/<run-id>/owner-slate`; every later write must name the same slate. Each write builds
+a candidate, validates it with `validate-result-schemas.mjs run --receipts`
+plus every adjudication document in the run directory, renames it over
+`run.json` and validates the readback. A refused edge, a promotion dated
+before the last transition, a promotion over an unsettled deferred finding,
+or any entry written after the run has ended — promoted, capped, escalated or
+abandoned — therefore never lands. The rest of the
+record keeps its existing writers:
+
+- the kickoff record — this skill, at activation;
+- pass receipts, evidence registrations, splits and stage-advance
+  transitions — `/review`'s own write recipe;
+- settlements — `/integrate`.
+
+All writes for a run are performed sequentially by its one supervising
+orchestrator, including the `/review` and `/integrate` recipes above. Delegates
+return evidence; they never write the run record. Each of those writers runs
+the same candidate, validate, rename and readback sequence. Parallel writers
+must first use `run-record.mjs`'s shared mutex and validated writer; its lock
+does not protect a caller that bypasses it.
+
+Point an intervention that rests on a ruling file at it with
+`--ruling FILE`: the writer copies those bytes into the run's
+`rulings/<sha256>` file without overwriting an existing snapshot, and the
+note records that stable path and the file's SHA-256. The reference survives
+archiving and subsequent source edits. That digest identifies the bytes you
+relied on. It does not protect them: the note lives in a
+lane-writable record and nothing verifies it automatically, so an edit is
+caught only by someone who re-hashes the file and compares. `close` records a non-promotion outcome if
+the run is still open, then moves the run's orchestrator directory into
+`runs/<run-id>/orchestrator/`, so a stale dispatch file can never mislead a
+later session. Files under `.git/` never show in `git status`.
+
+Both writers take the **slate lock** (`run-record.mjs lock
+acquire|release|status`), recorded under `<git-common-dir>/dev-flow-v2/locks/`
+with the slate's milestone and issue set. While another session holds the
+same slate, the same milestone, or any of the same issues — under any slate
+id — every write is refused. Take it before publishing the plan (§ Planning
+step 6), with `--issues` and, for a milestone-backed slate, `--milestone`: an
+implicit lock taken at a first write records no milestone, and a plan
+published before its reservation can overwrite another session's plan. Release it when the slate
+ends. `--session` is the `/kickoff` session name recorded by `/claim` on the
+claim comment's `session:` line. Reuse it after a restart; it is not a PID or
+a liveness signal. A different session is refused even on the same host.
+
+Recovery is an explicit operator decision, never an automatic timeout or a
+cross-host process probe. Inspect `lock status --slate <slate>`, have the
+operator confirm that the previous session and its writers have stopped, then
+run `lock release --slate <slate> --session <recovering-session> --force
+--reason "<operator attribution and why the old session is abandoned>"` once.
+The helper records that request, its session, reason, timestamp and complete
+previous lock in `locks/recoveries/<slate>/<id>.json` before removing the lock;
+failure to record it leaves the lock held. Re-read status after any failure:
+the audit records intent, so a crash may leave the lock still held. Acquire
+normally as the recovering session only after release; ordinary scope
+contention checks still apply. Once reacquisition succeeds, the completed
+recovery transfers the writer identity to the recovering session: every later
+write for that slate uses the recovering session's name, including after a
+restart, instead of the original kickoff/claim identity. The recovery audit's
+previous lock and recovering session identify the requested transfer; name both
+identities, the completed transfer and that audit in the handoff.
+
+Durable means *this clone*: the common directory survives restarts, `/clear`
+and worktree removal, but not a fresh clone, a rebuilt devcontainer without a
+persistent volume, or an ephemeral cloud session. GitHub evidence stays the
+cross-machine record. Every worktree shares the directory, so a lane *can*
+edit these files; re-hashing a ruling file against its recorded digest is the
+only check that an edit happened.
 
 ## Lane briefs
 
@@ -264,7 +382,7 @@ table before their intended sections.
 | `{{codex-model-id}}` | Model id the Codex pane was launched with, or `n/a` for a non-Codex harness |
 | `{{codex-launch-flags}}` | The approval and sandbox policy the Codex pane was launched with. Default: `-a never -s workspace-write -c sandbox_workspace_write.network_access=true`. `--dangerously-bypass-approvals-and-sandbox` is a per-dispatch override, disclosed on the profile line; `n/a` for a non-Codex harness |
 | `{{report-path}}` | Nonce-scoped path under the common Git directory, or a path whose worktree exclusion the orchestrator has installed and verified |
-| `{{scratch-dir}}` | Per-lane subdirectory of the scratchpad; never the scratchpad root |
+| `{{scratch-dir}}` | Per-lane subdirectory of the scratchpad, for throwaway files only — nothing needed to resume lives there; never the scratchpad root |
 | `{{repo-tier}}` | `light`, `standard`, or `heavy` — resolved by the base template's strongest-signal-wins procedure, never by matching a row's description |
 | `{{gate-bounds-override}}` | Repository's own measured gate bounds, or `None — use the base template's table.` |
 | `{{gate-commands}}` | The repository's actual gate invocations, one per line |
@@ -298,12 +416,12 @@ table before their intended sections.
 | `{{role-tiers}}` | Resolved five-role tier projection, including the implementer's tier source (pinned, rigor, derived, default, or operator) and every `dev-flow-support/assets/tier-inputs.mjs disclose` line — a pin-caused invariant break, an overridden role label, a rejected role label (with the reader's reason), a tier warning, or a derived Tier left indeterminate |
 | `{{operator-pins}}` | Attributed operator pins, or `None.` |
 | `{{pr-title}}` | Orchestrator's release-title-compliant proposal |
-| `{{ready-sentinel}}` | Orchestrator-generated per-lane sentinel prefix |
-| `{{handoff-sentinel}}` | Orchestrator-generated draft-handoff sentinel prefix |
-| `{{blocked-sentinel}}` | Orchestrator-generated per-lane sentinel prefix |
+| `{{ready-sentinel}}` | `READY-<lane-name>` using the brief lane label |
+| `{{handoff-sentinel}}` | `HANDOFF-<lane-name>` using the brief lane label |
+| `{{blocked-sentinel}}` | `BLOCKED-<lane-name>` using the brief lane label |
 | `{{attempt-nonce}}` | Fresh nonce for this dispatch attempt |
 
-Every lane brief MUST carry the active run identity so the lane worker can
+Every local PR-owning lane brief MUST carry the active run identity so the lane worker can
 route confidence stages through `/review` and publish a draft with v2 evidence;
 the supervising orchestrator then invokes `/integrate` and retains every
 finding disposition, PR-body edit, thread reply, readiness decision, and
@@ -321,9 +439,12 @@ orchestrator reserves its agent run. The inline fallback has no such dispatch
 surface, so the orchestrator instead authorizes the original lane to apply only
 the exact confirmed fixes in its recorded disposition and verifies the returned
 gate/publication evidence. The post-draft handoff remains separate and transfers
-integration to the supervising orchestrator.
+integration to the supervising orchestrator. When the maintainer overrides that handoff and
+tells a lane to drive its own integration, follow `integrate/SKILL.md` §2's rule for any session driving integration
+(`check-codex-cloud-review.sh` and `readiness-gate.sh` wherever the vendored checker and gate apply,
+never a hand-rolled poll or hand-evaluated table).
 
-Render `assets/lane-brief.md` for every end-to-end, PR-owning implementation lane
+Render `assets/lane-brief.md` for every local end-to-end, PR-owning implementation lane
 instead of hand-authoring a brief. Council proposal and synthesis implementers,
 and bounded remediation implementers, use their schema-bound role briefs and
 return the artifact or fix their dispatch requested; they do not receive this
@@ -366,7 +487,7 @@ As a render-time completeness check, scan the entire rendered file and refuse
 dispatch if any unreplaced `{{name}}` token remains. This is the renderer's
 check, not content validation of the opaque body; the `brief` validator checks
 double-brace tokens only inside the envelope block.
-Validate the rendered brief before dispatch and refuse dispatch on any failure:
+For local PR-owning lanes, validate the rendered brief before dispatch and refuse dispatch on any failure:
 `node dev-flow-support/assets/validate-result-schemas.mjs brief "$brief_path"`.
 Place the per-attempt report under the common Git directory, or install and
 verify its worktree exclusion before dispatch; an assertion that it is excluded
@@ -390,6 +511,31 @@ evidence the procedure cannot produce. `retro-run-report.mjs` exit 10
 produce evidence and did not; when the condition fails and the skill
 path is available for the lane's topology, the routing failed and the
 lane must be re-run before the PR is promoted.
+
+**The implementer record is confirmed at PR open, and written here when the
+lane cannot write it.** When a lane's draft PR opens, the four implementer
+values (`model-family`, `model`, `model-version`, `model-effort`; harmon-devkit#1262)
+must name the model that actually ran that lane — the family, model line,
+version and effort this dispatch attested, never a value read back from the
+lane's own output, the issue, or the branch. A lane whose harness writes labels
+records them itself through `/implement` step 8; confirm it with the implement
+skill's `assets/record-implementer.sh check --repo <repo> --pr <n> --registry
+<default-branch registry snapshot> --harness <lane harness>`. **The orchestrator
+writes on behalf of a lane whose harness cannot write labels** — an Antigravity
+lane, or any lane briefed not to touch GitHub — by running the same asset's
+`apply` with the lane's PR, its issue, and the dispatch-attested values; the
+same applies whenever the orchestrator itself opened the lane's draft PR.
+`apply` validates the values against the registry first and refuses
+an unknown value rather than guessing one; a refusal is a blocker to report,
+not a value to fill in. A harness whose registry entry declares no `efforts`
+(an Antigravity lane) records family, model and version only and leaves
+`model-effort` unset — pass no `--effort` and never invent one — while a
+harness that declares efforts still owes one from its list. On an
+organization the issue takes the issue fields; on a personal account,
+labels; the PR takes labels on both; and on the issue the last implementer
+wins, which also clears an earlier implementer's effort when this one
+records none. Like `claim:*`, the record is never a routing input — nothing here or in
+any dispatch reads it back to choose a model.
 
 The maintainer-facing ready report is the last message about a promoted PR,
 not the first one after promotion. **Invariant: the ready report is sent
@@ -533,6 +679,19 @@ had to be killed). Never follow a wait, or the delivery check, with `; echo`,
 never read as settled. `lane-watch.sh` below stays the persistent monitor;
 this asset is for a single bounded wait.
 
+### Cloud lanes
+
+Cloud lanes are used only on the operator’s explicit request.
+Never choose cloud lanes unprompted or recommend them. Local Herdr agents remain
+the default. Render `assets/cloud-lane-brief.md`, checked by its own render check
+in the cloud reference; the `brief` validator governs local PR-owning lanes. See
+[Cloud lanes](references/cloud-lanes.md) for launch, messaging, GitHub watching,
+environment limits, and the orchestrator-owned review and PR handoff. This mode
+replaces local worktree, agent-settle, and report-file handling for that lane;
+claims, policy resolution, fences, and readiness duties still bind.
+The orchestrator names the cloud lane's `claude/*` branch before launch, so the
+lane is planned, fenced and claimed like any other.
+
 ## Persistent supervision
 
 Watching is the standing mode, not a one-shot step. Use the harness's
@@ -547,10 +706,24 @@ manual polling.
 Use `assets/lane-watch.sh` for that polling. Harness monitor primitives may run
 their command under a non-Bash shell, so always invoke the file as
 `bash <skill-dir>/assets/lane-watch.sh --state-file <run-dir>/lane-watch.state --registry
-<kickoff-registry-snapshot> <deadline> <lane:branch:nonce:owner/repo>...`;
-never paste its loop inline. Keep the state file across re-arms so reported
+<kickoff-registry-snapshot> <deadline> <agent:branch:nonce:owner/repo:report-path:lane-label>...`;
+never paste its loop inline. The first spec token is the **herdr agent name**;
+herdr requires lowercase names (for example `lane-d1220`), while the brief's
+lane label may be `L-d1220`. Pass the exact rendered `{{report-path}}` as an
+absolute path and `{{lane-name}}` as the separate lane-label field. Neither
+field may contain a colon. Four-field specs still default to
+`<checkout>/.worktrees/<agent>/.lane-report.md` with lane-label equal to agent;
+with `--workspace-root`, checkout is `<workspace-root>/<repo-name>`. A fifth
+field of `cloud` retains the GitHub-only spec and takes no report or label.
+The ready/handoff/blocked prefixes must be `READY-<lane-label>`,
+`HANDOFF-<lane-label>`, and `BLOCKED-<lane-label>`; labels and nonces contain
+only ASCII letters, digits, underscores and hyphens. Both report and pane
+observations match the whole final nonblank line `<kind>-<lane-label>-<nonce>`.
+A HANDOFF emits its own `HANDOFF <agent>: <sentinel>` transition alongside
+`SENTINEL`; pane observations carry `(pane only)` and need report confirmation.
+Keep the state file across re-arms so reported
 sentinels and post-promotion activity remain deduplicated. The watcher bounds
-every `herdr` and `gh` read, prefers each lane's `.lane-report.md` sentinel,
+every `herdr` and `gh` read, prefers each lane's explicit report-path sentinel,
 tags pane-only fallback results, and watches reviews plus top-level and inline
 comments for 15 minutes after a draft becomes ready. When a lane's
 post-promotion window's promotion event cannot be resolved before that
