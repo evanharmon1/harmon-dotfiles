@@ -30,6 +30,10 @@
 //       marker naming a run the harvester cannot find (deleted-entry
 //       tampering). Nothing is rendered; the reason is on stderr. Never
 //       report a clean retro on this path, and never fall back to memory.
+//   13  local-unverified — opt-in local record, not authenticated by a trusted GitHub evidence marker.
+//       Never a verified report or an authenticated trajectory.
+//   14  refused local record — unsafe or invalid local input, or unsupported
+//       platform; never evidence tampering. Local reads are Linux-only.
 //   2   usage error.  1  operational error (a `gh` or harvester failure).
 //
 // Why 10, 11 and 12 are three exits, not one. "Nothing was posted" is the
@@ -42,7 +46,8 @@
 // that was never recorded (challenge round 1, confirmed P1).
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, mkdtempSync, writeFileSync, rmSync, statSync, constants, openSync, fstatSync, closeSync, readlinkSync, lstatSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -57,25 +62,38 @@ const USAGE = `Usage: retro-run-report.mjs --repo <owner/repo> --pr <n> [options
   --run <run_id>               Skip discovery and report on this run.
   --trusted-actor-id <id>      Repeatable. Trusted-orchestrator GitHub actor
                                ids. Gates which comments may name a run AND is
-                               passed through to the harvester. REQUIRED (with
-                               --trusted-actors-file): there is no default.
+                               passed through to the harvester. Overrides the
+                               remote repository registry when supplied.
   --trusted-actors-file <path> A JSON {"trusted_actor_ids": [...]} document,
-                               passed through to the harvester.
+                               passed through to the harvester. Explicit trust
+                               flags override agent-registry.json; otherwise
+                               trusted_orchestrator_actor_ids is required there.
   --as-of <iso8601>            Reconstruct the RUN RECORD and its comment
-                               evidence as of this instant. Discovery inputs
-                               GitHub does not version are NOT reconstructed
-                               and stay current-state: the linked-issue set
-                               (the PR's closing and body references) and the PR body
-                               the disclosed caps are read from. The report
-                               says so wherever it uses one.
+                               evidence as of this instant. These inputs stay
+                               current-state: the linked-issue set (the PR's
+                               closing and body references), the PR body the
+                               disclosed caps are read from, and the default
+                               trust set (default-branch registry).
+                               Replay trusts the default allowlist as it is now;
+                               the harvester still applies write-time registry
+                               revisions to legacy evidence.
   --stats-script <path>        Override harvester discovery (tests, or a
                                checkout that keeps it somewhere else).
   --record-dir <path>          Parent directory containing <run_id>/run.json;
                                passed through unchanged to the harvester.
+  --local-unverified           After run-not-found only, read --record-dir/--run
+                               as unverified local data (exit 13). Linux-only:
+                               containment needs a single-step descriptor path.
+                               Unsafe or invalid local records exit 14, as does
+                               an unsupported platform, with the refusal reason:
+                               local descriptor containment cannot be established on this platform
+                               Requires both flags. Ignored when authenticated
+                               evidence exists.
   --json                       Emit the machine form instead of Markdown.`
 
 class UsageError extends Error {}
 class OperationalError extends Error {}
+class LocalRefusalError extends Error {}
 // Evidence that exists but does not authenticate, or cannot be attributed to
 // one run. Distinct from "no evidence" — see the exit-code table above.
 class IndeterminateError extends Error {
@@ -132,6 +150,9 @@ function parseArgs(argv) {
       case '--record-dir':
         args.recordDir = take()
         break
+      case '--local-unverified':
+        args.localUnverified = true
+        break
       case '--json':
         args.json = true
         break
@@ -181,8 +202,20 @@ function validateArgs(args) {
   if (args.statsScript !== undefined && !existsSync(args.statsScript)) {
     throw new UsageError(`--stats-script path does not exist: ${args.statsScript}`)
   }
-  if (args.recordDir !== undefined && !existsSync(args.recordDir)) {
-    throw new UsageError(`--record-dir path does not exist: ${args.recordDir}`)
+  if (args.recordDir !== undefined) {
+    let isDirectory
+    try {
+      isDirectory = statSync(args.recordDir).isDirectory()
+    } catch (error) {
+      if (args.localUnverified && error.code !== 'ENOENT') {
+        throw new LocalRefusalError('--record-dir cannot be read as a directory')
+      }
+      if (!existsSync(args.recordDir)) {
+        throw new UsageError(`--record-dir path does not exist: ${args.recordDir}`)
+      }
+      throw error
+    }
+    if (!isDirectory) throw new UsageError('--record-dir must be a directory')
   }
   // Validated here for the same reason, and it became load-bearing the moment
   // the cutoff started filtering discovery: an unparseable value makes
@@ -307,6 +340,7 @@ function statsCommandFor(file) {
 const EVIDENCE_MARKER_RE = /^<!--\s+devflow:([a-z][a-z-]*)\s+v2\s+([^>]*?)-->/
 const REVIEW_EVIDENCE_MARKER_RE = /^<!--[ \t]*dev-flow-v2-evidence:[ \t]*(\{[^\r\n]*\})[ \t]*-->(?=\r?\n|$)/
 const REVIEW_EVIDENCE_PREFIX_RE = /^<!--[ \t]*dev-flow-v2-evidence:/
+const NONCANONICAL_EVIDENCE_PREFIX_RE = /^<!--[ \t]*dev-flow-v2[- \t]+evidence(?=[ \t:\n]|-->|$)/
 
 // Only these three kinds are evidence. An earlier revision accepted any
 // lowercase kind carrying a run_id, so a trusted `devflow:example` comment on
@@ -366,6 +400,9 @@ function parseMarker(body) {
     return { kind: 'evidence', runId: value.run_id, destination: value.destination }
   }
   if (REVIEW_EVIDENCE_PREFIX_RE.test(firstLine)) return { malformed: 'dev-flow-v2-evidence marker has trailing content or an invalid payload' }
+  if (NONCANONICAL_EVIDENCE_PREFIX_RE.test(firstLine)) {
+    return { malformed: 'non-canonical dev-flow-v2 evidence marker (expected <!-- dev-flow-v2-evidence: {...} -->)' }
+  }
   const marker = EVIDENCE_MARKER_RE.exec(firstLine)
   if (!marker) return null
   const kind = marker[1]
@@ -708,23 +745,78 @@ function discoverRun(args, trustedActorIds) {
   }
 }
 
+// Ordinary discovery and the local guard share the same refusal and diagnostics.
+function requireDeterminateDiscovery(args, trusted, discovered) {
+  if (discovered.runId) return
+  const corrupted = discovered.malformed.filter((m) => m.trusted)
+  if (discovered.untrusted.length > 0 || corrupted.length > 0) {
+    const parts = []
+    if (discovered.untrusted.length > 0) {
+      const runs = [...new Set(discovered.untrusted.map((m) => m.run_id))].sort().map((id) => JSON.stringify(id)).join(', ')
+      parts.push(
+        `${discovered.untrusted.length} evidence marker(s) naming ${runs} whose authors are not trusted (${trusted.source}) — either a redirect attempt or a trust root that changed after the run, since discovery uses the selected set and an orchestrator removed from the allowlist since a run reads as indeterminate (fail closed)`
+      )
+    }
+    if (corrupted.length > 0) {
+      parts.push(
+        `${corrupted.length} marker(s) from a TRUSTED actor that do not parse (${[...new Set(corrupted.map((m) => m.reason))].join('; ')}) — a trusted orchestrator's own evidence, truncated or edited, which is corrupted evidence rather than absence`
+      )
+    }
+    throw new IndeterminateError(
+      `PR #${args.pr} and its linked issues carry ${parts.join('; and ')}. Rerun naming the run's own orchestrator with --trusted-actor-id, or with --run <run_id> — do NOT conclude the session has no run record.`,
+      { untrusted: discovered.untrusted, malformed: discovered.malformed, ignoredHints: discovered.ignoredHints }
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Trusted actor ids
 // ---------------------------------------------------------------------------
 
-// There is no default trust root, deliberately. An earlier revision fell back
-// to the authenticated account, which made a run's evidence valid or invalid
-// depending on who happened to run `/retro` and let a reader's own comments
-// authenticate their own retrospective — the evidence spec requires authority
-// to "derive solely from configured trusted orchestrator actor IDs", and
-// "whoever is logged in" is not configured (challenge round 2, confirmed P1).
-// dev-flow-stats.mjs already requires the ids explicitly; matching it
-// removes the divergence rather than papering over it. agent-registry.json
-// will carry the allowlist under harmon-devkit#741; until then the caller
-// supplies it, from a committed --trusted-actors-file or the flag.
+// Authority comes only from configured orchestrator IDs, never the authenticated
+// reader. Default discovery uses the target repository's default-branch registry,
+// never the caller's checkout. Explicit flags override the selected set passed
+// to the harvester; its evidence-format-specific trust rule is reported below.
 function resolveTrustedActorArgs(args) {
   const passthrough = []
   const ids = new Set()
+  let registrySource = null
+  if (args.trustedActorIds.length === 0 && !args.trustedActorsFile) {
+    let doc
+    try {
+      const metadata = ghJson(['api', `repos/${args.repo}`])
+      const branch = metadata?.default_branch
+      if (typeof branch !== 'string' || branch.trim().length === 0) {
+        throw new Error('repository metadata has no default_branch')
+      }
+      const file = ghJson(['api', `repos/${args.repo}/contents/agent-registry.json?ref=${encodeURIComponent(branch)}`])
+      if (file?.type !== 'file' || file.encoding !== 'base64' || typeof file.content !== 'string' ||
+          typeof file.sha !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(file.sha)) {
+        throw new Error('registry Contents response must contain a base64 file and blob SHA')
+      }
+      doc = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'))
+      registrySource = `${args.repo}@${branch} (${file.sha})`
+    } catch (error) {
+      throw new UsageError(`could not read/parse ${args.repo}'s default-branch agent-registry.json: ${error.message}`)
+    }
+    const configured = doc?.trusted_orchestrator_actor_ids
+    if (!Array.isArray(configured) || configured.length === 0) {
+      throw new UsageError('agent-registry.json must contain a nonempty trusted_orchestrator_actor_ids array; there is no authenticated-caller default')
+    }
+    for (const id of configured) {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new UsageError(`agent-registry.json trusted_orchestrator_actor_ids entries must be positive safe JSON integers, got ${JSON.stringify(id)}`)
+      }
+      if (ids.has(id)) {
+        throw new UsageError(`agent-registry.json trusted_orchestrator_actor_ids must contain unique entries, got duplicate ${id}`)
+      }
+      if (Array.isArray(doc.finders) && doc.finders.some((finder) => finder?.trusted_actor_id === String(id))) {
+        throw new UsageError(`agent-registry.json trusted_orchestrator_actor_ids includes finder actor ${id}; finder identities cannot authenticate orchestrator evidence`)
+      }
+      ids.add(id)
+      passthrough.push('--trusted-actor-id', String(id))
+    }
+  }
   for (const id of args.trustedActorIds) {
     const n = Number(id)
     if (!Number.isInteger(n) || n < 1) {
@@ -740,7 +832,7 @@ function resolveTrustedActorArgs(args) {
     } catch (error) {
       throw new UsageError(`could not read/parse --trusted-actors-file: ${error.message}`)
     }
-    if (!Array.isArray(doc.trusted_actor_ids)) {
+    if (!Array.isArray(doc?.trusted_actor_ids)) {
       throw new UsageError('--trusted-actors-file must contain {"trusted_actor_ids": [...]}')
     }
     // Parsed here as well as passed through, because discovery gates on the
@@ -768,7 +860,7 @@ function resolveTrustedActorArgs(args) {
   }
   if (ids.size === 0) {
     throw new UsageError(
-      'at least one --trusted-actor-id or --trusted-actors-file entry is required — a marker only names a run if a configured trusted orchestrator posted it, and there is deliberately no "whoever is logged in" default (harmon-devkit#741 will supply the allowlist from agent-registry.json)'
+      'at least one --trusted-actor-id or --trusted-actors-file entry is required when overriding agent-registry.json — there is no authenticated-caller default'
     )
   }
   // Name the ids, not just their provenance. "Supplied on the command line"
@@ -777,7 +869,9 @@ function resolveTrustedActorArgs(args) {
   // hostile marker when the ignored-marker count is nonzero (review round 3,
   // confirmed P2).
   const listed = [...ids].sort((a, b) => a - b).join(', ')
-  const from = args.trustedActorsFile ? ` (including ${args.trustedActorsFile})` : ''
+  const from = registrySource
+    ? ` from ${registrySource} agent-registry.json trusted_orchestrator_actor_ids`
+    : ` from explicit flags${args.trustedActorsFile ? ` (including ${args.trustedActorsFile})` : ''}`
   return { passthrough, ids, source: `actor id(s) ${listed}${from}` }
 }
 
@@ -810,13 +904,12 @@ function harvestTrajectory(stats, args, runId, trusted) {
     try {
       structuredStatus = JSON.parse(result.stdout || 'null')?.status || null
     } catch {
-      // No structured status on stdout — classify as an ordinary not-found
-      // below. A stderr substring is not a fallback: the not-found message
-      // echoes the requested run id verbatim, so a --run value that merely
-      // CONTAINS the text "record-missing" would otherwise self-misclassify.
+      // A crash can also exit 1. Only a structured status licenses fallback;
+      // stderr echoes arbitrary run ids and cannot prove absence.
     }
-    const kind = structuredStatus === 'record-missing' ? 'record-missing' : 'run-not-found'
-    return { missingKind: kind, missing: `${kind} — ${stderr || `the harvester does not know run ${runId}`}` }
+    if (structuredStatus === 'record-missing' || structuredStatus === 'run-not-found') {
+      return { missingKind: structuredStatus, missing: `${structuredStatus} — ${stderr || `the harvester does not know run ${runId}`}` }
+    }
   }
   if (result.status === 3) {
     throw new IndeterminateError(stderr || `the harvester reports run ${runId} indeterminate`)
@@ -931,6 +1024,17 @@ function stageAt(transitions, at) {
   return current
 }
 
+function classProvenanceRows(counts) {
+  return Object.entries(counts || {})
+    .map(([key, count]) => {
+      const slash = key.indexOf('/')
+      return slash === -1
+        ? { class: key, provenance: 'unspecified', count }
+        : { class: key.slice(0, slash), provenance: key.slice(slash + 1), count }
+    })
+    .sort((a, b) => b.count - a.count || a.class.localeCompare(b.class) || a.provenance.localeCompare(b.provenance))
+}
+
 function measure(trajectory, policy) {
   const transitions = Array.isArray(trajectory.stage_transitions) ? trajectory.stage_transitions : []
   const rounds = Array.isArray(trajectory.rounds) ? trajectory.rounds : []
@@ -1021,22 +1125,16 @@ function measure(trajectory, policy) {
     }
   })
 
-  const classProvenance = Object.entries(trajectory.findings_by_class_and_provenance || {})
-    .map(([key, count]) => {
-      const slash = key.indexOf('/')
-      return slash === -1
-        ? { class: key, provenance: 'unspecified', count }
-        : { class: key.slice(0, slash), provenance: key.slice(slash + 1), count }
-    })
-    .sort((a, b) => b.count - a.count || a.class.localeCompare(b.class) || a.provenance.localeCompare(b.provenance))
+  const classProvenance = classProvenanceRows(trajectory.findings_by_class_and_provenance)
+  const stageCounts = trajectory.findings_by_stage_class_and_provenance
+  for (const stage of stages) {
+    stage.findings_by_class_and_provenance = stageCounts?.[stage.stage] === undefined
+      ? null
+      : classProvenanceRows(stageCounts[stage.stage])
+  }
 
-  // The acceptance criterion wants class/provenance INSIDE each stage
-  // section, and the trajectory only aggregates it run-wide. Where exactly
-  // one stage produced findings the aggregate is unambiguously that stage's,
-  // so attribute it and say so; where more than one did, no split is
-  // derivable from this evidence and the run-wide table stands with the gap
-  // named in each affected stage section (review round 2, adjudicated P2 —
-  // the remedy is a harvester change this lane may not make).
+  // Older harvesters expose only the run-wide aggregate. Keep their
+  // single-stage attribution and multi-stage gap when no stage map exists.
   const stagesWithFindings = [...new Set(stages.filter((st) => st.findings > 0).map((st) => st.stage))]
   const attribution =
     provenanceUnavailableRounds.length > 0
@@ -1092,7 +1190,8 @@ function unavailableMeasurements(measured) {
   // anyway would manufacture a follow-up for a measurement the report just
   // made — the skill carries every listed gap into improvements (cloud review
   // round 1, confirmed P2).
-  if (measured.class_provenance_attribution.scope === 'run') {
+  if (measured.class_provenance_attribution.scope === 'run' &&
+      measured.stages.some((stage) => stage.findings > 0 && stage.findings_by_class_and_provenance === null)) {
     gaps.push({
       measurement: 'findings by class and provenance, keyed by stage',
       reason:
@@ -1129,16 +1228,13 @@ function unavailableMeasurements(measured) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-// Free text here is reviewer- and human-authored prose (intervention notes,
-// stage exits, disclosure details) that a reader may paste into a PR body or
-// comment. Neutralize marker sequences and fold newlines for the same reason
-// render-dev-flow.mjs does: an evidence note that quotes `<!--` would forge a
-// section boundary on the next parse.
+// Preserve verified text while neutralizing marker boundaries and folding
+// all line terminators. HTML escaping belongs to the local renderer only.
 function safe(value) {
   return String(value ?? '')
     .replace(/<!--/g, '&lt;!--')
     .replace(/-->/g, '--&gt;')
-    .replace(/\r?\n/g, ' ')
+    .replace(/\r\n|[\r\n\u2028\u2029\u0085\u000b\u000c]/g, ' ')
 }
 
 function cell(value) {
@@ -1162,7 +1258,7 @@ function renderMarkdown(report) {
   if (report.as_of) {
     l.push(`- Reconstructed as of: ${safe(report.as_of)} — **the run record and its comment evidence only.**`)
     l.push(
-      '  Discovery inputs GitHub does not version are **not** reconstructed and are read as they stand now: the **linked-issue set** (the PR\'s closing references plus same-repository non-closing references and run-id issue numbers parsed from its body, which decide which issues a fallback search reaches) and the **PR body** the disclosed caps above come from. Re-linking an issue, or editing the body, changes those even for a fixed cutoff.'
+      '  These inputs are **not** reconstructed and are read as they stand now: the **linked-issue set** (the PR\'s closing references plus same-repository non-closing references and run-id issue numbers parsed from its body, which decide which issues a fallback search reaches), the **PR body** the disclosed caps above come from, and the **default trust set** (the target repository\'s default-branch-head registry, when no explicit trust flags are supplied). A replay with --as-of trusts the default allowlist as it is now, while the harvester still applies write-time registry revisions to legacy evidence. Re-linking an issue, editing the body, or changing that allowlist changes those inputs even for a fixed cutoff.'
     )
   }
   l.push('')
@@ -1248,7 +1344,23 @@ function renderMarkdown(report) {
     )
     const attribution = report.measurements.class_provenance_attribution
     if (stage.findings > 0) {
-      if (stage.provenance_unavailable_rounds.length > 0) {
+      if (stage.findings_by_class_and_provenance !== null) {
+        if (stage.provenance_unavailable_rounds.length > 0) {
+          l.push(
+            `- Findings by class and provenance: unavailable for round(s) ${stage.provenance_unavailable_rounds.join(', ')} — no matching verified \`verdict.json\` projection exists; raw producer assertions are not substituted.`
+          )
+        }
+        if (stage.findings_by_class_and_provenance.length > 0) {
+          l.push(stage.provenance_unavailable_rounds.length > 0
+            ? '- Findings by class and provenance (partial verified projection):'
+            : '- Findings by class and provenance:')
+          for (const row of stage.findings_by_class_and_provenance) {
+            l.push(`  - ${cell(row.class)} / ${cell(row.provenance)}: ${row.count}`)
+          }
+        } else if (stage.provenance_unavailable_rounds.length === 0) {
+          l.push('- Findings by class and provenance: no verified findings recorded for this stage.')
+        }
+      } else if (stage.provenance_unavailable_rounds.length > 0) {
         l.push(
           `- Findings by class and provenance: unavailable for round(s) ${stage.provenance_unavailable_rounds.join(', ')} — no matching verified \`verdict.json\` projection exists; raw producer assertions are not substituted.`
         )
@@ -1366,7 +1478,7 @@ function renderMarkdown(report) {
     l.push(`- Tampered comments (trusted author, structural anomaly, not forged): ${report.measurements.integrity.tampered_comments}`)
   }
   l.push(
-    `- Trust evaluation: ${safe(report.source.trusted_actors)} — the caller's current set, **not** the run's kickoff-time registry revision, so an orchestrator trusted at kickoff and removed since would read as untrusted here (harmon-devkit#741)`
+    `- Trust evaluation: ${safe(report.source.trusted_actors)}. This trusted set is passed to the harvester. Current-format evidence authenticates against exactly that set. Legacy evidence is additionally intersected with the registry revision in effect when it was written. An explicit flag set is trusted as given and can widen what is authenticated, so pass it only deliberately. Under the default registry trust set, an orchestrator removed from the allowlist since a run reads as indeterminate (fail closed).`
   )
   if (report.source.ignored_markers.length === 0) {
     l.push('- Untrusted evidence markers ignored during discovery: 0')
@@ -1415,7 +1527,7 @@ function renderMarkdown(report) {
 function reportIgnoredMarkers(untrusted, malformed) {
   for (const marker of untrusted) {
     console.error(
-      `${TOOL}: ignoring an untrusted evidence marker naming run ${marker.run_id} on ${marker.where} (comment ${marker.comment_id ?? 'unknown'}, actor ${marker.actor_id ?? 'unknown'})`
+      `${TOOL}: ignoring an untrusted evidence marker naming run ${JSON.stringify(marker.run_id)} on ${marker.where} (comment ${marker.comment_id ?? 'unknown'}, actor ${marker.actor_id ?? 'unknown'})`
     )
   }
   for (const marker of malformed) {
@@ -1427,8 +1539,185 @@ function reportIgnoredMarkers(untrusted, malformed) {
 
 function reportIgnoredHints(ignoredHints) {
   for (const hint of ignoredHints) {
-    console.error(`${TOOL}: ignoring body discovery hint ${hint.hint} (${hint.tier}): ${hint.reason}`)
+    console.error(`${TOOL}: ignoring body discovery hint ${JSON.stringify(hint.hint)} (${hint.tier}): ${hint.reason}`)
   }
+}
+
+// Local-only data never enters measure(), policy parsing, or authentication.
+// Validate a snapshot of the bytes we render, not a file that may change after
+// validation. The shipped run validator checks both shape and semantics.
+const LOCAL_PROVENANCE = 'unverified (local record, not authenticated by a trusted GitHub evidence marker)'
+
+function localSafe(value) {
+  return safe(String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;'))
+    .replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+}
+
+function isLocalPathInside(parent, resolved) {
+  const relative = path.relative(parent, resolved)
+  return !(relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative))
+}
+
+function renderLocalUnverified(args, runId, requestedPr) {
+  if (!args.run || !args.recordDir) throw new UsageError('--local-unverified requires --run and --record-dir for a local read')
+  if (args.asOf) throw new UsageError('--as-of is unavailable for local-unverified records; rerun without it')
+  if (runId === '.' || runId === '..' || /[/\\]/.test(runId)) {
+    throw new LocalRefusalError('local run.json path escapes the selected run directory; --run must name one directory')
+  }
+  let fd
+  let resolved
+  let bytes
+  try {
+    const parent = realpathSync(args.recordDir)
+    if (!statSync(parent).isDirectory()) throw new LocalRefusalError('--record-dir is not a directory')
+    const runDirectory = path.join(parent, runId)
+    const directoryStat = lstatSync(runDirectory, { bigint: true })
+    if (!directoryStat.isDirectory()) {
+      throw new LocalRefusalError('local run path is not a real directory (symlinks are refused)')
+    }
+    if (!isLocalPathInside(parent, realpathSync(runDirectory))) {
+      throw new LocalRefusalError('local run directory resolves outside --record-dir')
+    }
+    if (typeof constants.O_NOFOLLOW !== 'number' || constants.O_NOFOLLOW === 0) {
+      throw new LocalRefusalError('local no-follow reads are unavailable on this platform')
+    }
+    if (process.platform !== 'linux') {
+      throw new LocalRefusalError('local descriptor containment cannot be established on this platform')
+    }
+    // O_NONBLOCK prevents a replaced FIFO from blocking before fstat refuses it.
+    try {
+      fd = openSync(path.join(runDirectory, 'run.json'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        const absentDirectoryStat = lstatSync(runDirectory, { bigint: true })
+        if (!absentDirectoryStat.isDirectory() || absentDirectoryStat.dev !== directoryStat.dev ||
+            absentDirectoryStat.ino !== directoryStat.ino) {
+          throw new LocalRefusalError('local run directory changed during the no-follow open')
+        }
+        if (!isLocalPathInside(parent, realpathSync(runDirectory))) {
+          throw new LocalRefusalError('local run directory resolves outside --record-dir')
+        }
+        // This pathname recheck cannot detect an ABA swap away and back
+        // between the proof and the failed open; it is not a directory pin.
+        return null
+      }
+      // Every other failure belongs to the phase-wide refusal boundary below.
+      throw error
+    }
+    const fileStat = fstatSync(fd, { bigint: true })
+    if (!fileStat.isFile()) throw new LocalRefusalError('local run.json is not a regular file')
+    // One kernel readlink describes the open object. realpath would walk that
+    // returned path again, letting renamed ancestors redirect the proof.
+    resolved = readlinkSync(`/proc/self/fd/${fd}`)
+    if (!path.isAbsolute(resolved) || resolved.endsWith(' (deleted)')) {
+      throw new LocalRefusalError('local descriptor containment cannot be established')
+    }
+    if (!isLocalPathInside(parent, resolved)) {
+      throw new LocalRefusalError('local run.json descriptor resolves outside --record-dir')
+    }
+    const pathStat = lstatSync(resolved, { bigint: true })
+    if (fileStat.dev !== pathStat.dev || fileStat.ino !== pathStat.ino) {
+      throw new LocalRefusalError('local run.json descriptor identity differs from its path')
+    }
+    bytes = readFileSync(fd, 'utf8')
+  } catch (error) {
+    if (error instanceof LocalRefusalError) throw error
+    throw new LocalRefusalError(`local run.json no-follow read or directory validation failed: ${error.message}`)
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch (error) {
+        // Preserve an earlier refusal; cleanup after a successful read is operational.
+        if (bytes !== undefined) throw new OperationalError(`local run.json descriptor close failed: ${error.message}`)
+      }
+    }
+  }
+  const validator = path.join(ASSET_DIR, '..', '..', 'dev-flow-support', 'assets', 'validate-result-schemas.mjs')
+  if (!existsSync(validator)) throw new OperationalError('local run schema validator is unavailable')
+  const snapshot = mkdtempSync(path.join(tmpdir(), 'retro-local-'))
+  let record
+  try {
+    const snapshotFile = path.join(snapshot, 'run.json')
+    writeFileSync(snapshotFile, bytes)
+    const validation = spawnSync(process.execPath, [validator, 'run', snapshotFile], {
+      encoding: 'utf8', maxBuffer: MAX_SYNC_BUFFER_BYTES
+    })
+    if (validation.error) throw new OperationalError(`local run schema validator failed: ${validation.error.message}`)
+    if (validation.signal || validation.status === null) {
+      throw new OperationalError(`local run schema validator failed: ${validation.signal ? `signal ${validation.signal}` : 'no exit status'}`)
+    }
+    if (validation.status !== 0) {
+      if (validation.status !== 1 || !/^FAIL: /m.test(validation.stderr || '')) {
+        throw new OperationalError(`local run schema validator failed without validation output: ${JSON.stringify((validation.stderr || '').trim())}`)
+      }
+      throw new LocalRefusalError(`local run.json failed schema validation: ${JSON.stringify((validation.stderr || '').trim())}`)
+    }
+    if (!/^run record OK(?: \(.*\))?\s*$/.test(validation.stdout || '')) {
+      throw new OperationalError('local run schema validator produced no validation output')
+    }
+    record = JSON.parse(bytes)
+  } finally {
+    rmSync(snapshot, { recursive: true, force: true })
+  }
+  if (record.run_id !== runId) throw new LocalRefusalError('local run.json run_id differs from --run')
+  if (args.pr !== undefined && record.pr && record.pr.number !== args.pr) {
+    throw new LocalRefusalError(`local run.json records PR #${record.pr.number}, not the requested #${args.pr}`)
+  }
+  if (record.pr && requestedPr) {
+    let normalized
+    let expected
+    try {
+      normalized = new URL(record.pr.url).href.replace(/\/+$/, '').toLowerCase()
+      expected = new URL(requestedPr.url).href.replace(/\/+$/, '').toLowerCase()
+    } catch {
+      throw new LocalRefusalError('local run.json PR URL is invalid')
+    }
+    if (normalized !== expected) {
+      throw new LocalRefusalError('local run.json PR URL does not name the requested repository and PR')
+    }
+  }
+
+  const measurements = []
+  const add = (measurement, value) => measurements.push({ measurement, value, provenance: LOCAL_PROVENANCE })
+  add('Started at', record.started_at)
+  add('Initiated by', record.initiated_by)
+  add('Outcome', record.outcome ?? 'not recorded')
+  add('PR recorded locally', record.pr ? `#${record.pr.number} (${record.pr.url})` : 'not recorded')
+  if (args.pr !== undefined && !record.pr) {
+    add('PR binding', `no PR is recorded locally; this record is not bound to PR #${args.pr}`)
+  }
+  for (const transition of record.stage_transitions) {
+    add('Stage entry', `${transition.stage} at ${transition.entered_at}; exit: ${transition.exit ?? 'not recorded'}`)
+  }
+  add('Adjudication rounds', existsSync(path.join(path.dirname(resolved), 'adjudications'))
+    ? 'not measured — local adjudications are not authenticated'
+    : 'not recorded — adjudications/ is absent')
+  add('Findings and convergence', 'not measured — no authenticated adjudication evidence')
+  if (record.interventions.length === 0) add('Interventions', 'none recorded')
+  for (const entry of record.interventions) add('Intervention', `${entry.at}: ${entry.kind}; ${entry.note}`)
+  if (record.settlements.length === 0) add('Settlements', 'none recorded')
+  for (const entry of record.settlements) {
+    add('Settlement recorded locally', `${entry.finding_id}: ${entry.disposition} at ${entry.settled_at}; ${entry.reference.type} ${entry.reference.value}`)
+  }
+  add('Promotion recorded locally', record.promotion
+    ? `${record.promotion.head} at ${record.promotion.promoted_at}; fingerprint ${record.promotion.gate_fingerprint}`
+    : 'not recorded')
+  const report = {
+    schema: 'retro-run-report.v1', status: 'local-unverified', verified: false,
+    run_id: runId, provenance: LOCAL_PROVENANCE, source: { local_record: resolved }, measurements
+  }
+  return args.json ? JSON.stringify(report, null, 2).replace(/[\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`) : [
+    `## Run evidence — run \`${localSafe(runId)}\` — ${LOCAL_PROVENANCE}`, '',
+    ...measurements.map((entry) => `- ${entry.measurement}: ${localSafe(entry.value)} — ${entry.provenance}`)
+  ].join('\n')
+}
+
+function deletedEntryReason(missing, source) {
+  return `${missing}, but a trusted evidence marker (${source}) names it. An indexed run whose evidence the harvester cannot find is deleted-entry tampering, never a run that did not happen.`
 }
 
 function run(argv) {
@@ -1458,6 +1747,7 @@ function run(argv) {
   if (!runId) {
     try {
       const discovered = discoverRun(args, trusted.ids)
+      requireDeterminateDiscovery(args, trusted, discovered)
       pr = discovered.pr
       runId = discovered.runId
       runIdFrom = discovered.source
@@ -1477,37 +1767,8 @@ function run(argv) {
     reportIgnoredMarkers(untrustedMarkers, malformedMarkers)
     reportIgnoredHints(ignoredHints)
     if (!runId) {
-      // "No trusted marker" and "no marker at all" are different answers, and
-      // only the second one licenses the fallback. Markers that exist but do
-      // not authenticate are either a redirect attempt or a trust root that
-      // has MOVED since the run — an orchestrator trusted at kickoff and
-      // removed since is exactly the case the evidence contract protects, and
-      // this tool cannot tell the two apart because it authenticates against
-      // the caller's set rather than the run's kickoff-time registry revision
-      // (harmon-devkit#741). Reporting either as "no run record" would
-      // reinterpret a run that plainly happened as one that did not
-      // (review round 1, confirmed P1).
-      const corrupted = malformedMarkers.filter((m) => m.trusted)
-      if (untrustedMarkers.length > 0 || corrupted.length > 0) {
-        const parts = []
-        if (untrustedMarkers.length > 0) {
-          const runs = [...new Set(untrustedMarkers.map((m) => m.run_id))].sort().join(', ')
-          parts.push(
-            `${untrustedMarkers.length} evidence marker(s) naming ${runs} whose authors are not trusted (${trusted.source}) — either a redirect attempt or a trust root that changed after the run, since this tool authenticates against the ids you supplied rather than the run's kickoff-time registry revision (harmon-devkit#741)`
-          )
-        }
-        if (corrupted.length > 0) {
-          parts.push(
-            `${corrupted.length} marker(s) from a TRUSTED actor that do not parse (${[...new Set(corrupted.map((m) => m.reason))].join('; ')}) — a trusted orchestrator's own evidence, truncated or edited, which is corrupted evidence rather than absence`
-          )
-        }
-        console.error(
-          `${TOOL}: indeterminate — PR #${args.pr} and its linked issues carry ${parts.join('; and ')}. Rerun naming the run's own orchestrator with --trusted-actor-id, or with --run <run_id> — do NOT conclude the session has no run record.`
-        )
-        return 11
-      }
       console.error(
-        `${TOOL}: no-run-record — PR #${args.pr} and its linked issues carry no Dev flow v2 evidence marker at all${unverifiedBodyRunIds.length > 0 ? `; PR-body run-id token(s) ${unverifiedBodyRunIds.join(', ')} had no matching trusted marker and cannot bind a run` : ''}; use the retro's fallback procedure`
+        `${TOOL}: no-run-record — PR #${args.pr} and its linked issues carry no Dev flow v2 evidence marker at all${unverifiedBodyRunIds.length > 0 ? `; PR-body run-id token(s) ${unverifiedBodyRunIds.map((id) => JSON.stringify(id)).join(', ')} had no matching trusted marker and cannot bind a run` : ''}; use the retro's fallback procedure`
       )
       return 10
     }
@@ -1552,10 +1813,49 @@ function run(argv) {
     // from --run carries no such claim, but structured record-missing does:
     // the harvester authenticated its marker before finding the local gap.
     if (harvested.missingKind === 'record-missing' || !args.run) {
-      console.error(
-        `${TOOL}: indeterminate — ${harvested.missing}${!args.run ? `, but a trusted evidence marker (${runIdFrom}) names it. An indexed run whose evidence the harvester cannot find is deleted-entry tampering, never a run that did not happen.` : '. Authenticated evidence exists, but its named local record is absent.'}`
-      )
+      const reason = !args.run ? deletedEntryReason(harvested.missing, runIdFrom)
+        : `${harvested.missing}. Authenticated evidence exists, but its named local record is absent.`
+      console.error(`${TOOL}: indeterminate — ${reason}`)
       return 11
+    }
+    // The opt-in may replace only the ordinary exit-10 outcome. Read-only
+    // discovery guards that local read; it never selects a run or mutates --run.
+    if (args.localUnverified) {
+      let discovered = null
+      if (args.pr !== undefined) {
+        try {
+          discovered = discoverRun(args, trusted.ids)
+          requireDeterminateDiscovery(args, trusted, discovered)
+        } catch (error) {
+          if (!(error instanceof IndeterminateError)) throw error
+          reportIgnoredMarkers(error.untrusted, error.malformed)
+          reportIgnoredHints(error.ignoredHints)
+          console.error(`${TOOL}: indeterminate — ${error.message}`)
+          return 11
+        }
+      }
+      const corrupted = discovered?.malformed.filter((marker) => marker.trusted) || []
+      if (corrupted.length > 0) {
+        reportIgnoredMarkers(discovered.untrusted, discovered.malformed)
+        throw new IndeterminateError('trusted discovery evidence is malformed; local data cannot replace it')
+      }
+      if (discovered?.runId === runId) {
+        reportIgnoredMarkers(discovered.untrusted, discovered.malformed)
+        reportIgnoredHints(discovered.ignoredHints)
+        console.error(`${TOOL}: indeterminate — ${deletedEntryReason(harvested.missing, discovered.source)}`)
+        return 11
+      }
+      if (!discovered?.runId) {
+        if (discovered) {
+          reportIgnoredMarkers(discovered.untrusted, discovered.malformed)
+          reportIgnoredHints(discovered.ignoredHints)
+        }
+        const local = renderLocalUnverified(args, runId, discovered?.pr || pr)
+        if (local !== null) {
+          console.log(local)
+          return 13
+        }
+      }
     }
     console.error(`${TOOL}: ${harvested.missing}; use the retro's fallback procedure`)
     return 10
@@ -1593,6 +1893,7 @@ function run(argv) {
       console.log(`## Run evidence — run \`${safe(runId)}\``)
       console.log('')
       console.log(`- Status: \`evidence-only\``)
+      console.log(`- Trust source: ${safe(evidenceOnly.source.trusted_actors)}`)
       console.log(`- Issue: #${evidenceOnly.issue}`)
       console.log(`- Authenticated marker facts: \`${JSON.stringify(evidenceOnly.marker_facts)}\``)
       console.log(`- Untrusted marker facts: \`${JSON.stringify(evidenceOnly.untrusted_marker_facts)}\``)
@@ -1679,6 +1980,10 @@ function main() {
       console.error(`${TOOL}: ${error.message}`)
       console.error(USAGE)
       return 2
+    }
+    if (error instanceof LocalRefusalError) {
+      console.error(`${TOOL}: refused local record — ${error.message}`)
+      return 14
     }
     if (error instanceof IndeterminateError) {
       console.error(`${TOOL}: indeterminate — ${error.message}`)

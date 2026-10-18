@@ -2,11 +2,17 @@
 # Watch orchestrated lanes and emit stable, one-line transition events:
 #   AGENT <lane>: <from> -> <to>
 #   SENTINEL <lane>: <value>[ (pane only)]
+#   HANDOFF <lane>: <value>[ (pane only)]
+#   BRANCH <lane>: <branch> head=<sha8> | absent (cloud lanes)
 #   PR <lane>: #<n> draft=<bool> <STATE> head=<sha8>
 #   POST-PROMOTION-ACTIVITY <lane>: <actor> <review|comment|inline> <id> since=<epoch>:<event_id>
 #   POST-PROMOTION-CLOSED <lane>: #<pr_number> since=<epoch>:<event_id>
 #   POST-PROMOTION-INDETERMINATE <lane>: #<pr_number>
 #   OBSERVATION-DEGRADED <lane>: <detail>
+#
+# Append :cloud to a lane:branch:nonce:owner/repo spec for a lane with no local
+# worktree. Its branch is the one the orchestrator named; only GitHub branch/PR
+# state is read, never herdr agent state, pane output, or .lane-report.md.
 #
 # Both POST-PROMOTION-ACTIVITY's and POST-PROMOTION-CLOSED's trailing
 # "since=<epoch>:<event_id>" is the identity of the promotion window the row
@@ -78,6 +84,12 @@ usage() {
 Usage: lane-watch.sh [options] DEADLINE_ISO lane:branch:nonce:owner/repo ...
 
 Options:
+  Local spec: agent:branch:nonce:owner/repo[:/absolute/report-path[:lane-label]]
+  agent is the lowercase herdr name; lane-label defaults to agent.
+  Report defaults to <checkout>/.worktrees/<agent>/.lane-report.md.
+  Sentinels are READY|HANDOFF|BLOCKED-<lane-label>-<nonce>, whole final lines.
+  Lane specs may end in :cloud (GitHub-only; no local worktree/report).
+
   --state-file PATH               Persist emitted state across restarts
   --registry PATH                 Agent registry (default: repo agent-registry.json)
   --workspace-root PATH           Parent containing repo checkouts (default: repo parent)
@@ -279,8 +291,10 @@ load_state() {
     [ -n "$state_file" ] && [ -f "$state_file" ] || return 0
     while IFS=$'\t' read -r kind lane value extra detail; do
         case "$kind" in
-        AGENT | PR | USAGE | CLOSING | ARMED) state_set "$kind" "$lane" "$value" ;;
-        SENTINEL) state_set SENTINEL "$lane:$value" 1 ;;
+        AGENT | BRANCH | PR | USAGE | CLOSING | ARMED) state_set "$kind" "$lane" "$value" ;;
+        # Legacy entries recorded no source and cannot attest confirmation.
+        SENTINEL) state_set SENTINEL-PANE "$lane:$value" 1 ;;
+        SENTINEL-PANE | SENTINEL-REPORT) state_set "$kind" "$lane:$value" 1 ;;
         WINDOW) state_set WINDOW "$lane" "$value" "$extra" "$detail" ;;
         DEGRADE) state_set DEGRADE "$lane" "$value" "$extra" "$detail" ;;
         MALPROMO) state_set MALPROMO "$lane" "$value" "$extra" "$detail" ;;
@@ -305,10 +319,12 @@ save_state() {
             extra=${state_extras[$index]}
             detail=${state_details[$index]}
             case "$kind" in
-            AGENT | PR | USAGE | CLOSING | ARMED)
+            AGENT | BRANCH | PR | USAGE | CLOSING | ARMED)
                 printf '%s\t%s\t%s\t\n' "$kind" "$key" "$value"
                 ;;
-            SENTINEL) printf 'SENTINEL\t%s\t%s\t\n' "${key%%:*}" "${key#*:}" ;;
+            SENTINEL-PANE | SENTINEL-REPORT)
+                printf '%s\t%s\t%s\t\n' "$kind" "${key%%:*}" "${key#*:}"
+                ;;
             WINDOW) printf 'WINDOW\t%s\t%s\t%s\t%s\n' "$key" "$value" "$extra" "$detail" ;;
             DEGRADE) printf 'DEGRADE\t%s\t%s\t%s\t%s\n' "$key" "$value" "$extra" "$detail" ;;
             MALPROMO) printf 'MALPROMO\t%s\t%s\t%s\t%s\n' "$key" "$value" "$extra" "$detail" ;;
@@ -504,16 +520,42 @@ if ! jq -e '
 fi
 trusted_actor_ids="$(jq -r '.finders[].trusted_actor_id // empty' "$registry")"
 
+# Keep spec decoding identical at validation and observation time. Colon is
+# the field separator and cannot occur in a report path or lane label.
+parse_spec() {
+    IFS=: read -r lane branch nonce repo report_path lane_label remainder <<<"$1"
+    extra=
+    if [ "$report_path" = cloud ]; then
+        extra=cloud
+        report_path=
+        [ -z "$lane_label" ] && [ -z "$remainder" ] || return 1
+    fi
+    [ -z "$remainder" ] || return 1
+    lane_label=${lane_label:-$lane}
+}
+
 for spec in "${specs[@]}"; do
-    IFS=: read -r lane branch nonce repo extra <<<"$spec"
-    if [ -z "${lane:-}" ] || [ -z "${branch:-}" ] || [ -z "${nonce:-}" ] ||
-        [ -z "${repo:-}" ] || [ -n "${extra:-}" ]; then
+    if ! parse_spec "$spec" || [ -z "$lane" ] || [ -z "$branch" ] ||
+        [ -z "$nonce" ] || [ -z "$repo" ]; then
         echo "lane-watch: invalid lane spec: $spec" >&2
         exit 2
     fi
     case "$nonce" in
     *[!A-Za-z0-9_-]*)
         echo "lane-watch: invalid sentinel nonce in spec: $spec" >&2
+        exit 2
+        ;;
+    esac
+    case "$lane_label" in
+    *[!A-Za-z0-9_-]*)
+        echo "lane-watch: invalid sentinel lane label in spec: $spec" >&2
+        exit 2
+        ;;
+    esac
+    case "$report_path" in
+    '' | /*) ;;
+    *)
+        echo "lane-watch: report path must be absolute in spec: $spec" >&2
         exit 2
         ;;
     esac
@@ -526,24 +568,28 @@ for spec in "${specs[@]}"; do
     esac
 done
 
+# The same exact matcher consumes either source. Earlier report entries and
+# pane history are not terminal evidence; only the final nonblank line counts.
+terminal_sentinel() {
+    local label=$1 nonce=$2
+    awk 'NF { last = $0 } END { print last }' |
+        grep -E "^(READY|HANDOFF|BLOCKED)-${label}-${nonce}$" 2>/dev/null
+}
+
 sentinel_from_report() {
-    report=$1
-    nonce=$2
+    local report=$1 label=$2 nonce=$3
     [ -f "$report" ] || return 0
-    grep -E "^LANE-[A-Z0-9-]+-(READY|BLOCKED)-${nonce}$" "$report" 2>/dev/null | tail -1
+    terminal_sentinel "$label" "$nonce" <"$report"
 }
 
 sentinel_from_pane() {
-    lane=$1
-    nonce=$2
-    agent_state=$3
+    local lane=$1 label=$2 nonce=$3 agent_state=$4 pane
     case "$agent_state" in
     idle | done | blocked) ;;
     *) return 0 ;;
     esac
     pane="$(bounded "$timeout_seconds" herdr agent read "$lane" --source recent-unwrapped --lines 80 || true)"
-    awk 'NF { last = $0 } END { print last }' <<<"$pane" |
-        grep -E "^LANE-[A-Z0-9-]+-(READY|BLOCKED)-${nonce}$" 2>/dev/null
+    terminal_sentinel "$label" "$nonce" <<<"$pane"
 }
 
 activity_rows() {
@@ -1170,6 +1216,39 @@ observe_pr() {
     echo "PR $lane: ${pr%head=*}head=${head_oid:0:8}"
 }
 
+observe_branch() {
+    local lane=$1 repo=$2 branch=$3 response status payload head previous value rc=0
+    response="$(bounded "$timeout_seconds" gh api --include "repos/$repo/git/ref/heads/$branch")" || rc=$?
+    status="$(awk 'NR == 1 && /^HTTP\// {print $2}' <<<"$response")"
+    if [ "$status" = 404 ]; then
+        value="$branch absent"
+    else
+        [ "$rc" -eq 0 ] && [ "$status" = 200 ] || return 1
+        payload="$(awk 'body {print} /^\r?$/ {body=1}' <<<"$response")"
+        head="$(jq -er --arg ref "refs/heads/$branch" '
+      select(.ref == $ref and .object.type == "commit") | .object.sha
+      | select(type == "string" and test("^[0-9A-Fa-f]{40,64}$"))
+    ' <<<"$payload")" || return 1
+        value="$branch head=$head"
+    fi
+    previous="$(state_get BRANCH "$lane" || true)"
+    if [ "$previous" != "$value" ]; then
+        state_set BRANCH "$lane" "$value"
+        persist_state
+        if [ "$status" = 404 ]; then
+            echo "BRANCH $lane: absent"
+        else
+            echo "BRANCH $lane: $branch head=${head:0:8}"
+        fi
+    fi
+}
+
+local_lanes=0
+for spec in "${specs[@]}"; do
+    parse_spec "$spec"
+    [ "$extra" = cloud ] || local_lanes=1
+done
+
 load_state
 [ "$timeout_seconds" -gt 0 ] || {
     echo "lane-watch: timeout must be greater than zero" >&2
@@ -1194,56 +1273,78 @@ while true; do
     fi
 
     agents_available=0
-    if agents="$(bounded "$timeout_seconds" herdr agent list)" &&
+    if [ "$local_lanes" -eq 1 ] && agents="$(bounded "$timeout_seconds" herdr agent list)" &&
         jq -e '.result.agents | type == "array"' >/dev/null 2>&1 <<<"$agents"; then
         agents_available=1
     fi
 
     for spec in "${specs[@]}"; do
-        IFS=: read -r lane branch nonce repo extra <<<"$spec"
-        agent_state=unknown
-        if [ "$agents_available" -eq 1 ]; then
-            agent_state="$(jq -r --arg lane "$lane" '.result.agents[]? | select(.name == $lane) | .agent_status' <<<"$agents" 2>/dev/null | tail -1)"
-            agent_state=${agent_state:-absent}
-            previous="$(state_get AGENT "$lane" || printf init)"
-            if [ "$previous" != "$agent_state" ]; then
-                state_set AGENT "$lane" "$agent_state"
-                persist_state
-                echo "AGENT $lane: $previous -> $agent_state"
-            fi
-        fi
-
-        if [ "$workspace_root_explicit" -eq 1 ]; then
-            report="$workspace_root/${repo#*/}/.worktrees/$lane/.lane-report.md"
-        else
-            report="$checkout_root/.worktrees/$lane/.lane-report.md"
-        fi
-        sentinel="$(sentinel_from_report "$report" "$nonce")"
-        pane_only=0
-        if [ -z "$sentinel" ]; then
-            sentinel="$(sentinel_from_pane "$lane" "$nonce" "$agent_state")"
-            [ -z "$sentinel" ] || pane_only=1
-        fi
-        sentinel_key="$lane:$sentinel"
-        if [ -n "$sentinel" ] && ! state_get SENTINEL "$sentinel_key" >/dev/null; then
-            state_set SENTINEL "$sentinel_key" 1
-            persist_state
-            if [ "$pane_only" -eq 1 ]; then
-                echo "SENTINEL $lane: $sentinel (pane only)"
-            else
-                echo "SENTINEL $lane: $sentinel"
-            fi
-        fi
-
-        if pane_visible="$(bounded "$timeout_seconds" herdr agent read "$lane" --source visible --lines 8)"; then
-            if grep -Fq 'Usage limit reached' <<<"$pane_visible"; then
-                if [ "$(state_get USAGE "$lane" || printf 0)" -eq 0 ]; then
-                    state_set USAGE "$lane" 1
+        parse_spec "$spec"
+        if [ "$extra" != cloud ]; then
+            agent_state=unknown
+            if [ "$agents_available" -eq 1 ]; then
+                agent_state="$(jq -r --arg lane "$lane" '.result.agents[]? | select(.name == $lane) | .agent_status' <<<"$agents" 2>/dev/null | tail -1)"
+                agent_state=${agent_state:-absent}
+                previous="$(state_get AGENT "$lane" || printf init)"
+                if [ "$previous" != "$agent_state" ]; then
+                    state_set AGENT "$lane" "$agent_state"
                     persist_state
-                    echo "USAGE-PAUSED $lane"
+                    echo "AGENT $lane: $previous -> $agent_state"
                 fi
+            fi
+
+            if [ -n "$report_path" ]; then
+                report=$report_path
+            elif [ "$workspace_root_explicit" -eq 1 ]; then
+                report="$workspace_root/${repo#*/}/.worktrees/$lane/.lane-report.md"
             else
-                state_set USAGE "$lane" 0
+                report="$checkout_root/.worktrees/$lane/.lane-report.md"
+            fi
+            sentinel="$(sentinel_from_report "$report" "$lane_label" "$nonce")"
+            pane_only=0
+            if [ -z "$sentinel" ]; then
+                sentinel="$(sentinel_from_pane "$lane" "$lane_label" "$nonce" "$agent_state")"
+                [ -z "$sentinel" ] || pane_only=1
+            fi
+            sentinel_key="$lane:$sentinel"
+            sentinel_kind=SENTINEL-REPORT
+            [ "$pane_only" -eq 0 ] || sentinel_kind=SENTINEL-PANE
+            # A pane observation is advisory, so it must not consume the
+            # report confirmation. Once confirmed, neither source repeats it.
+            if [ -n "$sentinel" ] &&
+                ! state_get SENTINEL-REPORT "$sentinel_key" >/dev/null &&
+                ! state_get "$sentinel_kind" "$sentinel_key" >/dev/null; then
+                state_set "$sentinel_kind" "$sentinel_key" 1
+                persist_state
+                suffix=
+                [ "$pane_only" -eq 0 ] || suffix=' (pane only)'
+                echo "SENTINEL $lane: $sentinel$suffix"
+                case "$sentinel" in
+                HANDOFF-*) echo "HANDOFF $lane: $sentinel$suffix" ;;
+                esac
+            fi
+
+            if pane_visible="$(bounded "$timeout_seconds" herdr agent read "$lane" --source visible --lines 8)"; then
+                if grep -Fq 'Usage limit reached' <<<"$pane_visible"; then
+                    if [ "$(state_get USAGE "$lane" || printf 0)" -eq 0 ]; then
+                        state_set USAGE "$lane" 1
+                        persist_state
+                        echo "USAGE-PAUSED $lane"
+                    fi
+                else
+                    state_set USAGE "$lane" 0
+                fi
+            fi
+
+        else
+            now="$(date -u +%s)"
+            if observation_ready "$lane:BRANCH"; then
+                if observe_branch "$lane" "$repo" "$branch"; then
+                    observation_recover "$lane:BRANCH"
+                else
+                    observation_record_failure "$lane:BRANCH" "$lane" "GitHub branch observation failed for lane $lane" ||
+                        observation_failed "GitHub branch observation failed for lane $lane"
+                fi
             fi
         fi
 

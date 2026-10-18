@@ -44,9 +44,11 @@ class GhError extends Error {}
 // Resolved via $PATH (never an absolute path) so a test's stub directory,
 // prepended to PATH ahead of the real gh, transparently shadows it — the
 // same shim pattern scripts/test-claim-transaction.sh already establishes.
-function ghApiPaginated(endpoint, jq = null) {
+function ghApiPaginated(endpoint, project = null) {
+  // gh 2.89+ / 2.98+ rejects `--slurp` combined with `--jq` or `--template`
+  // ("cannot use `--slurp` with `--jq` or `--template`"). Keep `--paginate
+  // --slurp` and apply any per-item projection in Node after flattening.
   const argv = ["api", "--paginate", "--slurp", endpoint];
-  if (jq) argv.push("--jq", jq);
   const result = spawnSync("gh", argv, { encoding: "utf8", maxBuffer: MAX_SYNC_BUFFER_BYTES });
   if (result.error) throw new GhError(`gh api ${endpoint} failed to execute: ${result.error.message}`);
   if (result.status !== 0) throw new GhError(`gh api ${endpoint} exited ${result.status}: ${(result.stderr || "").trim()}`);
@@ -57,7 +59,12 @@ function ghApiPaginated(endpoint, jq = null) {
     throw new GhError(`gh api ${endpoint} returned malformed JSON: ${err.message}`);
   }
   // --paginate --slurp yields one array per page; flatten.
-  return pages.flat();
+  const items = pages.flat();
+  if (typeof project === "function") return items.map(project);
+  if (project !== null) {
+    throw new GhError(`gh api ${endpoint}: unsupported ghApiPaginated projection: ${String(project)}`);
+  }
+  return items;
 }
 
 function ghApiOne(endpoint) {
@@ -468,7 +475,7 @@ function fetchIssueList(repo) {
   // counts abandoned/capped runs as failures, not as absent.
   return ghApiPaginated(
     `repos/${repo}/issues?state=all&per_page=100`,
-    "map(.[] | {number, pull_request})",
+    (item) => ({ number: item.number, pull_request: item.pull_request ?? null }),
   ).filter((i) => !i.pull_request);
 }
 
@@ -523,8 +530,41 @@ const RUN_STAGES = ["kickoff", "claim", "explore", "plan", "implement", "verify"
 const MARKER_RE =
   /<!--\s*devflow:(run-index|run-record|evidence)\s+v2\s+run_id=(\S+)\s+stage=(\S+)\s+dest=(issue|pr)\s+round=(-|\d+)\s+seq=(\d+)\s*-->/;
 const EVIDENCE_SUMMARY_MARKER_RE = /^[ \t]*<!--[ \t]*dev-flow-v2-evidence:[ \t]*(\{[^\r\n]*\})[ \t]*-->(?=\r?\n|$)/;
-const EVIDENCE_SUMMARY_PREFIX_RE = /^[ \t]*<!--[ \t]*dev-flow-v2-evidence:/;
+const EVIDENCE_SUMMARY_PREFIX_RE = /^[ \t]*<!--[ \t]*dev-flow-v2[- \t]+evidence(?=[ \t:]|-->|\r?\n|$)/;
 const FENCE_RE = /```json\r?\n([\s\S]*?)\r?\n```/;
+
+function malformedEvidenceSummaryRunId(body) {
+  if (typeof body !== "string") return null;
+  const firstLine = body.replace(/\r/g, "").split("\n", 1)[0];
+  const jsonMatch = /^[ \t]*<!--[ \t]*dev-flow-v2[- \t]+evidence[ \t]*:?[ \t]*(\{[^\r\n]*\})[ \t]*-->/.exec(firstLine);
+  if (jsonMatch) {
+    // JSON.parse keeps the LAST duplicate key, so a second run_id could scope
+    // away a marker that names this run first: more than one is ambiguous, and
+    // so is any \u escape, which could spell the key without matching it.
+    if (/\\u/.test(jsonMatch[1]) || (jsonMatch[1].match(/"run_id"[ \t]*:/g) || []).length !== 1) return null;
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        typeof parsed.run_id === "string" &&
+        parsed.run_id.length > 0
+      ) {
+        return parsed.run_id;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  if (/^[ \t]*<!--[ \t]*dev-flow-v2-evidence:/.test(firstLine) || !/-->[ \t]*$/.test(firstLine)) return null;
+  const kvMatches = [...firstLine.matchAll(/(?:^|[ \t])run(?:_id)?=([^\s>]+)(?=[ \t]|-->|$)/g)];
+  if (kvMatches.length !== 1) return null;
+  const candidate = kvMatches[0][1];
+  if (/["'\\]/.test(candidate)) return null;
+  return candidate;
+}
 
 class EvidenceError extends Error {}
 
@@ -1638,9 +1678,10 @@ function findOrphanEvidence(comments, { runId, runRecordAuthorId, listedIds, eff
 // exist yet (the writer, #638/#639, is itself unbuilt) — filed as a
 // follow-up once that contract is settled, the same "blocked on a
 // capability this file doesn't have" category as the registry-trust gap.
-// --history is similarly never passed to dev-flow-exit.mjs, so
-// provenance_share/repeat_after_fix convergence predicates cannot replay
-// correctly either — same follow-up.
+// Published round payloads carry reviewed heads, but no per-fix change
+// ledger. Heads alone cannot establish line provenance, so reconstruction
+// leaves attribution unverified. Local records can supply the retained
+// history.<stage>.json/heads.json through the frozen snapshot below.
 // ---------------------------------------------------------------------------
 
 function buildRunDirectory(runRecord, roundEvidence, destDir) {
@@ -1805,6 +1846,8 @@ function collectTrustedEvidenceSummaries(comments, runId, { trustedActorIds, asO
     if (Date.parse(comment.created_at) > cutoff) continue;
     if (!marker) {
       if (EVIDENCE_SUMMARY_PREFIX_RE.test(comment.body || "") && trustedActorIds.has(actorId)) {
+        const claimedRunId = malformedEvidenceSummaryRunId(comment.body || "");
+        if (claimedRunId !== null && claimedRunId !== runId) continue;
         throw new EvidenceError(`trusted evidence comment ${comment.id} has a malformed dev-flow-v2-evidence marker`);
       }
       continue;
@@ -2107,11 +2150,15 @@ function adjudicationNamesOtherStage(filePath, stage) {
 // round 1) is passed through alongside `error` so the caller can recognize
 // one specific, EXPECTED indeterminate condition ("review requested while
 // challenge is still active") without string-matching `error`'s free text.
-function invokeExitScriptVerificationOnly(exitScriptPath, { runDir, stage, policyPath, rigor, currentHead, repoRoot }) {
+function invokeExitScriptVerificationOnly(exitScriptPath, { runDir, stage, policyPath, rigor, currentHead, repoRoot, ledgerDir }) {
   const argv = [
     exitScriptPath, "--run", runDir, "--stage", stage, "--policy", policyPath,
     "--current-head", currentHead, "--repo-root", repoRoot, "--verification-only", "--json",
   ];
+  for (const [flag, file] of [["--history", `history.${stage}.json`], ["--heads", "heads.json"]]) {
+    const source = path.join(ledgerDir, file);
+    if (existsSync(source)) argv.push(flag, source);
+  }
   if (rigor) argv.push("--rigor", rigor);
   const result = spawnSync(process.execPath, argv, { encoding: "utf8", maxBuffer: MAX_SYNC_BUFFER_BYTES });
   if (result.error) {
@@ -2186,6 +2233,17 @@ function loadLocalEvidenceRun(repo, recordRoot, runId, issueNumber, issueComment
     const policyJsonPath = path.join(runDir, "policy.json");
     if (existsSync(policyJsonPath)) {
       copyFileSync(policyJsonPath, path.join(engineSnapshotDir, "policy.json"));
+    }
+    // Optional provenance evidence belongs to the same frozen record as
+    // the passes. Never synthesize an empty ledger when one is absent, and
+    // copy present bytes unchanged so the engine reports malformed evidence.
+    // Stage-less history.json has no stage binding and is never consumed.
+    for (const file of ["history.challenge.json", "history.review.json", "heads.json"]) {
+      const candidate = path.join(runDir, file);
+      if (existsSync(candidate)) {
+        const source = resolveContainedPath(runDir, candidate, `${runId}/${file} (selected run)`);
+        copyFileSync(source, path.join(engineSnapshotDir, file));
+      }
     }
 
     if (body.run_id !== runId) throw new EvidenceError(`${runFile} declares run_id ${JSON.stringify(body.run_id)}, expected ${runId}`);
@@ -2405,7 +2463,7 @@ function loadLocalEvidenceRun(repo, recordRoot, runId, issueNumber, issueComment
         // rounds, which still uses its own genuine head below.
         let currentHead = currentHeadForLocalStage(localPasses, localAdjudications, localSlotFailures, stage) ?? "0".repeat(40);
         let { verification, error, code } = invokeExitScriptVerificationOnly(DEFAULT_EXIT_SCRIPT, {
-          runDir: stageSnapshotDir, stage, policyPath, rigor, currentHead, repoRoot,
+          runDir: stageSnapshotDir, stage, policyPath, rigor, currentHead, repoRoot, ledgerDir: engineSnapshotDir,
         });
         // Integration cycle 5 (P2), confirmed and fixed: the naive currentHead
         // above is picked from RAW local pass/adjudication/slot-failure
@@ -2444,7 +2502,7 @@ function loadLocalEvidenceRun(repo, recordRoot, runId, issueNumber, issueComment
             if (correctedHead && correctedHead !== currentHead) {
               currentHead = correctedHead;
               ({ verification, error, code } = invokeExitScriptVerificationOnly(DEFAULT_EXIT_SCRIPT, {
-                runDir: stageSnapshotDir, stage, policyPath, rigor, currentHead, repoRoot,
+                runDir: stageSnapshotDir, stage, policyPath, rigor, currentHead, repoRoot, ledgerDir: engineSnapshotDir,
               }));
             }
           }
@@ -3157,9 +3215,11 @@ function isVerifiedAttributionStatus(status) {
 
 function verifiedFindingMeasurements(rounds) {
   const counts = {};
+  const countsByStage = {};
   const fingerprints = {};
   const unavailableRounds = [];
   for (const round of rounds) {
+    const stageCounts = countsByStage[round.stage] ??= {};
     const passes = Array.isArray(round.payload.passes) ? round.payload.passes : [];
     const findingCount = passes.reduce((total, pass) => total + (((pass.payload && pass.payload.findings) || []).length), 0);
     if (findingCount > 0 && !Array.isArray(round.payload.findingAttributions)) {
@@ -3177,6 +3237,7 @@ function verifiedFindingMeasurements(rounds) {
         if (attribution && isVerifiedAttributionStatus(attribution.provenance_status)) {
           const key = `${cls}/${attribution.provenance}`;
           counts[key] = (counts[key] || 0) + 1;
+          stageCounts[key] = (stageCounts[key] || 0) + 1;
         } else {
           unavailable = true;
         }
@@ -3189,7 +3250,40 @@ function verifiedFindingMeasurements(rounds) {
     }
     if (unavailable) unavailableRounds.push({ stage: round.stage, round: round.round });
   }
-  return { counts, fingerprints, unavailableRounds };
+  return { counts, countsByStage, fingerprints, unavailableRounds };
+}
+
+// Legacy evidence predates the full adjudication schema. Normalize only the
+// fields this projection consumes, for both JSON and table rendering.
+function projectAdjudicationEntries(doc) {
+  if (doc != null && (typeof doc !== "object" || Array.isArray(doc))) {
+    throw new EvidenceError("adjudication document must be a plain object");
+  }
+  if (doc?.adjudications === undefined) return [];
+  if (!Array.isArray(doc.adjudications)) throw new EvidenceError("adjudications must be an array");
+  return doc.adjudications.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new EvidenceError("adjudication entry must be a plain object");
+    }
+    for (const field of ["finding_id", "disposition", "adjudicated_priority"]) {
+      if (typeof entry[field] !== "string") throw new EvidenceError(`adjudication ${field} must be a string`);
+    }
+    const reviewerPriority = entry.reviewer_priority === undefined ? null : entry.reviewer_priority;
+    if (reviewerPriority !== null && typeof reviewerPriority !== "string") {
+      throw new EvidenceError("adjudication reviewer_priority must be a string or null");
+    }
+    const override = entry.override === undefined ? null : entry.override;
+    if (override !== null && (typeof override !== "object" || Array.isArray(override) || typeof override.reason !== "string")) {
+      throw new EvidenceError("adjudication override must be an object with a string reason or null");
+    }
+    return {
+      finding_id: entry.finding_id,
+      reviewer_priority: reviewerPriority,
+      adjudicated_priority: entry.adjudicated_priority,
+      disposition: entry.disposition,
+      override: override === null ? null : { reason: override.reason },
+    };
+  });
 }
 
 function renderTrajectory(run) {
@@ -3215,27 +3309,32 @@ function renderTrajectory(run) {
     interventions: run.state.interventions,
     settlements: run.state.settlements,
     splits: run.state.splits,
-    rounds: rounds.map((r) => ({
-      stage: r.stage,
-      round: r.round,
-      pass_count: Array.isArray(r.payload.passes) ? r.payload.passes.length : 0,
-      blocked_passes: Array.isArray(r.payload.blockedPasses) ? r.payload.blockedPasses.length : 0,
-      adjudication_count: r.payload.adjudication ? 1 : 0,
-      finding_count: Array.isArray(r.payload.passes)
-        ? r.payload.passes.reduce((n, p) => n + ((p.payload && p.payload.findings && p.payload.findings.length) || 0), 0)
-        : 0,
-      has_adjudication: Boolean(r.payload.adjudication),
-      ...(Array.isArray(r.payload.findingAttributions) && r.payload.findingAttributions.length > 0
-        ? { finding_attributions: r.payload.findingAttributions }
-        : {}),
-      ...(r.payload.incomplete ? { status: "capped" } : {}),
-      provenance_measurement: Array.isArray(r.payload.findingAttributions)
-        ? (r.payload.findingAttributions.every((finding) => isVerifiedAttributionStatus(finding.provenance_status)) ? "verified" : "unverified")
-        : ((Array.isArray(r.payload.passes)
-            ? r.payload.passes.reduce((n, p) => n + (((p.payload && p.payload.findings) || []).length), 0)
-            : 0) === 0 ? "not-applicable" : "unavailable"),
-    })),
+    rounds: rounds.map((r) => {
+      const adjudications = projectAdjudicationEntries(r.payload.adjudication);
+      return {
+        stage: r.stage,
+        round: r.round,
+        pass_count: Array.isArray(r.payload.passes) ? r.payload.passes.length : 0,
+        blocked_passes: Array.isArray(r.payload.blockedPasses) ? r.payload.blockedPasses.length : 0,
+        adjudication_count: r.payload.adjudication ? 1 : 0,
+        finding_count: Array.isArray(r.payload.passes)
+          ? r.payload.passes.reduce((n, p) => n + ((p.payload && p.payload.findings && p.payload.findings.length) || 0), 0)
+          : 0,
+        has_adjudication: Boolean(r.payload.adjudication),
+        ...(adjudications.length > 0 ? { adjudications } : {}),
+        ...(Array.isArray(r.payload.findingAttributions) && r.payload.findingAttributions.length > 0
+          ? { finding_attributions: r.payload.findingAttributions }
+          : {}),
+        ...(r.payload.incomplete ? { status: "capped" } : {}),
+        provenance_measurement: Array.isArray(r.payload.findingAttributions)
+          ? (r.payload.findingAttributions.every((finding) => isVerifiedAttributionStatus(finding.provenance_status)) ? "verified" : "unverified")
+          : ((Array.isArray(r.payload.passes)
+              ? r.payload.passes.reduce((n, p) => n + (((p.payload && p.payload.findings) || []).length), 0)
+              : 0) === 0 ? "not-applicable" : "unavailable"),
+      };
+    }),
     findings_by_class_and_provenance: verifiedMeasurements.counts,
+    findings_by_stage_class_and_provenance: verifiedMeasurements.countsByStage,
     findings_by_verified_fingerprint: verifiedMeasurements.fingerprints,
     provenance_unavailable_rounds: verifiedMeasurements.unavailableRounds,
     // Retained exactly as recorded. This projection reports evidence; it
@@ -3282,12 +3381,22 @@ function renderTrajectoryTable(trajectory) {
   lines.push("rounds:");
   for (const r of trajectory.rounds) {
     lines.push(`  ${r.stage} r${r.round}: ${r.pass_count} pass(es), ${r.blocked_passes} blocked pass(es), ${r.adjudication_count} adjudication(s), ${r.finding_count} finding(s), provenance=${r.provenance_measurement}`);
+    for (const entry of projectAdjudicationEntries(r)) {
+      lines.push(`    ${JSON.stringify(entry.finding_id)}: reviewer=${entry.reviewer_priority === null ? "not-applicable" : JSON.stringify(entry.reviewer_priority)} adjudicated=${JSON.stringify(entry.adjudicated_priority)} disposition=${JSON.stringify(entry.disposition)}${entry.override ? ` override: ${JSON.stringify(entry.override.reason)}` : ""}`);
+    }
   }
   lines.push("integration: not measured from local evidence");
   if (Object.keys(trajectory.findings_by_class_and_provenance).length > 0) {
     lines.push("");
     lines.push("findings by class/provenance:");
     for (const [k, v] of Object.entries(trajectory.findings_by_class_and_provenance)) lines.push(`  ${k}: ${v}`);
+  }
+  lines.push("");
+  lines.push("findings_by_stage_class_and_provenance:");
+  for (const [stage, counts] of Object.entries(trajectory.findings_by_stage_class_and_provenance)) {
+    lines.push(`  ${stage}:`);
+    if (Object.keys(counts).length === 0) lines.push("    no verified findings");
+    for (const [key, count] of Object.entries(counts)) lines.push(`    ${key}: ${count}`);
   }
   if (trajectory.provenance_unavailable_rounds.length > 0) lines.push(`provenance unavailable for: ${trajectory.provenance_unavailable_rounds.map((entry) => `${entry.stage} r${entry.round}`).join(", ")}`);
   if (trajectory.interventions.length > 0) {
@@ -3938,6 +4047,7 @@ function cliRun(args) {
     const searched = issueNumber === null
       ? `searched every issue's run record in ${args.repo}`
       : `searched issue #${issueNumber} in ${args.repo}`;
+    if (args.json) console.log(JSON.stringify({ status: "run-not-found", run_id: args.run }));
     console.error(`dev-flow-stats: run "${args.run}" not found (${searched})`);
     return 1;
   }
@@ -3955,7 +4065,14 @@ function cliRun(args) {
     console.log(args.json ? JSON.stringify(report, null, 2) : `run ${run.runId} (issue #${run.issueNumber}) — evidence-only\nmarkers: ${JSON.stringify(run.markerFacts)}${report.legacy_also_present ? "\nlegacy-also-present: true" : ""}`);
     return 0;
   }
-  const trajectory = renderTrajectory(run);
+  let trajectory;
+  try {
+    trajectory = renderTrajectory(run);
+  } catch (err) {
+    if (!(err instanceof EvidenceError)) throw err;
+    console.error(`dev-flow-stats: indeterminate: run "${args.run}" — ${err.message}`);
+    return 3;
+  }
   console.log(args.json ? JSON.stringify(trajectory, null, 2) : renderTrajectoryTable(trajectory));
   return 0;
 }

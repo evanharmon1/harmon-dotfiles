@@ -117,6 +117,10 @@ const VERDICT_EXPECTATION_KEYS = new Set([
   "unresolved_slot",
   "substitutions_json",
   "next_round",
+  // authorized_ceiling: the in-memory ceiling a run's cap_authorizations[]
+  // lifted the stage to (harmon-devkit#1239). `null` asserts it is absent —
+  // nothing authorized, so the verdict reports the resolved cap alone.
+  "authorized_ceiling",
   // Route flag only (see runExitFixture's `expected.indeterminate` branch,
   // which checks exit code 2 and delegates the JSON body itself to this
   // same function) — not a field checkVerdict compares against `actual`.
@@ -157,6 +161,9 @@ function checkVerdict(expected, actual) {
   }
   if ("next_round" in expected && actual.next_round !== expected.next_round) {
     return `next_round: expected ${JSON.stringify(expected.next_round)}, got ${JSON.stringify(actual.next_round)}`;
+  }
+  if ("authorized_ceiling" in expected && (actual.authorized_ceiling ?? null) !== expected.authorized_ceiling) {
+    return `authorized_ceiling: expected ${JSON.stringify(expected.authorized_ceiling)}, got ${JSON.stringify(actual.authorized_ceiling ?? null)}`;
   }
   // corrections_field/corrections_status: at least one verified_findings
   // entry has that field's status — verdict.corrections[] only records a
@@ -357,6 +364,15 @@ function runExitFixture(name, dir) {
   for (const [key, value] of Object.entries(invoke)) {
     if (key === "stage" || key === "poisoned_sibling") continue;
     args.push(`--${key}`);
+    // A boolean flag (`"merge-base-policy-absent": true`) takes no value —
+    // the same convention buildArgs applies to the policy fixtures.
+    if (value === true) continue;
+    // An empty value stays empty: path.join(dir, "") is the fixture
+    // directory itself, which exists and would turn "" into a real path.
+    if (value === "") {
+      args.push("");
+      continue;
+    }
     const asPath = path.join(dir, String(value));
     args.push(existsSync(asPath) ? asPath : String(value));
   }
@@ -369,6 +385,22 @@ function runExitFixture(name, dir) {
     if (closureDir) rmSync(closureDir, { recursive: true, force: true });
   }
   const { status, stdout, stderr } = result;
+
+  // usage_error: the engine refuses its own command line (exit 1, a
+  // diagnostic on stderr, no verdict) before reading the run at all — e.g.
+  // an empty --merge-base-policy, or one combined with
+  // --merge-base-policy-absent (harmon-devkit#1345). Exit 2 would mean
+  // "indeterminate", which is a verdict, so it never satisfies this route.
+  if (expected.usage_error) {
+    const extra = Object.keys(expected).filter((k) => k !== "usage_error" && k !== "stderr_contains");
+    if (extra.length > 0) return report(name, false, `a usage_error expectation takes only stderr_contains, got: ${extra.join(", ")}`);
+    if (status !== 1) return report(name, false, `expected usage exit 1, got ${status}. stderr: ${stderr.trim()}`);
+    if (stdout.trim() !== "") return report(name, false, `usage error also printed a verdict on stdout: ${stdout.trim()}`);
+    if (typeof expected.stderr_contains !== "string" || !stderr.includes(expected.stderr_contains)) {
+      return report(name, false, `usage error stderr does not contain ${JSON.stringify(expected.stderr_contains)}: ${stderr.trim()}`);
+    }
+    return report(name, true, null);
+  }
 
   if (expected.indeterminate) {
     if (status !== 2) return report(name, false, `expected exit 2 (indeterminate), got ${status}. stderr: ${stderr.trim()}`);
@@ -435,6 +467,9 @@ function buildTrustedClosure() {
   copyFileSync(path.join(SCRIPTS_DIR, "devflow-policy.mjs"), path.join(tmp, "scripts", "devflow-policy.mjs"));
   copyFileSync(path.join(SCRIPTS_DIR, "dev-flow-exit.mjs"), path.join(tmp, "scripts", "dev-flow-exit.mjs"));
   copyFileSync(path.join(SCRIPTS_DIR, "lib", "toml-lite.mjs"), path.join(tmp, "scripts", "lib", "toml-lite.mjs"));
+  // The exit engine's other deferred import (harmon-devkit#1239); a real
+  // caller materializes the whole asset directory, so it is always there.
+  copyFileSync(path.join(SCRIPTS_DIR, "lib", "cap-authorizations.mjs"), path.join(tmp, "scripts", "lib", "cap-authorizations.mjs"));
   return tmp;
 }
 

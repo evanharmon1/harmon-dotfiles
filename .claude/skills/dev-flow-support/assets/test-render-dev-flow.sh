@@ -6,6 +6,8 @@
 # section fakes `gh` on PATH, the way scripts/test-shepherd-*.sh do, to
 # exercise the read-modify-write transaction with no network access.
 
+# Emit captured numbers with stdout.write(String(...)): console.log inspects
+# numbers with ANSI colours when FORCE_COLOR=3, even with stdout piped.
 set -euo pipefail
 
 # The renderer is this test's own sibling asset; the golden fixtures are an
@@ -146,8 +148,8 @@ assert_contains "$(cat "${golden_dir}/deferred-findings.txt")" '- [ ] `review-r2
 assert_contains "$(cat "${golden_dir}/deferred-findings.txt")" '- [x] `review-r1-codex-cli-1` ai/skills/universal/dev-flow-support/assets/render-dev-flow.mjs:300'
 
 echo "==> readiness-input separates settled from unsettled deferred findings"
-settled_count="$(node -e "console.log(JSON.parse(require('fs').readFileSync('${golden_dir}/readiness-input.json','utf8')).deferred_findings.settled.length)")"
-unsettled_count="$(node -e "console.log(JSON.parse(require('fs').readFileSync('${golden_dir}/readiness-input.json','utf8')).deferred_findings.unsettled.length)")"
+settled_count="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('${golden_dir}/readiness-input.json','utf8')).deferred_findings.settled.length))")"
+unsettled_count="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('${golden_dir}/readiness-input.json','utf8')).deferred_findings.unsettled.length))")"
 [ "$settled_count" = 3 ] || fail "expected 3 settled deferred findings, got $settled_count"
 [ "$unsettled_count" = 1 ] || fail "expected 1 unsettled deferred finding, got $unsettled_count"
 
@@ -193,7 +195,7 @@ assert_contains "$out" '&lt;!-- dev-flow:end:deferred-findings --&gt;'
 assert_contains "$out" '<br>- [x] fake'
 
 echo "==> thread-reply-plan carries only unanswered integration-stage inline threads"
-entry_count="$(node -e "console.log(JSON.parse(require('fs').readFileSync('${golden_dir}/thread-reply-plan.json','utf8')).entries.length)")"
+entry_count="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('${golden_dir}/thread-reply-plan.json','utf8')).entries.length))")"
 [ "$entry_count" = 1 ] || fail "expected 1 unanswered-thread entry (the fixture pass answers the other two), got $entry_count"
 entry="$(node -e "console.log(JSON.stringify(JSON.parse(require('fs').readFileSync('${golden_dir}/thread-reply-plan.json','utf8')).entries[0]))")"
 for field in root_comment_id reply_text head adjudicated_priority classification evidence action; do
@@ -238,7 +240,7 @@ cat >"${stale_thread}/passes/integration-r2-human.json" <<'JSON'
 JSON
 run thread-reply-plan --record "$stale_thread"
 assert_rc 0
-entries_now="$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).entries.length)" <<<"$out")"
+entries_now="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync(0,'utf8')).entries.length))" <<<"$out")"
 [ "$entries_now" = 0 ] ||
     fail "expected 0 entries once round 2 reports the thread answered, got $entries_now: $out"
 
@@ -629,7 +631,7 @@ fs.writeFileSync('${foreign_integration_pass}/passes/foreign-integration.json', 
 "
 run thread-reply-plan --record "$foreign_integration_pass"
 assert_rc 0
-entry_count_foreign="$(node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).entries.length)" <<<"$out")"
+entry_count_foreign="$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync(0,'utf8')).entries.length))" <<<"$out")"
 [ "$entry_count_foreign" = 1 ] ||
     fail "a foreign-run pass must not win 'latest' and hide the real run's open thread, got $entry_count_foreign entries: $out"
 
@@ -911,6 +913,52 @@ fs.writeFileSync(p, JSON.stringify(policy, null, 2));
 run deferred-findings --record "$contradicted_cap"
 assert_rc 1
 assert_contains "$err" "rounds.challenge cap is 0, but round 1 was supplied for stage challenge"
+
+echo "==> harmon-devkit#1239: an over-cap round is projected only when run.json authorizes it"
+# The cap stays the resolved value in policy.json; run.json's
+# cap_authorizations[] is what admits review round 2 under a review cap of 1.
+over_cap="${test_tmp}/over-cap-authorized"
+mkdir -p "$over_cap"
+cp -r "${record_dir}/." "$over_cap/"
+node -e "
+const fs = require('fs');
+const p = '${over_cap}/policy.json';
+const policy = JSON.parse(fs.readFileSync(p, 'utf8'));
+policy.rounds.review = 1;
+fs.writeFileSync(p, JSON.stringify(policy, null, 2));
+"
+over_cap_unauthorized="${test_tmp}/over-cap-unauthorized"
+over_cap_gap="${test_tmp}/over-cap-gap"
+cp -r "$over_cap" "$over_cap_unauthorized"
+cp -r "$over_cap" "$over_cap_gap"
+authorize_rounds() {
+    node -e "
+const fs = require('fs');
+const p = process.argv[1] + '/run.json';
+const run = JSON.parse(fs.readFileSync(p, 'utf8'));
+run.cap_authorizations = process.argv.slice(2).map((round) => ({
+  stage: 'review', round: Number(round), actor: 'maintainer', instruction: 'do 1 more review round', at: '2026-10-12T00:00:00Z',
+}));
+fs.writeFileSync(p, JSON.stringify(run, null, 2));
+" "$@"
+}
+authorize_rounds "$over_cap" 2
+authorize_rounds "$over_cap_gap" 3
+run adjudication-record --record "$over_cap"
+assert_rc 0
+assert_contains "$out" "<summary>review round 2/1 (authorized) — reviewed"
+assert_contains "$out" "<summary>review round 1 — reviewed"
+run round-table --record "$over_cap" --stage review --round 2
+assert_rc 0
+assert_contains "$out" "<summary>review round 2/1 (authorized) — reviewed"
+for refused in "$over_cap_unauthorized" "$over_cap_gap"; do
+    run adjudication-record --record "$refused"
+    assert_rc 1
+    assert_contains "$err" "rounds.review cap is 1, but round 2 was supplied for stage review and run.json records no cap authorization admitting it"
+done
+# policy.json is read, never rewritten: the resolved cap is still 1.
+[ "$(node -e "process.stdout.write(String(require('${over_cap}/policy.json').rounds.review))")" = "1" ] ||
+    fail "rendering an authorized over-cap round rewrote policy.json's resolved review cap"
 
 echo "==> cross-document consistency is re-checked after a --policy override, not just against the record directory's own copy"
 # main() applies --policy AFTER the first validateCrossDocumentConsistency

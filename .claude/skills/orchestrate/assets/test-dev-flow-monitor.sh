@@ -248,5 +248,39 @@ grep -q "not trusted" <<<"$output" ||
     fail "zero in allowlist should be malformed; got: $output"
 pass "allowlist containing zero correctly rejected as malformed"
 
+# ── Test 10: orchestrator-dir resolves under the common directory ──
+echo ""
+echo "--- orchestrator-dir names the per-run, per-attempt directory ---"
+setup_fixture '{"trusted_orchestrator_actor_ids": [12345]}'
+git -C "$FIXTURE_REPO" worktree add -q "$FIXTURE_REPO-lane" -b lane-dir
+common="$(git -C "$FIXTURE_REPO" rev-parse --path-format=absolute --git-common-dir)"
+dir="$("$MONITOR" orchestrator-dir --slate-id epic-1 --run-id run-x --nonce a1 --repo-root "$FIXTURE_REPO-lane")"
+[ "$dir" = "$common/dev-flow-v2/slates/epic-1/orchestrator/run-x/a1" ] ||
+    fail "orchestrator-dir from a linked worktree: got $dir"
+if "$MONITOR" orchestrator-dir --slate-id ../x --run-id run-x --nonce a1 --repo-root "$FIXTURE_REPO" 2>/dev/null; then
+    fail "orchestrator-dir accepted an unsafe slate id"
+fi
+if "$MONITOR" orchestrator-dir --slate-id epic-1 --run-id run-x --repo-root "$FIXTURE_REPO" 2>/dev/null; then
+    fail "orchestrator-dir accepted a missing nonce"
+fi
+pass "orchestrator-dir resolves the common directory and refuses unsafe or missing keys"
+
+# Unlocked/concurrent callers retain duplicate-event refusal. The full helper
+# test exercises a lock-holder resume and overlapping serialized callers.
+setup_fixture '{"trusted_orchestrator_actor_ids": [12345]}'
+activate_run "$FIXTURE_REPO" "run-rearm" "test-branch" "$FIXTURE_REV" >/dev/null
+try_comment_reservation "$FIXTURE_REPO" "run-rearm" "test-branch" "12345" "evt-rearm" >/dev/null
+output="$(try_comment_reservation "$FIXTURE_REPO" "run-rearm" "test-branch" "12345" "evt-rearm" || true)"
+grep -q 'duplicate event' <<<"$output" || fail "unlocked re-arm did not refuse a duplicate event"
+state="$("$MONITOR" state-path --run-id run-rearm --repo-root "$FIXTURE_REPO")"
+[ "$(jq '.actions | length' "$state")" -eq 1 ] || fail "exact re-arm duplicated reservation"
+output="$(try_comment_reservation "$FIXTURE_REPO" "run-rearm" "test-branch" "12345" "evt-other" || true)"
+# A different event has a different marker and is a distinct reservation.
+grep -q 'reserved evt-other' <<<"$output" || fail "distinct marker did not reserve"
+update_origin_registry "$FIXTURE_REPO" '{"trusted_orchestrator_actor_ids": [67890]}'
+output="$(try_comment_reservation "$FIXTURE_REPO" "run-rearm" "test-branch" "12345" "evt-rearm" || true)"
+grep -q 'not trusted' <<<"$output" || fail "re-arm trusted a removed actor"
+pass "unlocked re-arm refuses duplicate events and rechecks the governing allowlist"
+
 echo ""
 echo "=== All dev-flow-monitor trust contract tests passed ==="
