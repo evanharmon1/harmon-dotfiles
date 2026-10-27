@@ -115,6 +115,8 @@ jq -e '.remoteControlAtStartup == true' "$claude_settings" >/dev/null ||
 # per-command escape, by the maintainer's choice.
 jq -e '.sandbox.enabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must enable the Bash sandbox by default"
+jq -e '.sandbox.excludedCommands == ["gh *"]' "$claude_settings" >/dev/null ||
+    fail "Claude must exclude only gh commands from the Bash sandbox"
 jq -e '.inputNeededNotifEnabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must notify when it needs input"
 [ "$(jq -r '.feedbackDrafts' "$claude_settings")" = "off" ] ||

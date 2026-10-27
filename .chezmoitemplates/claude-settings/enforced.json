@@ -269,7 +269,10 @@
     "command": "~/.claude/subagent-statusline.sh"
   },
   "sandbox": {
-    "enabled": true
+    "enabled": true,
+    "excludedCommands": [
+      "gh *"
+    ]
   },
   "skipDangerousModePermissionPrompt": true,
   "enabledPlugins": {

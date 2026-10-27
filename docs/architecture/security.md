@@ -16,6 +16,20 @@ current — it is the reference for "where do secrets live and who can do what".
 - **Auditable changes.** `main` is protected; changes land via reviewed PRs
   (see [branch-protection.md](branch-protection.md)).
 
+## Claude Code Bash sandbox
+
+Keep the Bash sandbox enabled and exclude only `gh *` to work around GitHub
+CLI TLS failures under macOS Seatbelt. An excluded `gh` call gets the user's
+full filesystem and network access and stored credentials; this avoids the
+existing permission-gated unsandboxed retry after the sandboxed TLS failure,
+without adding access that retry did not already grant. Do not enable
+`enableWeakerNetworkIsolation`: Claude Code documents it for a custom MITM
+proxy and CA, which this configuration does not use, and it weakens network
+isolation through the system trust service. A piped call such as
+`gh issue view 157 | jq .body` stays sandboxed because every command in the
+call must match an exclusion; use `gh --jq` for filtering instead. See the
+[Claude Code sandboxing guide](https://code.claude.com/docs/en/sandboxing).
+
 ## Security scanning: SAST, SCA, secrets & audits
 
 Scanning is layered across a few axes. GitHub-hosted CodeQL is the preferred SAST
