@@ -25,38 +25,46 @@ normalize_path() {
     # Collapse lexical aliases before the gitlink component. Leave its suffix
     # untouched for realpath below: it can contain symlink-plus-parent traversal.
     # Likewise, do not cancel a symlink before .. in the prefix.
-    local remaining="$path" lexical="" component
-    while [[ -n "$remaining" ]]; do
-        component="${remaining%%/*}"
-        if [[ "$remaining" == */* ]]; then
-            remaining="${remaining#*/}"
-        else
-            remaining=""
-        fi
-        case "$component" in
-        "" | .) ;;
-        ..)
-            if [[ -L "$lexical" ]]; then
-                lexical="$lexical/.."
+    local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+    local candidate remaining lexical component
+    local -a normalized=()
+    # Normalize both operands identically, including project-dir trailing aliases.
+    for candidate in "$path" "$project_dir"; do
+        remaining="$candidate"
+        lexical=""
+        while [[ -n "$remaining" ]]; do
+            component="${remaining%%/*}"
+            if [[ "$remaining" == */* ]]; then
+                remaining="${remaining#*/}"
+            else
+                remaining=""
+            fi
+            case "$component" in
+            "" | .) ;;
+            ..)
+                if [[ -L "$lexical" ]]; then
+                    lexical="$lexical/.."
+                    [[ -z "$remaining" ]] || lexical="$lexical/$remaining"
+                    break
+                fi
+                lexical="${lexical%/*}"
+                ;;
+            .git)
+                lexical="$lexical/.git"
                 [[ -z "$remaining" ]] || lexical="$lexical/$remaining"
                 break
-            fi
-            lexical="${lexical%/*}"
-            ;;
-        .git)
-            lexical="$lexical/.git"
-            [[ -z "$remaining" ]] || lexical="$lexical/$remaining"
-            break
-            ;;
-        *) lexical="$lexical/$component" ;;
-        esac
+                ;;
+            *) lexical="$lexical/$component" ;;
+            esac
+        done
+        normalized+=("${lexical:-/}")
     done
-    path="${lexical:-/}"
+    path="${normalized[0]}"
+    project_dir="${normalized[1]}"
 
     # In a git worktree, .git is a gitlink file pointing to the main repo gitdir.
     # If the path references .git/... relative to a worktree containing a .git file,
     # resolve the .git component to the common git directory.
-    local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
     if [[ -f "$project_dir/.git" && ("$path" == "$project_dir/.git" || "$path" == "$project_dir/.git/"*) ]]; then
         local git_common
         git_common="$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null)" || true
