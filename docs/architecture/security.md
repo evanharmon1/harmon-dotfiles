@@ -31,13 +31,23 @@ classifier review. This is a deliberate trust boundary. Do not broaden the
 list to `gh *`: that also excludes commands that can run aliases and
 extensions.
 
-These commands stay sandboxed because no exclusion matches them: `gh pr
-checkout` and `gh issue develop` (they run Git and repository hooks), `gh pr
-merge` (the existing ask rule still prompts), `gh alias`, `gh extension` /
-`gh ext`, `gh config`, `gh release`, `gh run download`, and user-defined
-aliases or extension commands. GitHub-backed Task targets such as
-`task guard:closing-keywords` also stay sandboxed because Claude matches the
-submitted command text, not subprocesses a task starts.
+`excludedCommands` governs only the first attempt. A failed sandboxed
+`gh` command can be retried outside the sandbox. The `Bash(gh:*)` allow rule
+approves that retry without a prompt or classifier review unless a more
+specific ask rule matches. This matters on macOS, where sandboxed GitHub CLI
+calls can fail TLS under Seatbelt. Commands absent from the exclusion list
+therefore start sandboxed but may escape on retry. That includes `gh pr
+checkout` and `gh issue develop` (they run Git and repository hooks),
+`gh alias`, `gh extension` / `gh ext`, `gh config`, `gh release`,
+`gh run download`, and user-defined aliases or extension commands.
+
+The ask rule for `gh pr merge` still prompts for that literal command only;
+`gh api` can also perform merges. Narrowing `Bash(gh:*)` is tracked in
+[harmon-dotfiles#160](https://github.com/evanharmon1/harmon-dotfiles/issues/160).
+
+GitHub-backed Task targets such as `task guard:closing-keywords` start inside
+the sandbox because Claude matches the submitted command text, not subprocesses
+a task starts; an inner `gh` command can still take the retry path above.
 
 `gh api *` is a deliberate residual risk: `--hostname` can target any host,
 and `--input` or `-F key=@file` can send local files. Filter other commands

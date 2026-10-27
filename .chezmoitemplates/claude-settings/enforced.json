@@ -298,8 +298,7 @@
       "gh label create *",
       "gh label edit *",
       "gh project *",
-      "gh auth status",
-      "gh auth status *"
+      "gh auth status"
     ]
   },
   "skipDangerousModePermissionPrompt": true,

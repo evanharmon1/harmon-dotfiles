@@ -127,13 +127,18 @@ gh_excluded_commands='[
   "gh label create *",
   "gh label edit *",
   "gh project *",
-  "gh auth status",
-  "gh auth status *"
+  "gh auth status"
 ]'
 jq -e --argjson expected "$gh_excluded_commands" \
-    '.sandbox.enabled == true and .sandbox.excludedCommands == $expected' \
+    '.sandbox.enabled == true
+     and .sandbox.excludedCommands == $expected
+     and all(.sandbox.excludedCommands[];
+         . != "gh *"
+         and (test("^gh (alias|ext|extension|config|release|auth token)( |$)") | not)
+         and ((startswith("gh auth status") and endswith(" *")) | not)
+     )' \
     "$claude_settings_managed" >/dev/null ||
-    fail "enforced Claude settings must keep the exact reviewed gh exclusion list"
+    fail "enforced Claude settings must keep the exact list without broad or token-capable gh patterns"
 
 # Use the real host OS render, without overriding chezmoi's platform data.
 claude_settings="$claude_settings_managed"
@@ -532,10 +537,6 @@ if command -v chezmoi >/dev/null 2>&1; then
         jq -e --argjson expected "$gh_excluded_commands" '
             .sandbox.enabled == true
             and .sandbox.excludedCommands == $expected
-            and ([.sandbox.excludedCommands[] | select(
-                . == "gh *" or . == "gh alias *" or . == "gh extension *"
-                or . == "gh ext *" or . == "gh release *"
-            )] | length == 0)
         ' "$test_tmp/cl.fresh" >/dev/null ||
             fail "Darwin Claude settings must render only the exact reviewed gh exclusions"
     else
