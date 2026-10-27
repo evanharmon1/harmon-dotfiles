@@ -504,6 +504,27 @@ else
     assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/w/deferred-findings/sidecar.md"
     assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/branch"
 
+    echo "==> protect-files normalizes linked-worktree gitlink aliases"
+    linked_fixture="$tmpdir/protect-linked-worktree"
+    git -C "$fixture_repo" -c user.name=Test -c user.email=test@example.com commit -q --allow-empty -m "test: initialize protect fixture"
+    git -C "$fixture_repo" worktree add -q --detach "$linked_fixture" HEAD
+    (
+        export CLAUDE_PROJECT_DIR="$linked_fixture"
+        mkdir -p "$linked_fixture/x"
+        assert_protect_allows "$hook_protect" ".git/dev-flow-v2/runs/r/run.json"
+        assert_protect_allows "$hook_protect" "./.git/dev-flow-v2/runs/r/run.json"
+        assert_protect_allows "$hook_protect" "x/../.git/dev-flow-v2/runs/r/run.json"
+        assert_protect_blocks "$hook_protect" "./.git/config"
+        assert_protect_blocks "$hook_protect" "./.git/hooks/pre-commit"
+        ln -s "$fixture_repo/.git/config" "$fixture_repo/.git/dev-flow-v2/linked-escape"
+        assert_protect_blocks "$hook_protect" "./.git/dev-flow-v2/linked-escape"
+        mkdir -p "$fixture_repo/.git/hooks/child"
+        ln -s "$fixture_repo/.git/hooks/child" "$linked_fixture/git-parent-link"
+        assert_protect_blocks "$hook_protect" "./git-parent-link/../.git/dev-flow-v2/runs/r/run.json"
+        ln -s "$fixture_repo/.git/hooks/child" "$fixture_repo/.git/dev-flow-v2/linked-parent"
+        assert_protect_blocks "$hook_protect" "./.git/dev-flow-v2/linked-parent/../pre-commit"
+    )
+
     echo "==> protect-files blocks credential and managed config through symlinks"
     secret_target="$tmpdir/secret.key"
     touch "$secret_target"

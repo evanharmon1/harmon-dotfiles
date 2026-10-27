@@ -22,6 +22,37 @@ normalize_path() {
     *) path="${CLAUDE_PROJECT_DIR:-$PWD}/$path" ;;
     esac
 
+    # Collapse lexical aliases before the gitlink component. Leave its suffix
+    # untouched for realpath below: it can contain symlink-plus-parent traversal.
+    # Likewise, do not cancel a symlink before .. in the prefix.
+    local remaining="$path" lexical="" component
+    while [[ -n "$remaining" ]]; do
+        component="${remaining%%/*}"
+        if [[ "$remaining" == */* ]]; then
+            remaining="${remaining#*/}"
+        else
+            remaining=""
+        fi
+        case "$component" in
+        "" | .) ;;
+        ..)
+            if [[ -L "$lexical" ]]; then
+                lexical="$lexical/.."
+                [[ -z "$remaining" ]] || lexical="$lexical/$remaining"
+                break
+            fi
+            lexical="${lexical%/*}"
+            ;;
+        .git)
+            lexical="$lexical/.git"
+            [[ -z "$remaining" ]] || lexical="$lexical/$remaining"
+            break
+            ;;
+        *) lexical="$lexical/$component" ;;
+        esac
+    done
+    path="${lexical:-/}"
+
     # In a git worktree, .git is a gitlink file pointing to the main repo gitdir.
     # If the path references .git/... relative to a worktree containing a .git file,
     # resolve the .git component to the common git directory.
