@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.19.4](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.19.3...v0.19.4) (2026-10-27)
+
+
+### Bug Fixes
+
+* **claude:** normalize ./ and .. aliases before the protect-files gitlink remap ([#162](https://github.com/evanharmon1/harmon-dotfiles/issues/162)) ([0a15a8b](https://github.com/evanharmon1/harmon-dotfiles/commit/0a15a8bbda08257cc601a7046a720424f5e12fd1))
+* **claude:** run gh outside the Bash sandbox through excludedCommands ([#159](https://github.com/evanharmon1/harmon-dotfiles/issues/159)) ([9cea6b8](https://github.com/evanharmon1/harmon-dotfiles/commit/9cea6b8ff580caf516dd0fc9ae876fb4f49ec0c1))
+
 ## [0.19.3](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.19.2...v0.19.3) (2026-10-25)
 
 
