@@ -16,16 +16,20 @@ file_path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""')"
 # aliases such as /etc -> /private/etc even when the final path does not exist.
 normalize_path() {
     local path="$1" parent suffix next
+    local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+    case "$project_dir" in
+    /*) ;;
+    *) project_dir="$PWD/$project_dir" ;;
+    esac
     case "$path" in
     /*) ;;
     ~/*) path="$HOME/${path#\~/}" ;;
-    *) path="${CLAUDE_PROJECT_DIR:-$PWD}/$path" ;;
+    *) path="$project_dir/$path" ;;
     esac
 
     # Collapse lexical aliases before the gitlink component. Leave its suffix
     # untouched for realpath below: it can contain symlink-plus-parent traversal.
     # Likewise, do not cancel a symlink before .. in the prefix.
-    local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
     local candidate remaining lexical component
     local -a normalized=()
     # Normalize both operands identically, including project-dir trailing aliases.

@@ -511,6 +511,14 @@ else
     (
         export CLAUDE_PROJECT_DIR="$linked_fixture"
         mkdir -p "$linked_fixture/x"
+        (
+            cd "$linked_fixture"
+            export CLAUDE_PROJECT_DIR=.
+            touch protected-target.key
+            ln -s protected-target.key neutral-alias.txt
+            assert_protect_blocks "$hook_protect" "neutral-alias.txt"
+            assert_protect_allows "$hook_protect" ".git/dev-flow-v2/runs/r/run.json"
+        )
         for project_alias in "$linked_fixture/" "$linked_fixture/."; do
             CLAUDE_PROJECT_DIR="$project_alias" assert_protect_allows "$hook_protect" ".git/dev-flow-v2/runs/r/run.json"
             CLAUDE_PROJECT_DIR="$project_alias" assert_protect_blocks "$hook_protect" ".git/config"
