@@ -18,17 +18,34 @@ current — it is the reference for "where do secrets live and who can do what".
 
 ## Claude Code Bash sandbox
 
-Keep the Bash sandbox enabled and exclude only `gh *` to work around GitHub
-CLI TLS failures under macOS Seatbelt. An excluded `gh` call gets the user's
-full filesystem and network access and stored credentials; this avoids the
-existing permission-gated unsandboxed retry after the sandboxed TLS failure,
-without adding access that retry did not already grant. Do not enable
-`enableWeakerNetworkIsolation`: Claude Code documents it for a custom MITM
-proxy and CA, which this configuration does not use, and it weakens network
-isolation through the system trust service. A piped call such as
-`gh issue view 157 | jq .body` stays sandboxed because every command in the
-call must match an exclusion; use `gh --jq` for filtering instead. See the
-[Claude Code sandboxing guide](https://code.claude.com/docs/en/sandboxing).
+Keep the Bash sandbox enabled everywhere. For macOS Seatbelt's GitHub CLI TLS
+failure, `.chezmoitemplates/claude-settings/enforced.json` is the single
+source of a narrow list of `gh` subcommands used by the dev loop; the settings
+modify template removes `sandbox.excludedCommands` on non-Darwin hosts.
+
+The enforced `permissions.allow` contains `Bash(gh:*)`, and
+`permissions.defaultMode` is `auto`. Consequently, a listed, excluded
+`gh` command runs outside the sandbox with the user's full filesystem and
+network access and stored credentials, without a prompt or auto-mode
+classifier review. This is a deliberate trust boundary. Do not broaden the
+list to `gh *`: that also excludes commands that can run aliases and
+extensions.
+
+These commands stay sandboxed because no exclusion matches them: `gh pr
+checkout` and `gh issue develop` (they run Git and repository hooks), `gh pr
+merge` (the existing ask rule still prompts), `gh alias`, `gh extension` /
+`gh ext`, `gh config`, `gh release`, `gh run download`, and user-defined
+aliases or extension commands. GitHub-backed Task targets such as
+`task guard:closing-keywords` also stay sandboxed because Claude matches the
+submitted command text, not subprocesses a task starts.
+
+`gh api *` is a deliberate residual risk: `--hostname` can target any host,
+and `--input` or `-F key=@file` can send local files. Filter other commands
+with `gh … --json <fields> --jq <expr>`; `gh api` accepts `--jq` directly.
+Do not enable `enableWeakerNetworkIsolation`: Claude Code documents it for a
+custom MITM proxy and CA, which this setup does not use, and it weakens network
+isolation through the system trust service. See the [Claude Code sandboxing
+guide](https://code.claude.com/docs/en/sandboxing).
 
 ## Security scanning: SAST, SCA, secrets & audits
 

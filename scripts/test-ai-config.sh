@@ -97,8 +97,50 @@ done
 [ "$(yq '.project_doc_max_bytes' "$profile")" = "65536" ] ||
     fail "local Codex profile must load up to 64 KiB of project guidance"
 # The managed view of the Claude settings: seeded defaults under the enforced keys.
-claude_settings="$test_tmp/claude-settings.managed.json"
-jq -s '.[0] * .[1]' "$claude_seeded" "$claude_enforced" >"$claude_settings"
+claude_settings_managed="$test_tmp/claude-settings.managed.json"
+jq -s '.[0] * .[1]' "$claude_seeded" "$claude_enforced" >"$claude_settings_managed"
+gh_excluded_commands='[
+  "gh pr view *",
+  "gh pr list *",
+  "gh pr checks *",
+  "gh pr diff *",
+  "gh pr status *",
+  "gh pr create *",
+  "gh pr edit *",
+  "gh pr comment *",
+  "gh pr ready *",
+  "gh pr review *",
+  "gh issue view *",
+  "gh issue list *",
+  "gh issue create *",
+  "gh issue edit *",
+  "gh issue comment *",
+  "gh issue close *",
+  "gh issue reopen *",
+  "gh api *",
+  "gh run view *",
+  "gh run list *",
+  "gh run watch *",
+  "gh run rerun *",
+  "gh repo view *",
+  "gh label list *",
+  "gh label create *",
+  "gh label edit *",
+  "gh project *",
+  "gh auth status",
+  "gh auth status *"
+]'
+jq -e --argjson expected "$gh_excluded_commands" \
+    '.sandbox.enabled == true and .sandbox.excludedCommands == $expected' \
+    "$claude_settings_managed" >/dev/null ||
+    fail "enforced Claude settings must keep the exact reviewed gh exclusion list"
+
+# Use the real host OS render, without overriding chezmoi's platform data.
+claude_settings="$claude_settings_managed"
+if [ "$(uname -s)" != "Darwin" ]; then
+    claude_settings="$test_tmp/claude-settings.platform.json"
+    jq 'del(.sandbox.excludedCommands)' "$claude_settings_managed" >"$claude_settings"
+fi
 [ "$(jq -r '.model' "$claude_settings")" = "opus" ] ||
     fail "Claude must default to the opus alias"
 [ "$(jq -r '.modelSettings["claude-fable-5-1"].effortLevel' "$claude_settings")" = "high" ] ||
@@ -110,13 +152,10 @@ jq -s '.[0] * .[1]' "$claude_seeded" "$claude_enforced" >"$claude_settings"
 # Booleans are compared as JSON booleans: Claude Code ignores a string "true".
 jq -e '.remoteControlAtStartup == true' "$claude_settings" >/dev/null ||
     fail "Claude must start Remote Control with every session"
-# Enabled, not enforced: the sandbox stays fail-open (a host where it cannot
-# start runs Bash unsandboxed with a warning) and keeps the permission-gated
-# per-command escape, by the maintainer's choice.
+# The sandbox stays enabled. Only the reviewed gh subcommands are excluded on
+# macOS; Bash(gh:*) allows those exact commands without a prompt.
 jq -e '.sandbox.enabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must enable the Bash sandbox by default"
-jq -e '.sandbox.excludedCommands == ["gh *"]' "$claude_settings" >/dev/null ||
-    fail "Claude must exclude only gh commands from the Bash sandbox"
 jq -e '.inputNeededNotifEnabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must notify when it needs input"
 [ "$(jq -r '.feedbackDrafts' "$claude_settings")" = "off" ] ||
@@ -489,6 +528,21 @@ if command -v chezmoi >/dev/null 2>&1; then
     cl_fresh="$test_tmp/claude-fresh"
     mkdir -p "$cl_fresh"
     render_claude "$cl_fresh" >"$test_tmp/cl.fresh" || fail "the Claude settings template did not render without a live file"
+    if [ "$(uname -s)" = "Darwin" ]; then
+        jq -e --argjson expected "$gh_excluded_commands" '
+            .sandbox.enabled == true
+            and .sandbox.excludedCommands == $expected
+            and ([.sandbox.excludedCommands[] | select(
+                . == "gh *" or . == "gh alias *" or . == "gh extension *"
+                or . == "gh ext *" or . == "gh release *"
+            )] | length == 0)
+        ' "$test_tmp/cl.fresh" >/dev/null ||
+            fail "Darwin Claude settings must render only the exact reviewed gh exclusions"
+    else
+        jq -e '.sandbox.enabled == true and ((.sandbox | has("excludedCommands")) | not)' \
+            "$test_tmp/cl.fresh" >/dev/null ||
+            fail "non-Darwin Claude settings must keep the sandbox enabled without gh exclusions"
+    fi
     jq -e --slurpfile m "$claude_settings" '. == $m[0]' "$test_tmp/cl.fresh" >/dev/null ||
         fail "fresh Claude settings do not render exactly the managed settings"
     # Applied, the settings are private.

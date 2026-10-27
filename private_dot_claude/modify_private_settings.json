@@ -8,9 +8,10 @@
   .chezmoi.stdin and:
 
   - enforced (.chezmoitemplates/claude-settings/enforced.json): replaced on
-    every apply. permissions and hooks are authoritative and replaced whole,
-    so the security config is exactly what is reviewed in git. enabledPlugins
-    has the listed plugins forced on; plugins installed in-session are kept.
+    every apply. permissions and hooks are authoritative and replaced whole;
+    the macOS-only gh exclusions are removed on other operating systems below.
+    enabledPlugins has the listed plugins forced on; plugins installed
+    in-session are kept.
   - seeded (.chezmoitemplates/claude-settings/seeded.json): set only where
     the key is missing (a fresh machine); after that the live value wins, so
     /model and the other preferences stick.
@@ -34,6 +35,15 @@
   during the correction is lost.
 */ -}}
 {{- $enforced := include ".chezmoitemplates/claude-settings/enforced.json" | fromJson -}}
+{{- /* The gh TLS workaround is specific to macOS Seatbelt. Keep the list in
+       enforced.json as its single source and remove it on other operating
+       systems. */ -}}
+{{- if ne .chezmoi.os "darwin" -}}
+{{-   $sandbox := get $enforced "sandbox" -}}
+{{-   if kindIs "map" $sandbox -}}
+{{-     $_ := unset $sandbox "excludedCommands" -}}
+{{-   end -}}
+{{- end -}}
 {{- $seeded := include ".chezmoitemplates/claude-settings/seeded.json" | fromJson -}}
 {{- $current := dict -}}
 {{- $before := dict -}}
