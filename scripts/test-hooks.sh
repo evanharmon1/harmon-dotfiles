@@ -414,8 +414,9 @@ echo "==> agy adapter worktree-root Cwd resolution OK"
 # The hook keeps credential-shaped protections (.env, .pem, .key,
 # .claude/settings.json, machine-level .codex/config.toml, /etc/claude-code/,
 # /etc/codex/), Git control structures (refusing direct writes under .git/
-# except for dev-flow-v2/ records), and Terraform state/internals, while
-# dropping lockfiles, node_modules/, dist/, and binary/PDF suffixes.
+# except for dev-flow-v2/ records and Git-derived deferred-findings sidecars),
+# and Terraform state/internals, while dropping lockfiles, node_modules/, dist/,
+# and binary/PDF suffixes.
 
 hook_protect="private_dot_claude/hooks/executable_protect-files.sh"
 
@@ -502,7 +503,15 @@ else
     assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/a/b/deferred-findings/sidecar.md"
     assert_protect_blocks "$hook_protect" ".git/worktrees/w/deferred-findings/sidecar.md"
     assert_protect_blocks "$hook_protect" "$fixture_repo/.git/worktrees/w/deferred-findings/sidecar.md"
-    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/branch"
+    echo "==> protect-files allows Git-derived normal-checkout sidecars"
+    mkdir -p "$fixture_repo/.git/deferred-findings"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/deferred-findings/branch"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/deferred-findings/branch.md"
+    assert_protect_allows "$hook_protect" "$fixture_repo/.git/deferred-findings/feat/x.md"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/../config"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings-evil/x"
+    ln -s "$tmpdir/outside-sidecar.md" "$fixture_repo/.git/deferred-findings/escape"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/escape"
 
     echo "==> protect-files normalizes linked-worktree gitlink aliases"
     linked_fixture="$tmpdir/protect-linked-worktree"
@@ -536,6 +545,37 @@ else
         ln -s "$fixture_repo/.git/hooks/child" "$fixture_repo/.git/dev-flow-v2/linked-parent"
         assert_protect_blocks "$hook_protect" "./.git/dev-flow-v2/linked-parent/../pre-commit"
     )
+
+    echo "==> protect-files allows Git-derived linked-worktree sidecars"
+    linked_gitdir="$(git -C "$linked_fixture" rev-parse --absolute-git-dir)"
+    mkdir -p "$linked_gitdir/deferred-findings"
+    assert_protect_allows "$hook_protect" "$linked_gitdir/deferred-findings/branch.md"
+    assert_protect_allows "$hook_protect" "$linked_gitdir/deferred-findings/feat/x.md"
+    # R9: a caller in another checkout may write this worktree's sidecars.
+    CLAUDE_PROJECT_DIR="$fixture_repo" assert_protect_allows "$hook_protect" "$linked_gitdir/deferred-findings/other.md"
+    assert_protect_blocks "$hook_protect" "$linked_gitdir/HEAD"
+    assert_protect_blocks "$hook_protect" "$linked_gitdir/gitdir"
+    assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings-evil/x"
+    assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/../HEAD"
+    ln -s "$tmpdir/outside-linked-sidecar.md" "$linked_gitdir/deferred-findings/escape"
+    assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/escape"
+
+    echo "==> protect-files fails closed when sidecar root computation fails"
+    fake_git_bin="$tmpdir/protect-failing-git"
+    mkdir -p "$fake_git_bin"
+    printf '#!/usr/bin/env bash\nexit 1\n' >"$fake_git_bin/git"
+    chmod +x "$fake_git_bin/git"
+    PATH="$fake_git_bin:$PATH" assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/branch.md"
+    # Also fail closed when common-dir lookup succeeds but sidecar lookup fails.
+    real_git="$(command -v git)"
+    cat >"$fake_git_bin/git" <<'SCRIPT'
+#!/usr/bin/env bash
+for arg in "$@"; do
+    [[ "$arg" != "--git-path" ]] || exit 1
+done
+exec "$PROTECT_TEST_REAL_GIT" "$@"
+SCRIPT
+    PROTECT_TEST_REAL_GIT="$real_git" PATH="$fake_git_bin:$PATH" assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/branch.md"
 
     echo "==> protect-files blocks credential and managed config through symlinks"
     secret_target="$tmpdir/secret.key"
@@ -579,6 +619,7 @@ else
     mkdir -p "$outside_repo/.git/dev-flow-v2/lanes/l"
     assert_protect_blocks "$hook_protect" "$outside_repo/.git/dev-flow-v2/lanes/l/report.md"
     assert_protect_blocks "$hook_protect" "$outside_repo/.git/config"
+    assert_protect_blocks "$hook_protect" "$outside_repo/.git/deferred-findings/feat/x.md"
 
     echo "==> protect-files allows dev-flow records and dropped patterns"
     assert_protect_allows "$hook_protect" "$fixture_repo/.git/dev-flow-v2/lanes/l/report-1.md"

@@ -3,8 +3,8 @@
 #
 # Blocks AI modification of sensitive files: credentials, secrets, Terraform
 # state, Git control internals, and machine-level Claude/Codex managed settings.
-# The one permitted Git exception is dev-flow working state under
-# <common>/dev-flow-v2/; deferred-findings sidecars stay blocked until #148.
+# Permitted Git exceptions are dev-flow working state under
+# <common>/dev-flow-v2/ and the deferred-findings root reported by Git.
 # Exit 2 tells Claude Code to refuse the tool call and surface the stderr message back to the model.
 set -euo pipefail
 
@@ -153,8 +153,9 @@ fi
 
 # Git internals protection with carved-out dev-flow working directories.
 # A .git/ write is allowed only when its fully resolved real path lies under
-# <common>/dev-flow-v2/ (computed at call time from the target path's nearest
-# existing directory). Compared component by component: no globbing, no substring
+# <common>/dev-flow-v2/ or Git's deferred-findings root (computed at call time
+# from the target path's nearest existing directory). Compared component by
+# component: no globbing, no substring
 # or suffix matching. Anything else under a .git/ directory is refused, and so is
 # any path whose root cannot be computed (fail closed). The .git component match
 # is case-insensitive to prevent case-folding bypasses on case-insensitive filesystems.
@@ -169,12 +170,12 @@ is_git_path() {
 
 check_git_invariant() {
     local target="$1"
-    local common="$2"
+    local root="$2"
 
     local -a target_parts common_parts
     local IFS="/"
     read -r -a target_parts <<<"$target"
-    read -r -a common_parts <<<"$common"
+    read -r -a common_parts <<<"$root"
     unset IFS
 
     local -a t_clean=() c_clean=()
@@ -200,19 +201,7 @@ check_git_invariant() {
         fi
     done
 
-    local rel_len=$((t_len - c_len))
-    if ((rel_len < 1)); then
-        return 1
-    fi
-
-    local root_comp="${t_clean[c_len]}"
-
-    # Allowed root: <common>/dev-flow-v2/
-    if [[ "$root_comp" == "dev-flow-v2" ]]; then
-        return 0
-    fi
-
-    return 1
+    return 0
 }
 
 if is_git_path "$file_path" || is_git_path "$resolved_path"; then
@@ -264,7 +253,15 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
         exit 2
     fi
 
-    if ! check_git_invariant "$resolved_path" "$common_dir"; then
+    sidecar_root="$(git -C "$nearest_dir" rev-parse --path-format=absolute --git-path deferred-findings 2>/dev/null)" || sidecar_root=""
+    dev_flow_root="$(normalize_path "$common_dir/dev-flow-v2")" || dev_flow_root=""
+    if [[ -n "$sidecar_root" ]]; then
+        sidecar_root="$(normalize_path "$sidecar_root")" || sidecar_root=""
+    fi
+
+    if [[ -z "$dev_flow_root" || -z "$sidecar_root" ]] ||
+        { ! check_git_invariant "$resolved_path" "$dev_flow_root" &&
+            ! check_git_invariant "$resolved_path" "$sidecar_root"; }; then
         echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
         exit 2
     fi
