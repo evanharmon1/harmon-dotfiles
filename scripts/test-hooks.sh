@@ -560,6 +560,43 @@ else
     ln -s "$tmpdir/outside-linked-sidecar.md" "$linked_gitdir/deferred-findings/escape"
     assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/escape"
 
+    echo "==> protect-files refuses aliased exception roots (challenge r1)"
+    for alias_target in . ..; do
+        alias_repo="$tmpdir/root-alias-${#alias_target}"
+        git init -q "$alias_repo"
+        ln -s "$alias_target" "$alias_repo/.git/deferred-findings"
+        for internal in config HEAD hooks/pre-commit; do
+            assert_protect_blocks "$hook_protect" "$alias_repo/.git/$internal"
+            assert_protect_blocks "$hook_protect" "$alias_repo/.git/deferred-findings/$internal"
+        done
+        # An invalid sidecar root does not revoke the other, valid exception.
+        assert_protect_allows "$hook_protect" "$alias_repo/.git/dev-flow-v2/run.json"
+    done
+    alias_repo="$tmpdir/dev-flow-root-alias"
+    git init -q "$alias_repo"
+    ln -s hooks "$alias_repo/.git/dev-flow-v2"
+    assert_protect_blocks "$hook_protect" "$alias_repo/.git/hooks/pre-commit"
+    assert_protect_blocks "$hook_protect" "$alias_repo/.git/dev-flow-v2/pre-commit"
+    assert_protect_allows "$hook_protect" "$alias_repo/.git/deferred-findings/branch.md"
+
+    alias_worktree="$tmpdir/sidecar-root-alias-worktree"
+    git -C "$fixture_repo" worktree add -q --detach "$alias_worktree" HEAD
+    alias_gitdir="$(git -C "$alias_worktree" rev-parse --absolute-git-dir)"
+    ln -s .. "$alias_gitdir/deferred-findings"
+    assert_protect_blocks "$hook_protect" "$alias_gitdir/HEAD"
+    assert_protect_blocks "$hook_protect" "$alias_gitdir/deferred-findings/protect-linked-worktree/HEAD"
+
+    echo "==> protect-files refuses control characters before path comparison"
+    newline_repo="$tmpdir/"$'newline\nancestor'
+    git init -q "$newline_repo"
+    assert_protect_blocks "$hook_protect" "$newline_repo/.git/config"
+    assert_protect_blocks "$hook_protect" "$newline_repo/.git/deferred-findings/branch.md"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/"$'tab\tbranch.md'
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/"$'return\rbranch.md'
+    assert_protect_blocks "$hook_protect" "$fixture_repo/.git/deferred-findings/"$'trailing\n'
+    ln -s "$fixture_repo/.git/deferred-findings/"$'trailing\n' "$fixture_repo/neutral-control-alias"
+    assert_protect_blocks "$hook_protect" "$fixture_repo/neutral-control-alias"
+
     echo "==> protect-files fails closed when sidecar root computation fails"
     fake_git_bin="$tmpdir/protect-failing-git"
     mkdir -p "$fake_git_bin"

@@ -9,8 +9,22 @@
 set -euo pipefail
 
 input="$(cat)"
-file_path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // ""')"
+# Preserve trailing controls so command substitution cannot erase them.
+file_path="$(printf '%s' "$input" | jq -j '.tool_input.file_path // ""' && printf '.')"
+file_path="${file_path%.}"
 [[ -n "$file_path" ]] || exit 0
+
+# Line-oriented path parsing cannot safely compare control characters.
+refuse_control_paths() {
+    local path
+    for path in "$@"; do
+        if [[ "$path" =~ [[:cntrl:]] ]]; then
+            echo "protect-files: blocked write to '$file_path' (control character in path)" >&2
+            exit 2
+        fi
+    done
+}
+refuse_control_paths "$file_path" "${CLAUDE_PROJECT_DIR:-$PWD}"
 
 # Resolve paths through the longest existing parent. This canonicalizes macOS
 # aliases such as /etc -> /private/etc even when the final path does not exist.
@@ -71,7 +85,7 @@ normalize_path() {
     # resolve the .git component to the common git directory.
     if [[ -f "$project_dir/.git" && ("$path" == "$project_dir/.git" || "$path" == "$project_dir/.git/"*) ]]; then
         local git_common
-        git_common="$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null)" || true
+        git_common="$(git -C "$project_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || true
         if [[ -n "$git_common" ]]; then
             case "$git_common" in
             /*) ;;
@@ -114,7 +128,9 @@ normalize_path() {
     printf '%s\n' "$path"
 }
 
-resolved_path="$(normalize_path "$file_path")"
+resolved_path="$(normalize_path "$file_path" && printf '.')"
+resolved_path="${resolved_path%$'\n.'}"
+refuse_control_paths "$resolved_path"
 
 # Substring patterns — matched anywhere in the path.
 protected=(
@@ -204,6 +220,19 @@ check_git_invariant() {
     return 0
 }
 
+# Both exceptions obey one rule: after substituting the real common directory,
+# the lexical root must already be its real path and a strict descendant of it.
+# Thus a symlink at the root or anywhere below common grants no allowance.
+usable_exception_root() {
+    local lexical_root="$1" resolved="$2" candidate
+    check_git_invariant "$lexical_root" "$common_lexical" || return 1
+    [[ "$lexical_root" != "$common_lexical" ]] || return 1
+    candidate="$common_dir${lexical_root#"$common_lexical"}"
+    [[ "$resolved" == "$candidate" && "$resolved" != "$common_dir" ]] || return 1
+    check_git_invariant "$resolved" "$common_dir" || return 1
+    printf '%s\n' "$resolved"
+}
+
 if is_git_path "$file_path" || is_git_path "$resolved_path"; then
     nearest_target="$file_path"
     case "$nearest_target" in
@@ -218,7 +247,8 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
 
     common_dir=""
     if [[ -d "$nearest_dir" ]]; then
-        common_dir="$(git -C "$nearest_dir" rev-parse --git-common-dir 2>/dev/null)" || true
+        common_dir="$(git -C "$nearest_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null && printf '.')" || true
+        common_dir="${common_dir%$'\n.'}"
     fi
 
     if [[ -z "$common_dir" ]]; then
@@ -227,7 +257,8 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
             nearest_res="$(dirname -- "$nearest_res")"
         done
         if [[ -d "$nearest_res" ]]; then
-            common_dir="$(git -C "$nearest_res" rev-parse --git-common-dir 2>/dev/null)" || true
+            common_dir="$(git -C "$nearest_res" rev-parse --path-format=absolute --git-common-dir 2>/dev/null && printf '.')" || true
+            common_dir="${common_dir%$'\n.'}"
             nearest_dir="$nearest_res"
         fi
     fi
@@ -242,26 +273,42 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
     *) common_dir="$nearest_dir/$common_dir" ;;
     esac
 
-    if command -v python3 >/dev/null 2>&1; then
-        common_dir="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$common_dir" 2>/dev/null)" || true
-    else
-        common_dir="$(realpath "$common_dir" 2>/dev/null)" || true
+    sidecar_root="$(git -C "$nearest_dir" rev-parse --path-format=absolute --git-path deferred-findings 2>/dev/null && printf '.')" || sidecar_root=""
+    sidecar_root="${sidecar_root%$'\n.'}"
+    # Absolute formatting resolves root symlinks, so also ask Git for its
+    # unformatted lexical path to prove that no exception-root alias was hidden.
+    sidecar_lexical="$(git -C "$nearest_dir" rev-parse --git-path deferred-findings 2>/dev/null && printf '.')" || sidecar_lexical=""
+    sidecar_lexical="${sidecar_lexical%$'\n.'}"
+    if [[ -n "$sidecar_lexical" ]]; then
+        case "$sidecar_lexical" in
+        /*) ;;
+        *) sidecar_lexical="$nearest_dir/$sidecar_lexical" ;;
+        esac
     fi
+    refuse_control_paths "$common_dir" "$sidecar_root" "$sidecar_lexical"
+    common_lexical="$common_dir"
+
+    common_dir="$(normalize_path "$common_dir" && printf '.')" || common_dir=""
+    common_dir="${common_dir%$'\n.'}"
+    refuse_control_paths "$common_dir"
 
     if [[ -z "$common_dir" || ! -d "$common_dir" ]]; then
         echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
         exit 2
     fi
 
-    sidecar_root="$(git -C "$nearest_dir" rev-parse --path-format=absolute --git-path deferred-findings 2>/dev/null)" || sidecar_root=""
-    dev_flow_root="$(normalize_path "$common_dir/dev-flow-v2")" || dev_flow_root=""
-    if [[ -n "$sidecar_root" ]]; then
-        sidecar_root="$(normalize_path "$sidecar_root")" || sidecar_root=""
+    if [[ -z "$sidecar_root" || -z "$sidecar_lexical" ]]; then
+        echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+        exit 2
     fi
+    dev_flow_resolved="$(normalize_path "$common_dir/dev-flow-v2" && printf '.')" || dev_flow_resolved=""
+    dev_flow_resolved="${dev_flow_resolved%$'\n.'}"
+    refuse_control_paths "$dev_flow_resolved"
+    dev_flow_root="$(usable_exception_root "$common_lexical/dev-flow-v2" "$dev_flow_resolved")" || dev_flow_root=""
+    sidecar_root="$(usable_exception_root "$sidecar_lexical" "$sidecar_root")" || sidecar_root=""
 
-    if [[ -z "$dev_flow_root" || -z "$sidecar_root" ]] ||
-        { ! check_git_invariant "$resolved_path" "$dev_flow_root" &&
-            ! check_git_invariant "$resolved_path" "$sidecar_root"; }; then
+    if ! { [[ -n "$dev_flow_root" ]] && check_git_invariant "$resolved_path" "$dev_flow_root"; } &&
+        ! { [[ -n "$sidecar_root" ]] && check_git_invariant "$resolved_path" "$sidecar_root"; }; then
         echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
         exit 2
     fi
