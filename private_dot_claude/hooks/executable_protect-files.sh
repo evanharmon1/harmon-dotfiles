@@ -245,6 +245,14 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
         nearest_dir="$(dirname -- "$nearest_dir")"
     done
 
+    # Canonicalize ancestors before combining Git's relative lexical root with
+    # this directory (e.g. macOS /var -> /private/var). Root aliases are still
+    # checked separately against Git's unformatted exception-root path.
+    nearest_dir="$(cd -P -- "$nearest_dir" && pwd -P)" || {
+        echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+        exit 2
+    }
+
     common_dir=""
     if [[ -d "$nearest_dir" ]]; then
         common_dir="$(git -C "$nearest_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null && printf '.')" || true
@@ -257,6 +265,10 @@ if is_git_path "$file_path" || is_git_path "$resolved_path"; then
             nearest_res="$(dirname -- "$nearest_res")"
         done
         if [[ -d "$nearest_res" ]]; then
+            nearest_res="$(cd -P -- "$nearest_res" && pwd -P)" || {
+                echo "protect-files: blocked write to '$file_path' (git internal path)" >&2
+                exit 2
+            }
             common_dir="$(git -C "$nearest_res" rev-parse --path-format=absolute --git-common-dir 2>/dev/null && printf '.')" || true
             common_dir="${common_dir%$'\n.'}"
             nearest_dir="$nearest_res"

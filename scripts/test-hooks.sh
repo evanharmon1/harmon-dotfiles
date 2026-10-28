@@ -560,11 +560,21 @@ else
     ln -s "$tmpdir/outside-linked-sidecar.md" "$linked_gitdir/deferred-findings/escape"
     assert_protect_blocks "$hook_protect" "$linked_gitdir/deferred-findings/escape"
 
+    echo "==> protect-files allows sidecars through symlinked ancestors"
+    ancestor_alias="$tmpdir/protect-ancestor-alias"
+    ln -s "$tmpdir" "$ancestor_alias"
+    assert_protect_allows "$hook_protect" "$ancestor_alias/fixture-repo/.git/deferred-findings/feat/x.md"
+    physical_tmpdir="$(cd -P -- "$tmpdir" && pwd -P)"
+    linked_gitdir_alias="$ancestor_alias${linked_gitdir#"$physical_tmpdir"}"
+    assert_protect_allows "$hook_protect" "$linked_gitdir_alias/deferred-findings/feat/x.md"
+
     echo "==> protect-files refuses aliased exception roots (challenge r1)"
     for alias_target in . ..; do
         alias_repo="$tmpdir/root-alias-${#alias_target}"
         git init -q "$alias_repo"
         ln -s "$alias_target" "$alias_repo/.git/deferred-findings"
+        # R11: canonicalizing the nearest directory must not hide this root alias.
+        assert_protect_blocks "$hook_protect" "$alias_repo/.git/deferred-findings/x"
         for internal in config HEAD hooks/pre-commit; do
             assert_protect_blocks "$hook_protect" "$alias_repo/.git/$internal"
             assert_protect_blocks "$hook_protect" "$alias_repo/.git/deferred-findings/$internal"
