@@ -233,6 +233,12 @@
           ]
         },
         {
+          "slug": "argon",
+          "display_name": "Argon",
+          "tier": "frontier",
+          "versions": [{ "slug": "4", "display_name": "4 Argon", "retired": false }]
+        },
+        {
           "slug": "flash-lite",
           "display_name": "Flash-Lite",
           "tier": "economy",
@@ -391,7 +397,7 @@
       "provider_rewired": false,
       "roles": ["implementer", "challenger", "reviewer"],
       "can_restrict_writes": true,
-      "efforts": ["minimal", "low", "medium", "high", "xhigh"]
+      "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"]
     },
     {
       "slug": "copilot-cli",

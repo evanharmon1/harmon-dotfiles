@@ -35,9 +35,9 @@ cz() {
 
 echo "==> ~/Brewfile is a managed target and the repo toolchain file is not"
 managed="$(cz managed --path-style=relative)"
-printf '%s\n' "$managed" | grep -qx 'Brewfile' ||
+grep -qx 'Brewfile' <<<"$managed" ||
     fail "Brewfile is not a managed target (does .chezmoiignore match 'Brewfile' again?)"
-printf '%s\n' "$managed" | grep -qx '\.Brewfile' &&
+grep -qx '\.Brewfile' <<<"$managed" &&
     fail ".Brewfile (the repo toolchain file) must not be deployed"
 
 echo "==> the deployed ~/Brewfile is private_Brewfile"

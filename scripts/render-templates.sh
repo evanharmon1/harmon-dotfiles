@@ -189,7 +189,7 @@ for variant in "${variants[@]}"; do
                 name="${name#before_}"
                 name="${name#after_}"
                 name="${name%.tmpl}"
-                if ! printf '%s\n' "$managed" | grep -Fxq -- "$dir/$name"; then
+                if ! grep -Fxq -- "$dir/$name" <<<"$managed"; then
                     fail "$f is not picked up as a run script ($label): expected $dir/$name in 'chezmoi managed --include=scripts'"
                 fi
             done

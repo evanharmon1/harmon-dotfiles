@@ -34,7 +34,8 @@ environment — against the items below
       `.skills-sync.yaml`, then run `task skills:status` to see the current
       vendoring state without changing anything (add `-- --offline` for an
       offline snapshot). Then run `task sync:skills` and commit the refreshed
-      `.claude/skills/` and `.claude/agents/` in the same PR. Renovate surfaces a new release in the
+      `.claude/skills/` and `.claude/agents/`
+      in the same PR. Renovate surfaces a new release in the
       Dependency Dashboard; approve it there to open the pin PR, then run the
       sync and push its output as a separate commit (do not amend Renovate's
       commit). Renovate cannot do the re-sync, so a ref-only commit fails the
@@ -58,17 +59,32 @@ environment — against the items below
       dropping `--draft`, which would make an open PR mean nothing again.
 - [ ] **Automated settings** — run `task setup:github` (idempotent, safe to
       re-run): enables **Dependabot alerts** and **private vulnerability
-      reporting** when public, and reconciles the repository's `CI_RUNS_ON`
-      variable from the selected runner settings (the repository value
-      intentionally takes precedence over an organization fallback). Every existing value is preserved on non-public
-      repositories, and public repositories are standardized to
-      `"ubuntu-latest"` even when the Copier answers or an existing variable
-      select different routing. Re-run this task
-      after changing Copier runner answers; an existing non-public value
-      remains authoritative and must be changed intentionally by running
-      `scripts/setup-github.sh` with `--replace-ci-runs-on`. Do not add
-      `dependabot.yml`: Renovate owns routine
-      and vulnerability-remediation PRs; Dependabot owns advisory alerts.
+      reporting** when public. Routing uses `CI_RUNS_ON`, `BROWSER_RUNS_ON`,
+      `IMAGE_BUILD_RUNS_ON`, `MULTICORE_RUNS_ON` and `ISOLATED_RUNS_ON`. Public
+      repositories always create or replace all five repository overrides as
+      `"ubuntu-latest"`, even without flags, so inherited persistent runners
+      cannot reach jobs.
+      On private/internal repositories, the script creates missing values only
+      with `--ci-runs-on`, `--browser-runs-on`, `--multicore-runs-on`,
+      `--image-build-runs-on` or `--isolated-runs-on`; intentional replacement
+      also requires the matching `--replace-*` flag. `task setup:github`
+      supplies the rendered CI answer; pass other class flags after `--`,
+      for example `task setup:github -- --browser-runs-on '"ubuntu-latest"'`.
+      Repository values shadow organization values. Isolated selectors may be
+      strings, label arrays, or objects with usable `labels`; `self-hosted` is
+      refused case-insensitively, and unsupported shapes fail closed. Requested
+      invalid isolated values fail before any GitHub access or writes. Repair
+      an existing unsafe repository value with a safe `--isolated-runs-on` plus
+      `--replace-isolated-runs-on` (public repositories repair unsafe and
+      unsupported values automatically before organization checks). Private/internal unsupported shapes fail
+      closed. Unsafe or unsupported organization values fail only when inherited,
+      with no repository isolated override. A safe repository value or an explicit
+      safe isolated value plus replace flag shadows them and succeeds with a
+      warning. Otherwise ask the organization's routing owner (whoever manages
+      organization Actions variables) to repair them, or create a safe override.
+      Unreadable organization values report unknown without failing setup; `task status:setup` reports known violations. Do not add
+      `dependabot.yml`: Renovate owns routine and vulnerability-remediation PRs;
+      Dependabot owns advisory alerts.
 - [ ] Import the branch ruleset (see [architecture/branch-protection.md](architecture/branch-protection.md)) — do this once `build.yml` are on `main` so the required `verify`/`security` checks resolve. **Use the UI import:** Settings → Rules → Rulesets → **New ruleset ▸ Import a ruleset** → select `.github/Branch Protection Ruleset - Protect Main.json`. (Prefer the UI over `gh api … rulesets`: the API `POST` is not idempotent — re-running creates a duplicate ruleset — and currently rejects the `merge_queue` rule. To later change the ruleset, edit the existing one in the UI rather than re-importing.)
 - [ ] **[human-only] Add `closing-keywords` to the live branch ruleset** —
       **required, not optional, and no longer deferrable.** Until
@@ -100,10 +116,12 @@ environment — against the items below
       checks, issues (including the Dependency Dashboard), or update/remediation
       PRs. This repo already has `renovate.json`; keep that configuration rather
       than replacing it with a generic onboarding config.
-- [ ] **[human-only] Confirm CodeRabbit has no access** — for a repository that
-      previously used it, remove this repo from the CodeRabbit GitHub App
-      installation. Deleting `.coderabbit.yaml` and bot trust does not revoke
-      existing App access.
+- [ ] Install the [CodeRabbit app](https://github.com/apps/coderabbitai) on the repo (`.coderabbit.yaml` is pre-configured, including `reviews.auto_review.drafts: true` so it reviews the draft workbench rather than firing on promotion)
+- [ ] **[human-only] Connect Gemini Code Assist on GitHub** — in Google Cloud
+      Console (under your foundation project), navigate to **Gemini Code Assist →
+      Agents & Tools → Code Assist Source Code Management**, create/select the
+      connection in `us-east1`, install the Gemini Code Assist GitHub App for
+      this repository, and complete the Cloud-side repository link.
 - [ ] **[human-only] Connect Codex cloud review** — connect this repository in
       ChatGPT Codex settings, grant private-repository access if applicable,
       and confirm review activity is authored by GitHub actor ID `199175422`
@@ -132,9 +150,14 @@ environment — against the items below
       key, billed at pay-as-you-go API rates). Then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`
 - [ ] **SAST coverage** — this profile has no CodeQL workflow, so Semgrep CE runs
       in `build.yml` for public and private repositories. Add CodeQL later if the
-      repo gains supported first-party source: set `use_codeql=true`, select its
-      `codeql_languages`, and ensure it is public (free) or has paid GitHub Code
-      Security (private/internal).
+      repo gains supported first-party source: turn off GitHub's CodeQL Default
+      setup (**Settings → Advanced Security → CodeQL analysis**, or
+      `gh api --method PATCH repos/OWNER/REPO/code-scanning/default-setup -f state=not-configured`),
+      re-apply the template with `use_codeql=true` and the selected
+      `codeql_languages` (then, if Default setup had disabled an existing CodeQL
+      workflow, re-enable it via **Actions → CodeQL → "Enable workflow"** or
+      `gh workflow enable codeql.yml`), and ensure the repository is public
+      (free) or has paid GitHub Code Security (private/internal).
 - [ ] **Choose the Snyk posture** — the default is manual/local only via
       `task security:sast:snyk` and `task security:sca:snyk`; it is not part of
       `task security` or required PR CI. Free private-repository tests share the
@@ -149,6 +172,14 @@ environment — against the items below
       correctly. The workflow is advisory and never a required PR check.
 - [ ] **Create** the CI GitHub App `evanharmon1-ci` by hand (one App per org;
       **Settings → Developer settings → GitHub Apps**), or reuse the org's existing one.
+- [ ] **[human-only] Confirm CI GitHub App permissions** — the App must grant
+      **Checks: Read-only**, **Commit statuses: Read-only**, and
+      **Actions: Read-only** for
+      claude-implement's `gh pr checks`. For an existing App, update its
+      **Permissions & events** and accept the new permissions on **every
+      installation**; until then, `create-github-app-token` fails and
+      claude-implement cannot start. See
+      [architecture/security.md](architecture/security.md#ci-automation-identity-github-app).
 - [ ] **Install** the App on this repo — **Install App → Only select repositories**
       (the harmon-init repos that run release-please / claude-* / project-automation),
       **not "All"**. **Creating the App is not enough:** an App whose credentials are
@@ -215,7 +246,8 @@ environment — against the items below
       re-reads them, and only then allows `--prune` to remove zero-association
       retired labels.
 - [ ] Labels: run `task setup:github-labels` to seed this repo's starter label
-      families from `label-registry.json`      (see the generated taxonomy table in
+      families from `label-registry.json`
+      (see the generated taxonomy table in
       [project-management.md](project-management.md)) — grow `domain:` values
       there as the product's own problem-space vocabulary and `area:` values as
       its solution-space subsystems; both starter lists are a floor. `layer:`

@@ -1034,7 +1034,7 @@ deliberately leaves it alone.
 | `human` | whoever files or triages the issue, human or agent; triage may remove it only when the issue no longer qualifies (non-collector, no [HUMAN] majority, agent-completable) | humans, saved views; agents, to skip dispatch | provisioned; inert | applied while completion is primarily a human's; removed once the issue's remaining completion is no longer primarily a human's |
 | `needs-triage` | people, agents and the issue forms add it at filing; after that the triage skill and the GitHub Actions classification reconciler maintain it (derived: added while classification is incomplete, removed once it is complete) | humans, the Triage view | provisioned; inert | a new issue that is not fully classified starts with it (people, agents and the issue forms add it at filing); after that it is derived and never cleared by hand |
 | `needs-requirements`, `blocked`, `waiting`, `needs-decision`, `needs-response`, `needs-communication` | humans, at triage | humans, the Triage view | provisioned; inert | transient — removed as soon as the state clears |
-| `needs-review` | the integration stage, at ready-for-review; humans | humans, the review list; the agent queue, which excludes it | provisioned; inert | added at ready-for-review, when `claim:*` is removed; removed if review pulls the work back into fix rounds |
+| `needs-review` | agents tracking review work they still owe | humans, the review list; the agent queue, which excludes it | provisioned; inert | added when an agent owes review work on the issue's delivery PR; removed when it owes none (handoff to a human for review or merge), when review pulls work back into fix rounds (the claim takes over), when the issue closes, or when the delivery PR ends (merged into any branch or closed unmerged) |
 | `bug`, `feature`, `task`, `research` | the issue forms on personal-account repos; humans or agents at triage | humans, saved views | provisioned; inert | durable classification — org repos use native issue Type and no work-type label |
 | `documentation` | GitHub ships it at repo creation; humans or agents apply it at triage | humans, saved views | not provisioned — a GitHub repo-creation default adopted into the work-type vocabulary | durable classification — org repos use native issue Type and no work-type label |
 | `question` | GitHub ships it at repo creation; humans or agents apply it at triage | humans, saved views | not provisioned — a GitHub repo-creation default adopted into the work-type vocabulary | durable classification — org repos use native issue Type and no work-type label |
@@ -1089,6 +1089,7 @@ The tables below are **generated** from that file — `task test:registry-docs`
 regenerates them and fails on any difference, so they cannot drift from what
 provisioning actually creates. Model-level labels are created on demand rather
 than seeded.
+
 **Foreman is not enabled in this repository.** The harness table below still
 carries a *Foreman adapter* column because it is rendered from the shared
 registry, which describes the platform's agent vocabulary rather than any one
@@ -1135,12 +1136,26 @@ no separate, verified effort
 setting is recorded. Numeric token budgets and on/off switches are not mapped
 onto the ladder, and aliases that collapse onto another level add no rung.
 
-The following documentation was checked on **2026-10-10**. The existing
-`claude-code`, `claude-code-action` and `codex-cli` lists remain as previously
-verified; the checks below establish the other entries' status. GLM remains
+The provider documentation below was checked on **2026-10-10**. The existing
+`claude-code` and `claude-code-action` lists remain as previously verified.
+The `codex-cli` evidence combines the **2026-10-18** catalog and status-line
+observations with the `GPT-6.1-Sol high` status-line readout from **2026-10-25**
+and a **2026-10-27** check of the `/model` picker.
+The other checks establish the remaining entries' status. GLM remains
 unverified for Anthropic effort pass-through; hosted Qwen and MiniMax remain
 unverified for the models their wrappers resolve:
 
+- **`codex-cli`**: CLI **0.163.0** (observed 2026-10-18) has a model catalog
+  (each model's supported reasoning levels) listing `max` for `gpt-6.1-sol`,
+  `gpt-6-sol`, `gpt-6-astra` and `gpt-6-luna`.
+  Some models also list `ultra`, which is outside this registry's ladder.
+  Codex lanes showed `GPT-6-Luna max` and `GPT-6.1-Sol low` in the TUI status
+  line on 2026-10-18. A lane whose effort was set to high in the
+  `/model` picker showed `GPT-6.1-Sol high · Context 57% left` on 2026-10-25.
+  A 2026-10-27 check of the `/model` picker on Codex CLI **0.163.0** showed
+  `max` for `gpt-5.6-terra` (Terra 5.6; catalog listing; take-effect not probed).
+  Availability depends on the selected model: a model whose catalog entry lacks
+  `max` does not offer it.
 - **`claude-code-deepseek`**: DeepSeek's [thinking-mode reference](https://api-docs.deepseek.com/guides/thinking_mode/)
   documents Anthropic `output_config.effort` with distinct `low`, `high` and
   `max` levels, covering the launcher's configured `deepseek-v4-pro` /
@@ -1295,7 +1310,7 @@ provisions the vocabulary.
 | `glm` | GLM | `glm` 5.3 (retired 5.2), `flash` 5.3 (retired 4.7) |
 | `kimi` | Kimi | `k` 3 |
 | `minimax` | MiniMax | `m` 3 |
-| `gemini` | Gemini | `pro` 3.1, `flash` 3.8 (retired 3.7, 3.6), `flash-lite` 3.5 |
+| `gemini` | Gemini | `pro` 3.1, `flash` 3.8 (retired 3.7, 3.6), `argon` 4, `flash-lite` 3.5 |
 | `mistral` | Mistral | `medium` 3.5, `small` 4, `devstral-small` 2 |
 
 `Model selected by` values:
@@ -1319,7 +1334,7 @@ Effort ladder: `minimal` < `low` < `medium` < `high` < `xhigh` < `max`.
 | `claude-code-minimax` | Claude Code provider wrapper | `minimax` | — | `provider-wrapper` | — |
 | `claude-code-qwen` | Claude Code provider wrapper | `qwen` | — | `provider-wrapper` | — |
 | `claude-code-qwen-local` | Claude Code provider wrapper | `qwen` | — | `provider-wrapper` | — |
-| `codex-cli` | OpenAI Codex CLI | `gpt` | `codex-cli` — production, not dispatchable, no label | `runner-config` | `minimal`, `low`, `medium`, `high`, `xhigh` |
+| `codex-cli` | OpenAI Codex CLI | `gpt` | `codex-cli` — production, not dispatchable, no label | `runner-config` | `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `copilot-cli` | GitHub Copilot CLI | any (multi-provider; default `mai`) | — | `harness-runtime` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `qwen-code` | Qwen Code CLI | `qwen` | — | `runner-config` | `low`, `medium`, `high`, `xhigh`, `max` |
 | `antigravity` | Google Antigravity | `gemini` | — | `harness-runtime` | — |
@@ -1461,7 +1476,8 @@ path.
 **Sender-gated.** The mention only counts from a login on the workflow's
 authorized-sender allowlist (the `claude_authorized_members` answer). The
 answer is not the whole list: the review workflow additionally authorizes
-`renovate[bot]` and `dependabot[bot]` as senders, so their update PRs can request
+`renovate[bot]` and `dependabot[bot]` and
+`coderabbitai[bot]` as senders, so their update PRs can request
 their own reviews — treat those fixed bot principals as part of the trust
 surface when auditing. The allowlist is checked twice — in the job `if:`, and
 again in a token-free step that re-asserts it *before* any App token is
@@ -1847,13 +1863,19 @@ view**). Keep the saved set small; **slice the one board** (below) for the rest.
   and sorts by `Priority`, then `Priority (AI)`. On a personal account both
   priority families are labels and share the single Labels column, where both
   priority labels appear, so it shows that column and is read by effective
-  priority (a view cannot sort by a label). It lists what awaits the
-  maintainer: the integration stage adds `needs-review` at ready-for-review and
-  removes it if review pulls the work back into fix rounds. Until that writer
-  ships (harmon-devkit#1255, with a skills-pin bump), add `needs-review` by hand
-  at hand-off (and remove it by hand if review sends the work back into fix
-  rounds), or a handed-off issue (its claim released) shows in the Agent queue
-  again.
+  priority (a view cannot sort by a label). It lists delivery PRs on which an
+  agent still owes review triggers, responses, fixes, or adjudications. The
+  marker clears when the agent owes none, including handoff to a human for
+  review or merge, or when work returns to fix rounds and the claim takes over.
+  Until the vendored `integrate` skill picks up harmon-devkit#1608, its
+  ready-for-review handoff still adds `needs-review`. Leave that label in place:
+  the terminal cleanup below clears it when the PR ends, and removing it earlier
+  would put the issue back in the Agent queue while its PR waits on a human.
+  It also clears when the issue closes or the delivery PR ends (merged into
+  any branch or closed unmerged). A PR waiting on a human uses `merge-ready`
+  or `parked`, not `needs-review`; harmon-init#1787 tracks provisioning those labels. The close-event
+  workflow calls the vendored cleanup helper independently of claim release;
+  an absent helper is a runtime no-op.
 - **Planning** — table, grouped by **`Product`** (or `Type`, on an organization), sorted by
   `Priority` (organization only, as above). The "what's the plan" view, and a
   **dates-free roadmap substitute**: grouping by product shows the pile behind
