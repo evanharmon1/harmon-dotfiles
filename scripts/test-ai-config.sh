@@ -140,6 +140,42 @@ jq -e --argjson expected "$gh_excluded_commands" \
     "$claude_settings_managed" >/dev/null ||
     fail "enforced Claude settings must keep the exact list without broad or token-capable gh patterns"
 
+# Match command prefixes, not just forbidden rule spellings: a broad rule
+# such as gh run:* also approves gh run download and must fail this check.
+jq -e '
+    def gh_prefix:
+        select(startswith("Bash(gh"))
+        | ltrimstr("Bash(") | rtrimstr(")") | sub(":\\*$"; "") | sub(" \\*$"; "");
+    [.permissions.allow[] | gh_prefix] as $allowed
+    | ["gh alias", "gh extension", "gh ext", "gh config", "gh release",
+       "gh run download", "gh pr checkout", "gh issue develop"] as $forbidden
+    | all($allowed[]; . as $prefix
+        | all($forbidden[]; (. == $prefix or startswith($prefix + " ")) | not))
+    and (.permissions.ask | index("Bash(gh pr merge)") != null
+        and index("Bash(gh pr merge:*)") != null)
+' "$claude_settings_managed" >/dev/null ||
+    fail "gh allow prefixes must match exclusions, reject unsafe commands and preserve merge prompts"
+
+# Preserve exact matches: gh auth status is reviewed, but its --show-token
+# option must not inherit approval through a prefix rule.
+gh_match_parity='
+    [.permissions.allow[] | select(startswith("Bash(gh"))
+        | ltrimstr("Bash(") | rtrimstr(")") | sub(":\\*$"; " *")]
+    | unique | sort
+    | . == ($settings.sandbox.excludedCommands | unique | sort)
+'
+jq -e '. as $settings | '"$gh_match_parity" "$claude_settings_managed" >/dev/null ||
+    fail "gh allow match types must exactly match sandbox exclusions"
+for token_rule in 'Bash(gh auth status:*)' 'Bash(gh auth status *)'; do
+    jq --arg rule "$token_rule" '
+        .permissions.allow |= map(if . == "Bash(gh auth status)" then $rule else . end)
+    ' "$claude_settings_managed" >"$test_tmp/claude-token-prefix.json"
+    if jq -e '. as $settings | '"$gh_match_parity" \
+        "$test_tmp/claude-token-prefix.json" >/dev/null; then
+        fail "gh match parity accepted token-capable rule $token_rule"
+    fi
+done
+
 # Use the real host OS render, without overriding chezmoi's platform data.
 claude_settings="$claude_settings_managed"
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -158,7 +194,7 @@ fi
 jq -e '.remoteControlAtStartup == true' "$claude_settings" >/dev/null ||
     fail "Claude must start Remote Control with every session"
 # The sandbox stays enabled. Only the reviewed gh subcommands are excluded on
-# macOS; Bash(gh:*) allows those exact commands without a prompt.
+# macOS; matching allow prefixes approve only those reviewed commands.
 jq -e '.sandbox.enabled == true' "$claude_settings" >/dev/null ||
     fail "Claude must enable the Bash sandbox by default"
 jq -e '.inputNeededNotifEnabled == true' "$claude_settings" >/dev/null ||
