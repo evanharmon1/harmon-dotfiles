@@ -151,12 +151,30 @@ jq -e '
        "gh run download", "gh pr checkout", "gh issue develop"] as $forbidden
     | all($allowed[]; . as $prefix
         | all($forbidden[]; (. == $prefix or startswith($prefix + " ")) | not))
-    and (($allowed | unique | sort)
-        == ([.sandbox.excludedCommands[] | sub(" \\*$"; "")] | unique | sort))
     and (.permissions.ask | index("Bash(gh pr merge)") != null
         and index("Bash(gh pr merge:*)") != null)
 ' "$claude_settings_managed" >/dev/null ||
     fail "gh allow prefixes must match exclusions, reject unsafe commands and preserve merge prompts"
+
+# Preserve exact matches: gh auth status is reviewed, but its --show-token
+# option must not inherit approval through a prefix rule.
+gh_match_parity='
+    [.permissions.allow[] | select(startswith("Bash(gh"))
+        | ltrimstr("Bash(") | rtrimstr(")") | sub(":\\*$"; " *")]
+    | unique | sort
+    | . == ($settings.sandbox.excludedCommands | unique | sort)
+'
+jq -e '. as $settings | '"$gh_match_parity" "$claude_settings_managed" >/dev/null ||
+    fail "gh allow match types must exactly match sandbox exclusions"
+for token_rule in 'Bash(gh auth status:*)' 'Bash(gh auth status *)'; do
+    jq --arg rule "$token_rule" '
+        .permissions.allow |= map(if . == "Bash(gh auth status)" then $rule else . end)
+    ' "$claude_settings_managed" >"$test_tmp/claude-token-prefix.json"
+    if jq -e '. as $settings | '"$gh_match_parity" \
+        "$test_tmp/claude-token-prefix.json" >/dev/null; then
+        fail "gh match parity accepted token-capable rule $token_rule"
+    fi
+done
 
 # Use the real host OS render, without overriding chezmoi's platform data.
 claude_settings="$claude_settings_managed"
