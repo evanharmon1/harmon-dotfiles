@@ -301,14 +301,14 @@ check_classification_registry() {
         fail "$manifest family priority-ai must be a meta family writable by human and agent — a classification family would become a required triage axis, and the AI's suggestion is agent-written"
     local note
     for note in purpose trust_note; do
-        jq -r --arg k "$note" '.families[] | select(.family == "priority-ai") | .[$k]' "$manifest" | grep -Fq "AI's suggest" ||
+        jq -r --arg k "$note" '.families[] | select(.family == "priority-ai") | .[$k]' "$manifest" | grep -F "AI's suggest" >/dev/null ||
             fail "$manifest family priority-ai $note must say it is the AI's suggestion"
     done
     for note in purpose lifecycle_note trust_note; do
-        jq -r --arg k "$note" '.families[] | select(.family == "priority-ai") | .[$k]' "$manifest" | grep -Fq 'overrid' ||
+        jq -r --arg k "$note" '.families[] | select(.family == "priority-ai") | .[$k]' "$manifest" | grep -F 'overrid' >/dev/null ||
             fail "$manifest family priority-ai $note must state that the human priority family overrides it"
     done
-    jq -r '.families[] | select(.family == "priority-ai") | .trust_note' "$manifest" | grep -Fq 'arms nothing' ||
+    jq -r '.families[] | select(.family == "priority-ai") | .trust_note' "$manifest" | grep -F 'arms nothing' >/dev/null ||
         fail "$manifest family priority-ai trust_note must state that it arms nothing"
 
     # none = inapplicable, on exactly the three taxonomy families.
@@ -329,7 +329,7 @@ check_classification_registry() {
         fail "$manifest tier:pinned must be human-only"
     [ "$(jq -r '.families[] | select(.family == "tier") | .values[] | select(.value == "adaptive") | "\(.retired) \(.lifecycle_note | length > 0)"' "$manifest")" = "true true" ] ||
         fail "$manifest tier:adaptive must be retired with a migration note"
-    if jq -r '.families[] | select(.family == "tier") | [.writer_note, .readers, .lifecycle_note] | .[]' "$manifest" | grep -qi 'never an agent on itself'; then
+    if jq -r '.families[] | select(.family == "tier") | [.writer_note, .readers, .lifecycle_note] | .[]' "$manifest" | grep -i 'never an agent on itself' >/dev/null; then
         fail "$manifest tier family still says agents never write it — the derived Tier cache is agent-written (ADR 2026-09-30 D4)"
     fi
     for fam in tier-role rigor strategy; do
@@ -345,11 +345,11 @@ check_classification_registry() {
     [ "$(jq -r '.families[] | select(.family == "claim") | "\(.retired // false) \(.provision) \(.source) \(.registry_set)"' "$manifest")" = "false true agent-registry claim" ] ||
         fail "$manifest family claim must be untouched: live, provisioned, rendered from the agent registry"
 
-    # workflow:needs-review — human and agent writable, transient hand-off marker.
-    [ "$(jq -c '.families[] | select(.family == "workflow") | .values[] | select(.value == "needs-review") | [.description, .writers, (.lifecycle_note | length > 0)]' "$manifest")" = '["PR ready for human review; out of the agent queue",["human","agent"],true]' ] ||
-        fail "$manifest workflow:needs-review is missing or does not match the maintainer decision (human+agent writers, lifecycle note, queue-exclusion description)"
+    # workflow:needs-review — human and agent writable, transient agent review work.
+    [ "$(jq -c '.families[] | select(.family == "workflow") | .values[] | select(.value == "needs-review") | [.description, .writers, (.lifecycle_note | length > 0)]' "$manifest")" = '["An agent still owes review work on the delivery PR",["human","agent"],true]' ] ||
+        fail "$manifest workflow:needs-review is missing or does not match the maintainer decision (human+agent writers, lifecycle note, agent-review-work description)"
     [ "$(jq -r '.families[] | select(.family == "workflow") | .lifecycle' "$manifest")" = transient ] ||
-        fail "$manifest workflow family must stay transient (needs-review is added at ready-for-review and removed on pull-back)"
+        fail "$manifest workflow family must stay transient (needs-review tracks outstanding agent review work)"
 
     # human-work:human — human and agent writers, primarily a human's completion
     [ "$(jq -r '.families[] | select(.family == "human-work") | .purpose' "$manifest")" = "Work whose completion is primarily a human's, kept off the agent dispatch path." ] ||
@@ -497,7 +497,7 @@ waiting|E36209|Waiting on an external party
 needs-decision|E36209|Needs a decision before it can proceed
 needs-response|E36209|Awaiting a response
 needs-communication|E36209|An update needs to be communicated out
-needs-review|E36209|PR ready for human review; out of the agent queue
+needs-review|E36209|An agent still owes review work on the delivery PR
 bug|D73A4A|Something isn't working
 feature|A2EEEF|New feature or request
 task|6E7781|General work: maintenance, chores, cleanup

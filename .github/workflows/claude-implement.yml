@@ -23,9 +23,9 @@ jobs:
       (github.event.sender.login == 'evanharmon1' || github.event.sender.login == 'evanharmon1-bot' || github.event.sender.login == 'admiralfraggle' || github.event.sender.login == 'admiralfraggle-bot') &&
       (contains(github.event.comment.body, '@claude implement') ||
        contains(github.event.review.body, '@claude implement'))
-    # Runner switch: CI_RUNS_ON repo/org variable unset -> the rendered
-    # default; set it to a JSON runner spec to override without a commit.
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    # Isolated placement never inherits CI_RUNS_ON or a self-hosted default.
+    # Override only with a disposable-host pool, encoded as JSON.
+    runs-on: ${{ fromJSON(vars.ISOLATED_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 360
     # Serialize every claim-bearing run on one target. Acquiring a claim is a
     # read-then-add, so two runs that read "unclaimed" in the same instant
@@ -158,9 +158,9 @@ jobs:
           acquired=true
           echo "acquired=$acquired" >>"$GITHUB_OUTPUT"
       # The narrow token Claude reaches via git/gh: push commits (contents), open
-      # PRs (pull-requests), comment (issues) — nothing more, and minted only
-      # AFTER the sender is authorized. It lacks workflows:write, so a push that
-      # edits .github/workflows/ is rejected by GitHub, keeping a prompt-injected
+      # PRs (pull-requests), comment (issues), and watch CI (checks/statuses/actions read).
+      # Minted only AFTER the sender is authorized. It lacks workflows:write,
+      # so a push that edits .github/workflows/ is rejected by GitHub, keeping a prompt-injected
       # run from rewriting CI.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
@@ -170,6 +170,9 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-issues: write
+          permission-checks: read
+          permission-statuses: read
+          permission-actions: read
       # Exception to the repo-wide `persist-credentials: false` hardening:
       # this checkout deliberately persists the short-lived narrow CI App token
       # for two reasons. Claude's `git push` of the working branch needs it to
@@ -220,7 +223,7 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Default-branch helper unavailable; running only the primary Claude action."
           fi
-      - uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
+      - uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1.0.262
         id: claude-primary
         continue-on-error: true
         # Step-level cap. A JOB timeout kills the runner outright and the
@@ -245,9 +248,15 @@ jobs:
           base_branch: main
           branch_prefix: claude/
           branch_name_template: "{{prefix}}issue-{{entityNumber}}-{{description}}-{{sha}}"
-          # --max-budget-usd caps API-key spend; likely a no-op under
-          # CLAUDE_CODE_OAUTH_TOKEN (subscription) billing. Real runaway guards
-          # are timeout-minutes (job- and step-level) and --max-turns.
+          # --max-budget-usd is ENFORCED under CLAUDE_CODE_OAUTH_TOKEN
+          # (subscription) billing too, at list prices: a review of a
+          # spec-sized PR cached 771k input tokens on Opus in one turn
+          # ($6.18) and stopped at the old review cap of 6
+          # (ponderousdev/omator#1494, 2026-10-15). Budgets since then:
+          # review 40, plan 40, implement 50; review and plan at --effort xhigh,
+          # implement at --effort medium.
+          # timeout-minutes (job- and step-level) and --max-turns remain
+          # the runaway guards.
           # --allowedTools grants the file-editing tools plus a SCOPED Bash
           # allowlist (space-separated `Bash(cmd *)` form per the Claude Code
           # settings reference): the project runners, git, gh, and read-only
@@ -272,7 +281,7 @@ jobs:
           # allowlist below uses. A deny rule that matches nothing is worse than
           # none — it reads as a control while allowing the command outright.
           claude_args: >-
-            --model opus --effort high --max-budget-usd 25 --max-turns 200
+            --model opus --effort medium --max-budget-usd 50 --max-turns 200
             --disallowedTools "Bash(gh pr ready)" "Bash(gh pr ready:*)" "Bash(gh pr ready *)"
             --allowedTools "Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite,Bash(task *),Bash(pnpm *),Bash(npx *),Bash(node *),Bash(git *),Bash(gh *),Bash(cd *),Bash(ls *),Bash(cat *),Bash(head *),Bash(tail *),Bash(grep *),Bash(rg *),Bash(find *),Bash(sed *),Bash(awk *),Bash(jq *),Bash(wc *),Bash(sort *),Bash(diff *),Bash(echo *),Bash(mkdir *),Bash(cp *),Bash(mv *),Bash(which *),Bash(pwd)"
           # yamllint enable rule:line-length
@@ -367,7 +376,7 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Default-branch helper unavailable for this step."
           fi
-      - uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
+      - uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1.0.262
         id: claude-alternate
         if: ${{ !cancelled() && success() && steps.claude-cleanup.outputs.available == 'true' && steps.claude-helper.outputs.available == 'true' && steps.claude-primary-result.outputs.retry == 'true' }}
         continue-on-error: true
@@ -385,9 +394,15 @@ jobs:
           base_branch: main
           branch_prefix: claude/
           branch_name_template: "{{prefix}}issue-{{entityNumber}}-{{description}}-{{sha}}"
-          # --max-budget-usd caps API-key spend; likely a no-op under
-          # CLAUDE_CODE_OAUTH_TOKEN (subscription) billing. Real runaway guards
-          # are timeout-minutes (job- and step-level) and --max-turns.
+          # --max-budget-usd is ENFORCED under CLAUDE_CODE_OAUTH_TOKEN
+          # (subscription) billing too, at list prices: a review of a
+          # spec-sized PR cached 771k input tokens on Opus in one turn
+          # ($6.18) and stopped at the old review cap of 6
+          # (ponderousdev/omator#1494, 2026-10-15). Budgets since then:
+          # review 40, plan 40, implement 50; review and plan at --effort xhigh,
+          # implement at --effort medium.
+          # timeout-minutes (job- and step-level) and --max-turns remain
+          # the runaway guards.
           # --allowedTools grants the file-editing tools plus a SCOPED Bash
           # allowlist (space-separated `Bash(cmd *)` form per the Claude Code
           # settings reference): the project runners, git, gh, and read-only
@@ -412,7 +427,7 @@ jobs:
           # allowlist below uses. A deny rule that matches nothing is worse than
           # none — it reads as a control while allowing the command outright.
           claude_args: >-
-            --model opus --effort high --max-budget-usd 25 --max-turns 200
+            --model opus --effort medium --max-budget-usd 50 --max-turns 200
             --disallowedTools "Bash(gh pr ready)" "Bash(gh pr ready:*)" "Bash(gh pr ready *)"
             --allowedTools "Edit,MultiEdit,Write,Read,NotebookEdit,Glob,Grep,LS,TodoWrite,Bash(task *),Bash(pnpm *),Bash(npx *),Bash(node *),Bash(git *),Bash(gh *),Bash(cd *),Bash(ls *),Bash(cat *),Bash(head *),Bash(tail *),Bash(grep *),Bash(rg *),Bash(find *),Bash(sed *),Bash(awk *),Bash(jq *),Bash(wc *),Bash(sort *),Bash(diff *),Bash(echo *),Bash(mkdir *),Bash(cp *),Bash(mv *),Bash(which *),Bash(pwd)"
           # yamllint enable rule:line-length

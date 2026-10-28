@@ -68,16 +68,26 @@ tasks:
       - task: test:suite
       - task: test
 
+  ci:repo-guards:
+    # CI-only aggregate: verify lists its offline members separately.
+    # The workflow parity step stays outside this task so it can guard the suite call.
+    desc: Repository instruction audit and test suite, plus skills drift
+    cmds:
+      - task: audit:agent-instructions
+      - task: test:suite
+      - task: verify:skills
+
   test:suite:
     # The ONE list of `test:*` targets that both `verify` and the required Build
-    # workflow's `lint` job run (build.yml calls this task in a single step), so
+    # workflow's `repo-guards` job run (through ci:repo-guards), so
     # the two cannot drift and nothing parses the workflow to police them.
     # A new `test:*` guard that belongs in the gate is added HERE and nowhere
     # else; `test:verify-ci-parity` fails if either caller stops running it.
     # Not in this list: `build`, `validate` and `test` (the project's own tiers
     # — CI runs them in their own job) and the `ci`-only checks.
-    desc: The test:* targets verify and the Build workflow's lint job both run
-    cmds:
+    # Members run concurrently: each must confine filesystem and Git writes to its own mktemp fixture and bind no port.
+    desc: The test:* targets verify and the Build workflow's repo-guards job both run (members run in parallel; set TASK_CONCURRENCY=1 for serial execution)
+    deps:
       - task: test:agent-instructions-size
       - task: test:agent-skill-links
       - task: test:agent-registry
@@ -86,11 +96,13 @@ tasks:
       - task: test:registry-docs
       - task: test:label-registry
       - task: test:tasks
+      - task: test:grep-q-pipes
       - task: test:ci-results
       - task: test:ai-config
       - task: test:render-templates
       - task: test:chezmoi-targets
       - task: test:claude-config
+      - task: test:ci-changes-classify
       - task: test:output
       - task: test:status
       - task: test:gh-scopes
@@ -115,7 +127,7 @@ tasks:
   check:
     # Fast local gate (target: well under a minute) — safe for editors, git
     # hooks, and AI agents to run on every change without getting bogged down.
-    desc: Fast local gate — all linters (parallel)
+    desc: Fast local gate — all linters (and TypeScript checking when enabled), in parallel (set TASK_CONCURRENCY=1 for serial execution)
     deps:
       - lint
 
@@ -257,6 +269,15 @@ tasks:
     cmds:
       - ./scripts/sync-devkit-release.sh run {{.CLI_ARGS}}
 
+  groom:
+    desc: "Run the groom skill's backlog audit, or apply an approved plan (usage: task groom [-- [note] | -- --execute <script> [args...]])"
+    interactive: true
+    preconditions:
+      - sh: test -x .claude/skills/groom/assets/groom.sh
+        msg: "groom skill is not vendored (.claude/skills/groom/assets/groom.sh missing) — add the 'universal' category in .skills-sync.yaml and run 'task sync:skills' (task groom expects the default skills dest, .claude/skills)"
+    cmds:
+      - ./.claude/skills/groom/assets/groom.sh {{.CLI_ARGS}}
+
   format:
     desc: Auto-format code
     cmds:
@@ -353,10 +374,20 @@ tasks:
     cmds:
       - ./scripts/test-tasks.sh
 
+  test:grep-q-pipes:
+    desc: Reject printf/echo pipelines into early-exiting grep
+    cmds:
+      - ./scripts/test-grep-q-pipes.sh
+
   test:verify-ci-parity:
     desc: Fail if the Build workflow stops calling test:suite or verify stops running it
     cmds:
       - ./scripts/test-verify-ci-parity.sh
+
+  test:ci-changes-classify:
+    desc: Unit-test the fail-closed docs-only CI classifier
+    cmds:
+      - ./scripts/test-ci-changes-classify.sh
 
   test:ci-results:
     desc: Unit-test CI aggregate and closing-keyword fail-closed truth tables
@@ -425,7 +456,7 @@ tasks:
       - ./scripts/test-release-title.sh
 
   test:claim-release-merged:
-    desc: Unit-test merged-PR claim release (offline, stubbed gh and release engine)
+    desc: Unit-test terminal delivery claim release and review cleanup (offline, stubbed gh)
     cmds:
       - ./scripts/test-claim-release-merged.sh
 
@@ -600,9 +631,9 @@ tasks:
   install:
     desc: Install all project dependencies and tools
     cmds:
-      # Use THIS repo's Brewfile by absolute path (never a user/global one), and
-      # don't cascade-upgrade unrelated already-installed brew dependents.
-      - HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 brew bundle --file={{.ROOT_DIR}}/.Brewfile
+      # This repo's .Brewfile; skip only when the harmon toolchain manifest is present.
+      # An ordinary host without Homebrew fails with setup instructions.
+      - ./scripts/install-brewfile.sh
       - task: install:hooks
 
   install:hooks:
@@ -628,7 +659,8 @@ tasks:
       REPO: "evanharmon1/harmon-dotfiles"
     cmds:
       - >-
-        ./scripts/setup-github.sh --repo "{{.REPO}}" --ci-runs-on '"ubuntu-latest"'
+        ./scripts/setup-github.sh --repo "{{.REPO}}" --ci-runs-on '"ubuntu-latest"' {{.CLI_ARGS}}
+
   setup:github-project:
     desc: >-
       Idempotently create/sync the owner's GitHub Project V2 board + Status

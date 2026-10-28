@@ -93,7 +93,7 @@ same `task` targets as local hooks.
 
 | Workflow | Purpose |
 |---|---|
-| `build.yml` | lint, security → aggregate `verify` gate |
+| `build.yml` | check, repo-guards, security → aggregate `verify` gate |
 | `claude-plan/implement/review.yml` | Mention-only: an `@claude` mention naming `plan`/`implement`/`review` from an authorized sender; each run holds `claim:claude` |
 | `release.yml` | release-please maintains a release PR; merging it cuts the release |
 
