@@ -136,6 +136,62 @@ fail() {
     exit 1
 }
 
+echo "==> deployed Claude hooks are compared with isolated chezmoi sources"
+hook_root="${TMP}/claude-hook-status"
+hook_status="${hook_root}/scripts/status.sh"
+mkdir -p "${hook_root}/scripts/lib" "${hook_root}/private_dot_claude/hooks"
+cp "${status}" "${hook_status}"
+cp "${scopes_lib}" "${hook_root}/scripts/gh-scopes.sh"
+cp "${output_lib}" "${hook_root}/scripts/lib/output.sh"
+cp "${rest_lib}" "${hook_root}/scripts/lib/gh-rest.sh"
+printf 'current guard\n' >"${hook_root}/private_dot_claude/hooks/executable_git-merge-guard.py"
+printf 'current helper\n' >"${hook_root}/private_dot_claude/hooks/executable_helper.sh"
+
+matching_home="${TMP}/claude-home-matching"
+mkdir -p "${matching_home}/.claude/hooks"
+cp "${hook_root}/private_dot_claude/hooks/executable_git-merge-guard.py" \
+    "${matching_home}/.claude/hooks/git-merge-guard.py"
+cp "${hook_root}/private_dot_claude/hooks/executable_helper.sh" \
+    "${matching_home}/.claude/hooks/helper.sh"
+matching_out="$(HOME="${matching_home}" TMPDIR="${TMP}" NO_COLOR=1 "${hook_status}" env 2>&1)" ||
+    fail "status.sh env failed with matching deployed hooks: ${matching_out}"
+case "${matching_out}" in
+*"Deployed Claude hooks"*"all 2 managed hooks match"*) ;;
+*) fail "matching deployed hooks were not reported current: ${matching_out}" ;;
+esac
+
+drift_home="${TMP}/claude-home-drift"
+mkdir -p "${drift_home}/.claude/hooks"
+printf 'old guard\n' >"${drift_home}/.claude/hooks/git-merge-guard.py"
+printf 'local only\n' >"${drift_home}/.claude/hooks/unmanaged.sh"
+drift_out="$(HOME="${drift_home}" TMPDIR="${TMP}" NO_COLOR=1 "${hook_status}" env 2>&1)" ||
+    fail "status.sh env failed with drifted deployed hooks: ${drift_out}"
+case "${drift_out}" in
+*"Deployed Claude hook git-merge-guard.py"*"stale: differs from its chezmoi source"*) ;;
+*) fail "stale deployed hook content was not reported: ${drift_out}" ;;
+esac
+case "${drift_out}" in
+*"Deployed Claude hook helper.sh"*"missing from ~/.claude/hooks"*) ;;
+*) fail "a missing deployed hook was not reported: ${drift_out}" ;;
+esac
+case "${drift_out}" in
+*"Unmanaged deployed Claude hook unmanaged.sh"*"no matching chezmoi source"*) ;;
+*) fail "a deployed hook without a source was not reported: ${drift_out}" ;;
+esac
+
+absent_home="${TMP}/claude-home-not-deployed"
+mkdir -p "${absent_home}"
+absent_out="$(HOME="${absent_home}" TMPDIR="${TMP}" NO_COLOR=1 "${hook_status}" env 2>&1)" ||
+    fail "status.sh env failed when Claude hooks are not deployed: ${absent_out}"
+case "${absent_out}" in
+*"Deployed Claude hooks"*"~/.claude/hooks is not present"*) ;;
+*) fail "an absent hooks directory was not treated as an un-deployed CI home: ${absent_out}" ;;
+esac
+case "${absent_out}" in
+*"missing from ~/.claude/hooks"*) fail "an absent hooks directory produced false missing-hook warnings: ${absent_out}" ;;
+esac
+echo "==> deployed Claude hook status fixtures OK"
+
 # make_stub SCENARIO — write $TMP/bin/gh answering `auth status` per SCENARIO.
 # Every other gh call returns an empty JSON array: status.sh reads pr/run lists
 # through jq, and a stub that failed them would exercise the wrong code path.

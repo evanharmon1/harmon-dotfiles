@@ -50,6 +50,16 @@ claude_enforced="$repo/.chezmoitemplates/claude-settings/enforced.json"
 claude_seeded="$repo/.chezmoitemplates/claude-settings/seeded.json"
 jq -e . "$claude_enforced" >/dev/null || fail "enforced Claude settings are not valid JSON"
 jq -e . "$claude_seeded" >/dev/null || fail "seeded Claude settings are not valid JSON"
+jq -e '
+    [.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+        | select(.type == "command" and (.command | contains("~/.claude/hooks/git-merge-guard.py")))
+        | .command] as $guards
+    | ($guards | length) == 1
+      and ($guards[0] | contains("[ -f \"$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" ]"))
+      and ($guards[0] | contains("python3 ~/.claude/hooks/git-merge-guard.py"))
+      and ($guards[0] | contains("git-merge-guard failed to run"))
+' "$claude_enforced" >/dev/null ||
+    fail "the user-level merge guard must defer to a project guard and keep its fail-closed fallback"
 # Each owner holds exactly its keys: an omission, or a security-relevant key
 # moved to the seeded (live-wins) file, fails here.
 [ "$(jq -c 'keys' "$claude_enforced")" = \
