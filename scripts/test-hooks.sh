@@ -784,7 +784,9 @@ import os
 with open(os.environ["MERGE_GUARD_CALLS"], "a", encoding="utf-8") as calls:
     calls.write("project\n")
 PY
-jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py"' \
+registered_project_fallback="|| printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"git-merge-guard failed to run\"}}'"
+registered_project_command="python3 \"\$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" $registered_project_fallback"
+jq -n --arg command "$registered_project_command" \
     '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
     >"$registered_project/.claude/settings.json"
 project_registered="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
@@ -810,6 +812,24 @@ project_output="$(invoke_registered_guard "$project_registered" "$registered_pro
 [ "$(cat "$guard_calls")" = project ] ||
     fail "expected only the registered project guard to decide, got: $(tr '\n' ' ' <"$guard_calls")"
 
+# The dotfiles project's source-path registration is also an exact, fail-closed
+# project guard and should suppress the user-level copy.
+source_registered_project="$tmpdir/source-path registered project"
+mkdir -p "$source_registered_project/.claude" "$source_registered_project/private_dot_claude/hooks"
+cp "$registered_project/.claude/hooks/git-merge-guard.py" \
+    "$source_registered_project/private_dot_claude/hooks/executable_git-merge-guard.py"
+source_project_command="python3 \"\$CLAUDE_PROJECT_DIR/private_dot_claude/hooks/executable_git-merge-guard.py\" $registered_project_fallback"
+jq -n --arg command "$source_project_command" \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$source_registered_project/.claude/settings.json"
+: >"$guard_calls"
+user_output="$(invoke_registered_guard "$user_registered" "$source_registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the user-level registration failed with the exact source-path project guard"
+project_output="$(invoke_registered_guard "$source_project_command" "$source_registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the exact source-path project registration failed"
+[ -z "$user_output" ] && [ -z "$project_output" ] && [ "$(cat "$guard_calls")" = project ] ||
+    fail "the exact source-path registration did not leave the project guard as the sole decider"
+
 # File presence without an active PreToolUse Bash registration must not
 # suppress the user-level guard. Check absent settings, the wrong matcher, and
 # a Bash registration for a different hook.
@@ -826,7 +846,7 @@ assert_user_guard_runs() { # project-dir reason
         fail "the user guard did not run for $reason (calls: $(tr '\n' ' ' <"$guard_calls"))"
 }
 assert_user_guard_runs "$unregistered_project" "an absent project settings file"
-jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py"' \
+jq -n --arg command "$registered_project_command" \
     '{hooks:{PreToolUse:[{matcher:"Edit",hooks:[{type:"command",command:$command}]}]}}' \
     >"$unregistered_project/.claude/settings.json"
 assert_user_guard_runs "$unregistered_project" "a guard command registered for Edit, not Bash"
@@ -834,6 +854,14 @@ jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/other-hook.py"' 
     '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
     >"$unregistered_project/.claude/settings.json"
 assert_user_guard_runs "$unregistered_project" "a Bash registration for a different hook"
+jq -n --arg command ': # git-merge-guard.py disabled' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a commented-out guard command"
+jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py" || true' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a fail-open guard command"
 
 # Without a project guard file, the user-level hook still runs.
 : >"$guard_calls"

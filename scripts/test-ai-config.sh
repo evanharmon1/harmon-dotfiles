@@ -59,6 +59,10 @@ jq -e '
       and ($guards[0] | contains("jq -e"))
       and ($guards[0] | contains("select(.matcher == \"Bash\")"))
       and ($guards[0] | contains("$CLAUDE_PROJECT_DIR/.claude/settings.json"))
+      and ($guards[0] | contains("project_guard_is_registered()"))
+      and ($guards[0] | contains(".command == $expected"))
+      and ($guards[0] | contains("private_dot_claude/hooks/executable_git-merge-guard.py"))
+      and ($guards[0] | contains("guard_fallback="))
       and ($guards[0] | contains("python3 ~/.claude/hooks/git-merge-guard.py"))
       and ($guards[0] | contains("git-merge-guard failed to run"))
 ' "$claude_enforced" >/dev/null ||
