@@ -810,6 +810,31 @@ project_output="$(invoke_registered_guard "$project_registered" "$registered_pro
 [ "$(cat "$guard_calls")" = project ] ||
     fail "expected only the registered project guard to decide, got: $(tr '\n' ' ' <"$guard_calls")"
 
+# File presence without an active PreToolUse Bash registration must not
+# suppress the user-level guard. Check absent settings, the wrong matcher, and
+# a Bash registration for a different hook.
+unregistered_project="$tmpdir/present but unregistered project"
+mkdir -p "$unregistered_project/.claude/hooks"
+cp "$registered_project/.claude/hooks/git-merge-guard.py" \
+    "$unregistered_project/.claude/hooks/git-merge-guard.py"
+assert_user_guard_runs() { # project-dir reason
+    local project_dir="$1" reason="$2" output
+    : >"$guard_calls"
+    output="$(invoke_registered_guard "$user_registered" "$project_dir" "$registered_home" "$guard_calls")" ||
+        fail "the user-level registration failed for $reason"
+    [ -z "$output" ] && [ "$(cat "$guard_calls")" = user ] ||
+        fail "the user guard did not run for $reason (calls: $(tr '\n' ' ' <"$guard_calls"))"
+}
+assert_user_guard_runs "$unregistered_project" "an absent project settings file"
+jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py"' \
+    '{hooks:{PreToolUse:[{matcher:"Edit",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a guard command registered for Edit, not Bash"
+jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/other-hook.py"' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a Bash registration for a different hook"
+
 # Without a project guard file, the user-level hook still runs.
 : >"$guard_calls"
 user_output="$(invoke_registered_guard "$user_registered" "$no_project_guard" "$registered_home" "$guard_calls")" ||

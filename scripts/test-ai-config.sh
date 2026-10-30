@@ -56,6 +56,9 @@ jq -e '
         | .command] as $guards
     | ($guards | length) == 1
       and ($guards[0] | contains("[ -f \"$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" ]"))
+      and ($guards[0] | contains("jq -e"))
+      and ($guards[0] | contains("select(.matcher == \"Bash\")"))
+      and ($guards[0] | contains("$CLAUDE_PROJECT_DIR/.claude/settings.json"))
       and ($guards[0] | contains("python3 ~/.claude/hooks/git-merge-guard.py"))
       and ($guards[0] | contains("git-merge-guard failed to run"))
 ' "$claude_enforced" >/dev/null ||

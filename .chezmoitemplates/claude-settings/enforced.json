@@ -176,7 +176,7 @@
           },
           {
             "type": "command",
-            "command": "if [ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" ]; then exit 0; fi; python3 ~/.claude/hooks/git-merge-guard.py || printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"git-merge-guard failed to run\"}}'"
+            "command": "if [ -n \"$CLAUDE_PROJECT_DIR\" ] && [ -f \"$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" ] && jq -e '[.hooks.PreToolUse[]? | select(.matcher == \"Bash\") | .hooks[]? | select(.type == \"command\" and (.command | type == \"string\") and (.command | contains(\"git-merge-guard.py\")))] | length > 0' \"$CLAUDE_PROJECT_DIR/.claude/settings.json\" >/dev/null 2>&1; then exit 0; fi; python3 ~/.claude/hooks/git-merge-guard.py || printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"git-merge-guard failed to run\"}}'"
           }
         ]
       }
