@@ -98,6 +98,59 @@ has_cred() {
     jq -e --arg n "$2" 'any(.[]; .name == $n)' "$1" >/dev/null 2>&1
 }
 
+# Compare the chezmoi-managed hook sources with the deployed user-level copies.
+# A missing ~/.claude/hooks directory is normal on CI and means there is no
+# deployment state to inspect. Once the directory exists, report drift in
+# either direction, including deployed files with no managed source.
+render_claude_hook_status() {
+    local hooks_dir="${HOME:-}/.claude/hooks" source deployed name cmp_status
+    local source_count=0 issue_count=0
+
+    if [ ! -d "$hooks_dir" ]; then
+        checkline na "Deployed Claude hooks" "~/.claude/hooks is not present"
+        return 0
+    fi
+
+    for source in "${REPO_ROOT}/private_dot_claude/hooks"/executable_*; do
+        [ -f "$source" ] || continue
+        source_count=$((source_count + 1))
+        name="${source##*/executable_}"
+        deployed="${hooks_dir}/${name}"
+        if [ ! -f "$deployed" ]; then
+            checkline no "Deployed Claude hook ${name}" "missing from ~/.claude/hooks"
+            issue_count=$((issue_count + 1))
+            continue
+        fi
+        if cmp -s "$source" "$deployed"; then
+            continue
+        else
+            cmp_status=$?
+        fi
+        if [ "$cmp_status" -eq 1 ]; then
+            checkline no "Deployed Claude hook ${name}" "stale: differs from its chezmoi source"
+        else
+            checkline unknown "Deployed Claude hook ${name}" "could not compare with its chezmoi source"
+        fi
+        issue_count=$((issue_count + 1))
+    done
+
+    for deployed in "${hooks_dir}"/*; do
+        [ -f "$deployed" ] || continue
+        name="${deployed##*/}"
+        source="${REPO_ROOT}/private_dot_claude/hooks/executable_${name}"
+        if [ ! -f "$source" ]; then
+            checkline unknown "Unmanaged deployed Claude hook ${name}" "no matching chezmoi source"
+            issue_count=$((issue_count + 1))
+        fi
+    done
+
+    if [ "$source_count" -eq 0 ]; then
+        checkline na "Deployed Claude hooks" "no managed hook sources in this checkout"
+    elif [ "$issue_count" -eq 0 ]; then
+        checkline ok "Deployed Claude hooks" "all ${source_count} managed hooks match"
+    fi
+}
+
 # One classification for requested, repository, and organization selectors.
 isolated_selector_state() {
     printf '%s\n' "$1" | jq -sr '
@@ -565,6 +618,8 @@ if should_show "env"; then
         else
             kv "Devcontainer" "not detected"
         fi
+
+        render_claude_hook_status
 
         # Image staleness — silent unless this container's image-baked config
         # has drifted from the checkout's .devcontainer/config/. It belongs on

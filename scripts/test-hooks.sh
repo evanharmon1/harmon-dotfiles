@@ -754,3 +754,143 @@ ln -s "$repo" "$tmpdir/spaced project dir"
 expect_registered ask "$tmpdir/spaced project dir" "$guard_fixture" "git merge feat"
 expect_registered silent "$tmpdir/spaced project dir" "$guard_fixture/wt" "git merge origin/main --no-edit"
 echo "==> git-merge-guard registration OK"
+
+echo "==> user-level merge guard defers only when a project guard is present"
+user_settings="$repo/.chezmoitemplates/claude-settings/enforced.json"
+user_guard_count="$(jq '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+    | select(.type == "command" and (.command | contains("~/.claude/hooks/git-merge-guard.py")))] | length' \
+    "$user_settings")"
+[ "$user_guard_count" = 1 ] || fail "expected exactly one user-level merge guard registration, got $user_guard_count"
+user_registered="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+    | select(.type == "command" and (.command | contains("~/.claude/hooks/git-merge-guard.py")))
+    | .command] | first // empty' "$user_settings")"
+[ -n "$user_registered" ] || fail "the user-level merge guard registration is missing"
+
+registered_project="$tmpdir/registered project"
+registered_home="$tmpdir/user home"
+no_project_guard="$tmpdir/no-project-guard"
+mkdir -p "$registered_project/.claude/hooks" "$registered_home/.claude/hooks" "$no_project_guard"
+guard_calls="$tmpdir/guard-calls"
+: >"$guard_calls"
+cat >"$registered_home/.claude/hooks/git-merge-guard.py" <<'PY'
+import os
+
+with open(os.environ["MERGE_GUARD_CALLS"], "a", encoding="utf-8") as calls:
+    calls.write("user\n")
+PY
+cat >"$registered_project/.claude/hooks/git-merge-guard.py" <<'PY'
+import os
+
+with open(os.environ["MERGE_GUARD_CALLS"], "a", encoding="utf-8") as calls:
+    calls.write("project\n")
+PY
+registered_project_fallback="|| printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"git-merge-guard failed to run\"}}'"
+registered_project_command="python3 \"\$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py\" $registered_project_fallback"
+jq -n --arg command "$registered_project_command" \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$registered_project/.claude/settings.json"
+project_registered="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+    | select(.type == "command" and (.command | contains("/.claude/hooks/git-merge-guard.py")))
+    | .command] | first // empty' "$registered_project/.claude/settings.json")"
+[ -n "$project_registered" ] || fail "the project fixture did not register its local merge guard"
+
+invoke_registered_guard() { # registration project-dir home-dir calls-file
+    local registration="$1" project_dir="$2" home_dir="$3" calls_file="$4"
+    printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"git merge feature"},"cwd":"/tmp"}' |
+        HOME="$home_dir" CLAUDE_PROJECT_DIR="$project_dir" MERGE_GUARD_CALLS="$calls_file" \
+            bash -c "$registration" 2>"$tmpdir/registered-hook.err"
+}
+
+# Both registrations are invoked for one simulated Bash call. The user-level
+# copy is a no-op; the project registration alone reaches its guard.
+user_output="$(invoke_registered_guard "$user_registered" "$registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the user-level registration failed with a registered project guard"
+project_output="$(invoke_registered_guard "$project_registered" "$registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the project-level registration failed"
+[ -z "$user_output" ] && [ -z "$project_output" ] ||
+    fail "successful guard registrations unexpectedly emitted a permission decision"
+[ "$(cat "$guard_calls")" = project ] ||
+    fail "expected only the registered project guard to decide, got: $(tr '\n' ' ' <"$guard_calls")"
+
+# The dotfiles project's source-path registration is also an exact, fail-closed
+# project guard and should suppress the user-level copy.
+source_registered_project="$tmpdir/source-path registered project"
+mkdir -p "$source_registered_project/.claude" "$source_registered_project/private_dot_claude/hooks"
+cp "$registered_project/.claude/hooks/git-merge-guard.py" \
+    "$source_registered_project/private_dot_claude/hooks/executable_git-merge-guard.py"
+source_project_command="python3 \"\$CLAUDE_PROJECT_DIR/private_dot_claude/hooks/executable_git-merge-guard.py\" $registered_project_fallback"
+jq -n --arg command "$source_project_command" \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$source_registered_project/.claude/settings.json"
+: >"$guard_calls"
+user_output="$(invoke_registered_guard "$user_registered" "$source_registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the user-level registration failed with the exact source-path project guard"
+project_output="$(invoke_registered_guard "$source_project_command" "$source_registered_project" "$registered_home" "$guard_calls")" ||
+    fail "the exact source-path project registration failed"
+[ -z "$user_output" ] && [ -z "$project_output" ] && [ "$(cat "$guard_calls")" = project ] ||
+    fail "the exact source-path registration did not leave the project guard as the sole decider"
+
+# File presence without an active PreToolUse Bash registration must not
+# suppress the user-level guard. Check absent settings, the wrong matcher, and
+# a Bash registration for a different hook.
+unregistered_project="$tmpdir/present but unregistered project"
+mkdir -p "$unregistered_project/.claude/hooks"
+cp "$registered_project/.claude/hooks/git-merge-guard.py" \
+    "$unregistered_project/.claude/hooks/git-merge-guard.py"
+assert_user_guard_runs() { # project-dir reason
+    local project_dir="$1" reason="$2" output
+    : >"$guard_calls"
+    output="$(invoke_registered_guard "$user_registered" "$project_dir" "$registered_home" "$guard_calls")" ||
+        fail "the user-level registration failed for $reason"
+    [ -z "$output" ] && [ "$(cat "$guard_calls")" = user ] ||
+        fail "the user guard did not run for $reason (calls: $(tr '\n' ' ' <"$guard_calls"))"
+}
+assert_user_guard_runs "$unregistered_project" "an absent project settings file"
+jq -n --arg command "$registered_project_command" \
+    '{hooks:{PreToolUse:[{matcher:"Edit",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a guard command registered for Edit, not Bash"
+jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/other-hook.py"' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a Bash registration for a different hook"
+jq -n --arg command ': # git-merge-guard.py disabled' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a commented-out guard command"
+jq -n --arg command 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-merge-guard.py" || true' \
+    '{hooks:{PreToolUse:[{matcher:"Bash",hooks:[{type:"command",command:$command}]}]}}' \
+    >"$unregistered_project/.claude/settings.json"
+assert_user_guard_runs "$unregistered_project" "a fail-open guard command"
+
+# Without a project guard file, the user-level hook still runs.
+: >"$guard_calls"
+user_output="$(invoke_registered_guard "$user_registered" "$no_project_guard" "$registered_home" "$guard_calls")" ||
+    fail "the user-level registration failed without a project guard"
+[ -z "$user_output" ] && [ "$(cat "$guard_calls")" = user ] ||
+    fail "the user guard did not run by itself when no project guard exists"
+
+# A missing deployed user hook still fails closed with the original ask result.
+missing_user_home="$tmpdir/missing user hook home"
+mkdir -p "$missing_user_home/.claude/hooks"
+fallback_output="$(invoke_registered_guard "$user_registered" "$no_project_guard" "$missing_user_home" "$guard_calls")" ||
+    fail "the fail-closed user-hook fallback returned non-zero"
+jq -e '.hookSpecificOutput.permissionDecision == "ask" and
+    .hookSpecificOutput.permissionDecisionReason == "git-merge-guard failed to run"' \
+    <<<"$fallback_output" >/dev/null ||
+    fail "a missing user-level merge guard did not preserve its fail-closed ask fallback"
+echo "==> single merge-guard execution and fallback OK"
+
+echo "==> user-level and project-level merge guard copies remain byte-identical"
+user_guard_source="$repo/private_dot_claude/hooks/executable_git-merge-guard.py"
+project_guard_source="$repo/.claude/hooks/git-merge-guard.py"
+guard_copy_check() { cmp -s "$1" "$2"; }
+guard_copy_check "$user_guard_source" "$project_guard_source" ||
+    fail "the chezmoi user-level merge guard differs from the project copy"
+divergent_guard="$tmpdir/divergent-git-merge-guard.py"
+cp "$project_guard_source" "$divergent_guard"
+printf '\n# simulated divergence\n' >>"$divergent_guard"
+if guard_copy_check "$user_guard_source" "$divergent_guard"; then
+    fail "the merge-guard byte-identity check accepted a simulated divergence"
+fi
+echo "==> git-merge-guard copy identity and divergence check OK"
