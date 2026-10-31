@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.20.0](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.19.4...v0.20.0) (2026-10-31)
+
+
+### Features
+
+* **claude:** allow the deferred-findings sidecar in protect-files ([#164](https://github.com/evanharmon1/harmon-dotfiles/issues/164)) ([8d90bee](https://github.com/evanharmon1/harmon-dotfiles/commit/8d90beeae8c77f42bb9ee8b3e1f30cb868eae5f7))
+
+
+### Bug Fixes
+
+* **claude:** narrow the gh allow rule to reviewed dev-loop subcommands ([#165](https://github.com/evanharmon1/harmon-dotfiles/issues/165)) ([e8fb593](https://github.com/evanharmon1/harmon-dotfiles/commit/e8fb593ab2d91af3d201afc7cfffb6e428979d2f))
+* **claude:** run one current merge guard per Bash call and report stale deployed hooks ([#167](https://github.com/evanharmon1/harmon-dotfiles/issues/167)) ([a4be5e6](https://github.com/evanharmon1/harmon-dotfiles/commit/a4be5e6456e35941a9d8db50c5e0716450688574))
+
 ## [0.19.4](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.19.3...v0.19.4) (2026-10-27)
 
 
