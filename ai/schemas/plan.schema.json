@@ -20,10 +20,7 @@
           "seq": { "type": "integer", "minimum": 0 },
           "prev_digest": { "type": "string", "pattern": "^(genesis|[0-9a-f]{64})$" },
           "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-          "at": {
-            "type": "string",
-            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
-          },
+          "at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
           "reason": { "type": "string", "minLength": 1 },
           "plan": { "$ref": "#/$defs/planContent" }
         }
@@ -73,11 +70,7 @@
               "title": { "type": "string", "minLength": 1 },
               "url": { "type": "string", "minLength": 1 },
               "verdict": { "enum": ["valid", "partial", "handed-off", "done"] },
-              "pr": {
-                "type": "integer",
-                "minimum": 1,
-                "$comment": "Durable handoff PR binding, including while waiting outside merge_queue."
-              },
+              "pr": { "type": "integer", "minimum": 1, "$comment": "Durable handoff PR binding, including while waiting outside merge_queue." },
               "candidate_files": { "type": "array", "items": { "$ref": "#/$defs/canonicalPath" } },
               "blocked_by": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
             },
@@ -111,11 +104,7 @@
             "properties": {
               "issue_a": { "type": "integer", "minimum": 1 },
               "issue_b": { "type": "integer", "minimum": 1 },
-              "paths": {
-                "type": "array",
-                "minItems": 1,
-                "items": { "$ref": "#/$defs/canonicalPath" }
-              },
+              "paths": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/canonicalPath" } },
               "resolution": { "enum": ["serialize", "split"] },
               "merge_dependency": {
                 "type": "object",
@@ -137,11 +126,8 @@
             "required": ["number", "issues"],
             "properties": {
               "number": { "type": "integer", "minimum": 1 },
-              "issues": {
-                "type": "array",
-                "minItems": 1,
-                "items": { "type": "integer", "minimum": 1 }
-              }
+              "released": { "const": true, "$comment": "Explicit preference-wave release. Wave 1 is implicitly eligible for legacy plans; later released waves require all earlier issues done or handed-off with bound PRs and their own merge prerequisites done. Dispatch still checks live ceilings." },
+              "issues": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } }
             }
           }
         },
@@ -166,10 +152,7 @@
                   "required": ["path", "at", "reason"],
                   "properties": {
                     "path": { "$ref": "#/$defs/canonicalPath" },
-                    "at": {
-                      "type": "string",
-                      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
-                    },
+                    "at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
                     "reason": { "type": "string", "minLength": 1 }
                   }
                 }
@@ -182,30 +165,14 @@
     "resolvedPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "rigor",
-        "rigor_source",
-        "caps",
-        "breadth",
-        "strategy",
-        "strategy_source",
-        "role_tiers",
-        "operator_pins"
-      ],
+      "required": ["rigor", "rigor_source", "caps", "breadth", "strategy", "strategy_source", "role_tiers", "operator_pins"],
       "properties": {
         "rigor": { "type": "string", "minLength": 1 },
         "rigor_source": { "type": "string", "minLength": 1 },
         "caps": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "challenge",
-            "review",
-            "integration",
-            "remediation",
-            "min_rounds",
-            "wall_clock_min"
-          ],
+          "required": ["challenge", "review", "integration", "remediation", "min_rounds", "wall_clock_min"],
           "properties": {
             "challenge": { "type": "integer", "minimum": 0 },
             "review": { "type": "integer", "minimum": 0 },
@@ -221,7 +188,8 @@
           "required": ["max_agent_runs", "max_parallel_agents"],
           "properties": {
             "max_agent_runs": { "type": "integer", "minimum": 1 },
-            "max_parallel_agents": { "type": "integer", "minimum": 1 }
+            "max_parallel_agents": { "type": "integer", "minimum": 1 },
+            "max_in_flight": { "type": "integer", "minimum": 1 }
           }
         },
         "strategy": { "type": "string", "minLength": 1 },
