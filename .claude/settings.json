@@ -72,8 +72,6 @@
       "Bash(yamllint *)"
     ],
     "ask": [
-      "Bash(gh pr merge)",
-      "Bash(gh pr merge:*)",
       "Bash(task codex:gate:enable)",
       "Bash(task codex:gate:enable:*)",
       "Bash(task codex:gate:disable)",

@@ -32,6 +32,7 @@ scripts/**
 ai/**
 agent-registry.json
 agent-registry.schema.json
+checklist-classes.json
 label-registry.json
 label-registry.schema.json
 

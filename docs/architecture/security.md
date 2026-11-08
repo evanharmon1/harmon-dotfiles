@@ -29,7 +29,8 @@ set to `auto`; listed commands run outside the sandbox with the user's full
 filesystem, network access and stored credentials, without a prompt or
 classifier review. Other `gh` commands, including unsandboxed retries, receive
 auto-mode classifier review or a prompt instead of blanket approval, while the
-`gh pr merge` ask rules remain in place (`gh api` can still perform merges).
+`git-merge-guard` hook, not a project ask rule, gates `gh pr merge` (it also gates `gh api`
+writes, which can still perform merges).
 The settings test rejects prefixes that approve aliases, extensions, config,
 releases, downloads or checkout/develop commands and enforces parity between
 the two lists; do not broaden either list to `gh *`.

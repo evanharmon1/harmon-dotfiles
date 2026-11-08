@@ -40,6 +40,12 @@ grep -qx 'Brewfile' <<<"$managed" ||
 grep -qx '\.Brewfile' <<<"$managed" &&
     fail ".Brewfile (the repo toolchain file) must not be deployed"
 
+echo "==> harmon-init root catalogs are repo maintenance, not deployed to \$HOME"
+for catalog in checklist-classes.json agent-registry.json label-registry.json; do
+    grep -qx "$catalog" <<<"$managed" &&
+        fail "$catalog (a repo-maintenance file) must not be a chezmoi-managed target"
+done
+
 echo "==> the deployed ~/Brewfile is private_Brewfile"
 cz cat "$test_tmp/home/Brewfile" | cmp -s - "$repo/private_Brewfile" ||
     fail "chezmoi renders ~/Brewfile differently from private_Brewfile"

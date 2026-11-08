@@ -92,10 +92,12 @@ tasks:
       - task: test:agent-skill-links
       - task: test:agent-registry
       - task: test:result-schemas
+      - task: test:skills-template-compatibility
       - task: test:registry-drift
       - task: test:registry-docs
       - task: test:label-registry
       - task: test:tasks
+      - task: test:pnpm-install
       - task: test:grep-q-pipes
       - task: test:ci-results
       - task: test:ai-config
@@ -103,10 +105,13 @@ tasks:
       - task: test:chezmoi-targets
       - task: test:claude-config
       - task: test:ci-changes-classify
+      - task: test:checklist-classes
+      - task: test:audit-github
       - task: test:output
       - task: test:status
       - task: test:gh-scopes
       - task: test:setup-remote
+      - task: test:reconcile-toolchain
       - task: test:meta-install
       - task: test:codex-review
       - task: test:remote-codex-policy
@@ -145,6 +150,7 @@ tasks:
       - lint:actions
       - lint:hygiene
       - lint:pin-pairs
+      - lint:renovate-holds
 
   lint:yaml:
     desc: yamllint
@@ -179,6 +185,11 @@ tasks:
     desc: Version pins and their paired checksum pins moved together (scripts/test-tool-pin-pairs.sh)
     cmds:
       - ./scripts/test-tool-pin-pairs.sh
+
+  lint:renovate-holds:
+    desc: Validate Renovate compatibility hold records
+    cmds:
+      - ./scripts/lint-renovate-holds.sh
 
   lint:hygiene:
     desc: File hygiene (trailing whitespace, EOF newlines, merge markers, etc.)
@@ -316,6 +327,11 @@ tasks:
     cmds:
       - ./scripts/test-agent-registry.sh
 
+  test:skills-template-compatibility:
+    desc: Exercise selected skills against the consumer cleanup contract before publication
+    cmds:
+      - ./scripts/test-skills-template-compatibility.sh
+
   test:result-schemas:
     desc: Schema-check the dev-flow-v2 result/record contracts and receipt smoke fixtures
     cmds:
@@ -369,6 +385,11 @@ tasks:
     cmds:
       - ./scripts/test-label-registry.sh
 
+  test:pnpm-install:
+    desc: Test job-private pnpm install recovery
+    cmds:
+      - ./scripts/test-pnpm-install.sh
+
   test:tasks:
     desc: Guard the Taskfile itself (compiles; setup tasks are safe no-ops)
     cmds:
@@ -384,6 +405,11 @@ tasks:
     cmds:
       - ./scripts/test-verify-ci-parity.sh
 
+  test:checklist-classes:
+    desc: Validate checklist reconcile classes and their machine-readable catalog
+    cmds:
+      - ./scripts/test-checklist-classes.sh
+
   test:ci-changes-classify:
     desc: Unit-test the fail-closed docs-only CI classifier
     cmds:
@@ -394,10 +420,30 @@ tasks:
     cmds:
       - ./scripts/test-ci-results.sh
 
+  audit:github:
+    desc: Read-only GitHub checklist audit (NDJSON; 0 clean, 1 drift, 2 unavailable)
+    # Preserve machine-readable stdout under the global grouped output mode.
+    interactive: true
+    silent: true
+    cmds:
+      - ./scripts/audit-github.sh {{.CLI_ARGS}}
+
+  test:audit-github:
+    desc: Test GitHub checklist probes offline with stubbed gh
+    cmds:
+      - ./scripts/test-audit-github.sh
+
   audit:ruleset:
     desc: Compare the checked-in branch ruleset with GitHub's live ruleset (read-only)
     cmds:
       - ./scripts/audit-ruleset.sh
+
+  setup:ruleset:
+    desc: Add missing required status checks to the live ruleset (additive only; prompts unless --yes)
+    # Grouped output would hide the confirmation prompt from a terminal user.
+    interactive: true
+    cmds:
+      - ./scripts/setup-ruleset.sh {{.CLI_ARGS}}
 
   test:output:
     desc: Unit-test shared color/Unicode fallbacks and spinner cleanup
@@ -423,6 +469,11 @@ tasks:
     desc: Unit-test task setup:remote — idempotency, the lefthook shim, sibling clone/fetch cases, and the SessionStart wrapper (stubbed tools, no network)
     cmds:
       - ./scripts/test-setup-remote.sh
+
+  test:reconcile-toolchain:
+    desc: Verify remote gate-tool reconciliation, bounded warning fallbacks and gate registry coverage (offline)
+    cmds:
+      - ./scripts/test-reconcile-toolchain.sh
 
   test:meta-install:
     desc: Unit-test the .meta sidecar installer's ~-expansion and refusals
@@ -506,12 +557,12 @@ tasks:
   # automatic stop-time review for this repo + machine. See
   # docs/guides/codex-review.md for setup, mechanics, and the loop caps.
   review:
-    desc: Second-model verification review of the current change (Codex)
+    desc: "Second-model verification review of the current change (Codex; usage: task review -- [--base <ref>|--uncommitted] [focus text])"
     cmds:
       - task: review:codex
 
   challenge:
-    desc: Second-model adversarial review of the current change (Codex)
+    desc: "Second-model adversarial review of the current change (Codex; usage: task challenge -- [--base <ref>|--uncommitted] [focus text])"
     cmds:
       - task: challenge:codex
 
@@ -642,7 +693,7 @@ tasks:
       - lefthook install
 
   setup:remote:
-    desc: Prepare this checkout for the dev loop on a remote platform (no devcontainer hooks) — git hooks, related repos cloned then fetched beside it, frozen dependencies. Idempotent
+    desc: Prepare a remote checkout — reconcile gate tools, install hooks, clone/fetch siblings, and install frozen dependencies. Idempotent
     cmds:
       - ./scripts/setup-remote.sh
 

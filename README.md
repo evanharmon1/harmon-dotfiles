@@ -31,6 +31,10 @@ This repo is part of **harmon-platform** — my custom development platform with
 - [Homebrew](https://brew.sh/)
 - [chezmoi](https://www.chezmoi.io/) (applies the dotfiles to your home directory)
 - [go-task](https://taskfile.dev/) (task runner)
+- Python 3 (`python3` on PATH) is a hard prerequisite for
+  `private_dot_claude/hooks/executable_git-merge-guard.py` (the guard this
+  repo registers). If Python is unavailable or the guard crashes, its registered invocation asks with the generic message
+  `git-merge-guard failed to run`.
 - [uv](https://docs.astral.sh/uv/) (runs the pinned Semgrep CE baseline)
 
 ### Usage
