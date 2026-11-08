@@ -2,9 +2,83 @@
 set -euo pipefail
 
 schema_dir="ai/schemas"
-validator="scripts/validate-result-schemas.mjs"
+manifest=".skills-sync.yaml"
 fixtures="$schema_dir/fixtures"
 oneshot="$fixtures/run.schema/valid/oneshot.json"
+
+[ -f "$manifest" ] || {
+    echo "FAIL: skills sync manifest is missing: $manifest" >&2
+    exit 1
+}
+command -v yq >/dev/null 2>&1 || {
+    echo "FAIL: yq is required to read $manifest" >&2
+    exit 1
+}
+
+assert_safe_dest() {
+    case "$1" in
+    "" | "/" | "." | "..")
+        echo "FAIL: unsafe $2 destination in $manifest: '$1'" >&2
+        exit 1
+        ;;
+    /*)
+        echo "FAIL: absolute $2 destination in $manifest: '$1'" >&2
+        exit 1
+        ;;
+    ../* | */../* | */..)
+        echo "FAIL: traversing $2 destination in $manifest: '$1'" >&2
+        exit 1
+        ;;
+    esac
+}
+
+skills_dest="$(yq -r '.dest // ""' "$manifest")"
+agents_dest="$(yq -r '.agents.dest // ""' "$manifest")"
+assert_safe_dest "$skills_dest" "skills"
+[ -z "$agents_dest" ] || assert_safe_dest "$agents_dest" "agents"
+
+vendored_package="$skills_dest/dev-flow-support"
+vendored_assets="$vendored_package/assets"
+validator="$vendored_assets/validate-result-schemas.mjs"
+bundled_schemas="$vendored_assets/schemas"
+skills_provenance="$skills_dest/.SKILLS_PROVENANCE"
+agents_provenance="${agents_dest:+$agents_dest/.AGENTS_PROVENANCE}"
+
+provenance_manages_devflow() {
+    awk -F ': ' '
+        /^# managed: / {
+            count = split($2, managed, /[[:space:]]*,[[:space:]]*/)
+            for (i = 1; i <= count; i++) if (managed[i] == "dev-flow-support") found = 1
+        }
+        END { exit found ? 0 : 1 }
+    ' "$1"
+}
+
+manifest_requests_universal() {
+    yq -e '.categories[] | select(. == "universal")' "$manifest" >/dev/null 2>&1
+}
+
+if [ ! -f "$skills_provenance" ]; then
+    if [ -n "$agents_provenance" ] && [ -f "$agents_provenance" ] && manifest_requests_universal; then
+        echo "FAIL: canonical result validator is missing from an incomplete skills sync: $validator" >&2
+        exit 1
+    fi
+    echo "SKIP: canonical result validator is not vendored; run 'task sync:skills' after enabling the universal skill category"
+    exit 0
+fi
+if ! provenance_manages_devflow "$skills_provenance"; then
+    echo "SKIP: canonical result validator was not selected by the synced skills package"
+    exit 0
+fi
+[ -f "$validator" ] || {
+    echo "FAIL: canonical result validator is missing from an already-synced skills package: $validator" >&2
+    exit 1
+}
+[ -d "$bundled_schemas" ] || {
+    echo "FAIL: canonical result validator is missing its bundled schemas: $bundled_schemas" >&2
+    exit 1
+}
+
 tmp="$(mktemp)"
 tmp2="$(mktemp)"
 tmp3="$(mktemp)"
@@ -13,11 +87,36 @@ known_ids="$(mktemp)"
 trap 'rm -f "$tmp" "$tmp2" "$tmp3" "$tmp4" "$known_ids"' EXIT
 printf '[]\n' >"$known_ids"
 
+stale_validator_path='scripts/validate-result-''schemas.mjs'
+for stale_validator in "$stale_validator_path" "template/$stale_validator_path"; do
+    [ ! -e "$stale_validator" ] || {
+        echo "FAIL: stale repository-owned result validator returned: $stale_validator" >&2
+        exit 1
+    }
+done
+reference_roots=(AGENTS.md ai docs)
+[ ! -d template ] || reference_roots+=(template)
+# grep is POSIX and always present; distinguish its error exit (2) from "no
+# match" (1) so an unreadable root fails rather than passing the guard.
+stale_reference_status=0
+grep -rnF -- "$stale_validator_path" "${reference_roots[@]}" || stale_reference_status=$?
+case "$stale_reference_status" in
+0)
+    echo "FAIL: repository-root result validator path is still documented" >&2
+    exit 1
+    ;;
+1) ;;
+*)
+    echo "FAIL: could not scan for the stale result validator path (grep exit $stale_reference_status)" >&2
+    exit 1
+    ;;
+esac
+
 accepts() {
     kind="$1"
     file="$2"
     shift 2
-    node "$validator" "$kind" "$file" "$@" >/dev/null
+    node "$validator" "$kind" "$file" "$@" --schemas-dir "$schema_dir" >/dev/null
 }
 
 rejects() {
@@ -25,7 +124,7 @@ rejects() {
     kind="$2"
     file="$3"
     shift 3
-    if node "$validator" "$kind" "$file" "$@" >/dev/null 2>&1; then
+    if node "$validator" "$kind" "$file" "$@" --schemas-dir "$schema_dir" >/dev/null 2>&1; then
         echo "FAIL: result validator accepted $name" >&2
         exit 1
     fi
@@ -73,9 +172,9 @@ node scripts/test-result-schema-composition.mjs
 # The registry is the dispatcher's contract, including all configured finders.
 # These copies ship even when the consumer does not sync shared skills.
 # Compare parsed schemas: generated repos format them with Prettier. The
-# validator/library are location-adapted and formatted, not byte-compared
-# against the vendored copies; dual validation below checks compatibility.
-vendored_assets=".claude/skills/dev-flow-support/assets"
+# Schemas are formatted rather than byte-compared against the vendored copies.
+# The contract suite runs the vendored validator against these repository-owned
+# mirrors, so validator and schemas always move under one release contract.
 registry_schemas="$(jq -r '.. | objects | .result_schema? // empty' agent-registry.json | LC_ALL=C sort -u)"
 integrator_schema="$(jq -r '.roles[] | select(.slug == "integrator") | .result_schema' agent-registry.json)"
 [ "$integrator_schema" = "$schema_dir/result.integrator.schema.json" ] || {
@@ -87,34 +186,51 @@ for schema in $registry_schemas "$schema_dir/brief.envelope.schema.json" "$schem
         echo "FAIL: missing registry-named schema: $schema" >&2
         exit 1
     }
-    if [ -d "$vendored_assets/schemas" ]; then
-        jq -S . "$schema" >"$tmp"
-        jq -S . "$vendored_assets/schemas/${schema##*/}" >"$tmp2"
-        cmp "$tmp" "$tmp2" || {
-            echo "FAIL: registry-named schema drifted from pinned dev-flow-support: $schema" >&2
-            exit 1
-        }
-    fi
+    bundled_schema="$bundled_schemas/${schema##*/}"
+    [ -f "$bundled_schema" ] || {
+        echo "FAIL: canonical result validator is missing bundled schema: $bundled_schema" >&2
+        exit 1
+    }
+    jq -S . "$schema" >"$tmp"
+    jq -S . "$bundled_schema" >"$tmp2"
+    cmp "$tmp" "$tmp2" || {
+        echo "FAIL: registry-named schema drifted from pinned dev-flow-support: $schema" >&2
+        exit 1
+    }
 done
 
 # Advertised standalone modes must work with the repository's shipped schemas.
-accepts brief "$fixtures/brief.envelope/valid/minimal.md" --schemas-dir "$schema_dir"
-accepts plan "$fixtures/plan/valid/interactive.json" --schemas-dir "$schema_dir"
+accepts brief "$fixtures/brief.envelope/valid/minimal.md"
+accepts plan "$fixtures/plan/valid/interactive.json"
+
+# harmon-devkit v0.66.0 (#1691) authenticates integrator receipts: --receipt
+# then also needs the run record, the Codex checker state and its repository,
+# and the vendored package's own suite covers that path. Without those inputs
+# the receipt must now be refused, so assert the refusal and keep validating
+# each fixture against its schema. An older pinned validator keeps the bare
+# receipt check. The capability is read from the validator's usage text, which
+# it prints on a usage error (a non-zero exit, so capture before matching).
+validator_usage="$(node "$validator" 2>&1 || true)"
+if [[ "$validator_usage" == *--integrator-record* ]]; then
+    integrator_receipt_authenticated=1
+else
+    integrator_receipt_authenticated=0
+fi
+integrator_accepts() {
+    file="$1"
+    run_id="$2"
+    if [ "$integrator_receipt_authenticated" = 1 ]; then
+        accepts integrator "$file" --known-ids "$known_ids" --run-id "$run_id" --initiated-by human
+        rejects integrator-unauthenticated-receipt integrator "$file" \
+            --known-ids "$known_ids" --run-id "$run_id" --initiated-by human --receipt
+    else
+        accepts integrator "$file" --known-ids "$known_ids" --run-id "$run_id" --initiated-by human --receipt
+    fi
+}
 
 for fixture in charged-exempt carried; do
-    accepts integrator "$fixtures/result.integrator.schema/valid/$fixture.json" \
-        --schemas-dir "$(dirname "$integrator_schema")" \
-        --known-ids "$known_ids" --run-id run-4001-verdict-clean --initiated-by human --receipt
+    integrator_accepts "$fixtures/result.integrator.schema/valid/$fixture.json" run-4001-verdict-clean
 done
-if [ -d "$vendored_assets/schemas" ]; then
-    for fixture in charged-exempt carried; do
-        node "$vendored_assets/validate-result-schemas.mjs" integrator \
-            "$fixtures/result.integrator.schema/valid/$fixture.json" \
-            --known-ids "$known_ids" --run-id run-4001-verdict-clean --initiated-by human --receipt
-    done
-else
-    echo "SKIP: dev-flow-support schemas are not vendored; schema drift and dual-validator checks skipped"
-fi
 
 for mutation in '.payload.codex_cycle.charged = -1' \
     '.payload.codex_cycle.exempt = -1'; do
@@ -163,8 +279,7 @@ accepts reviewer "$fixtures/result.reviewer.schema/valid/empty-findings.json" \
 rejects reviewer-counts-mismatch reviewer \
     "$fixtures/result.reviewer.schema/invalid/counts-mismatch-tally.json"
 
-accepts integrator "$fixtures/result.integrator.schema/valid/verdict-clean.json" \
-    --known-ids "$known_ids" --run-id run-4001-verdict-clean --initiated-by human --receipt
+integrator_accepts "$fixtures/result.integrator.schema/valid/verdict-clean.json" run-4001-verdict-clean
 rejects integrator-bad-verdict integrator \
     "$fixtures/result.integrator.schema/invalid/bad-verdict-enum.json"
 
