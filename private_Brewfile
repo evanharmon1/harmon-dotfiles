@@ -17,6 +17,7 @@ tap "jayanaxhf/taps"
 tap "jesseduffield/lazygit", trusted: true
 tap "manaflow-ai/cmux", trusted: true
 tap "mongodb/brew", trusted: true
+tap "morishuz/tap"
 tap "rafaelswi/menubarusb"
 tap "raine/workmux"
 tap "snyk/tap"
@@ -68,8 +69,6 @@ brew "python@3.11"
 brew "autojump"
 # ASCII-art image browser and animation viewer
 brew "aview"
-# Interpreted, interactive, object-oriented programming language
-brew "python@3.14"
 # Official Amazon AWS command-line interface
 brew "awscli"
 # Microsoft Azure CLI 2.0
@@ -114,6 +113,16 @@ brew "cmake"
 brew "cmatrix"
 # Container runtimes on MacOS (and Linux) with minimal setup
 brew "colima"
+# Play, record, convert, and stream select audio and video codecs
+brew "ffmpeg"
+# Package compiler and linker metadata toolkit
+brew "pkgconf"
+# ISO/IEC 23008-12:2017 HEIF file format decoder and encoder
+brew "libheif"
+# Library for reading RAW files from digital photo cameras
+brew "libraw"
+# Structure-from-Motion and Multi-View Stereo
+brew "colmap"
 # Utility that creates projects from templates
 brew "cookiecutter", link: false
 # Utility for rendering projects templates
@@ -130,6 +139,8 @@ brew "ctop"
 brew "curl"
 # Power of curl, ease of use of httpie
 brew "curlie"
+# Reference implementation for the Development Containers specification
+brew "devcontainer", link: false
 # Good-lookin' diffs with diff-highlight and more
 brew "diff-so-fancy"
 # Load/unload environment variables based on $PWD
@@ -164,8 +175,6 @@ brew "exa"
 brew "eza"
 # Simple, fast and user-friendly alternative to find
 brew "fd"
-# Play, record, convert, and stream select audio and video codecs
-brew "ffmpeg"
 # Banner-like program prints strings as ASCII art
 brew "figlet"
 # Firebase command-line tools
@@ -215,8 +224,6 @@ brew "gnutls"
 brew "go"
 # Task is a task runner/build tool that aims to be simpler and easier to use
 brew "go-task"
-# Package compiler and linker metadata toolkit
-brew "pkgconf"
 # Generate introspection data for GObject libraries
 brew "gobject-introspection"
 # Open-source build automation tool based on the Groovy and Kotlin DSL
@@ -255,8 +262,6 @@ brew "hub"
 brew "hurl"
 # C/C++ and Java libraries for Unicode and globalization
 brew "icu4c@76"
-# ISO/IEC 23008-12:2017 HEIF file format decoder and encoder
-brew "libheif"
 # Tools and libraries to manipulate images in select formats
 brew "imagemagick"
 # Cost estimates for Terraform, Terragrunt, and CloudFormation
@@ -293,8 +298,6 @@ brew "ldns"
 brew "lefthook"
 # Subtitle renderer for the ASS/SSA subtitle format
 brew "libass"
-# Library for reading RAW files from digital photo cameras
-brew "libraw"
 # Small memory footprint, flexible web-server
 brew "lighttpd"
 # Access large language models from the command-line
@@ -311,6 +314,8 @@ brew "lychee"
 brew "lynx"
 # Keep your Mac's application settings in sync
 brew "mackup"
+# Fast, flexible, config-based cli for linting Markdown/CommonMark files
+brew "markdownlint-cli2"
 # Mac App Store command-line interface
 brew "mas"
 # Java-based project management
@@ -393,6 +398,8 @@ brew "pstree"
 brew "pv"
 # Python Language Server for the Language Server Protocol
 brew "python-lsp-server"
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.14"
 # Pretty-print tabular data in Python
 brew "python-tabulate"
 # Interpreted, interactive, object-oriented programming language
@@ -461,6 +468,8 @@ brew "tiger-vnc"
 brew "tldr"
 # Color-based alternative to figlet (uses libcaca)
 brew "toilet"
+# Program that allows you to count code, quickly
+brew "tokei"
 # Language for application scale JavaScript development
 brew "typescript"
 # Validating, recursive, caching DNS resolver
@@ -561,8 +570,6 @@ cask "almighty"
 cask "anaconda"
 # Agent orchestration platform
 cask "antigravity"
-# Terminal interface for Antigravity agents
-cask "antigravity-cli"
 # Private desktop AI chat application
 cask "anythingllm"
 # Local-first and end-to-end encrypted notes app
@@ -687,6 +694,8 @@ cask "font-jetbrains-mono-nerd-font"
 cask "font-menlo-for-powerline"
 # Finder replacement and FTP, SFTP, WebDAV and Amazon s3 client
 cask "forklift"
+# Adaptive video frame extraction for photogrammetry and 3D reconstruction
+cask "morishuz/tap/frame-extractor", trusted: true
 # Wireframing tool
 cask "frame0"
 # Manage eBay Listings
@@ -721,6 +730,8 @@ cask "handbrake-app"
 cask "hazel"
 # Client for HDHomeRun streamer
 cask "hdhomerun"
+# Desktop app for terminals and coding agents
+cask "herdr-app"
 cask "hook"
 # Link and retrieve key information
 cask "hookmark"
@@ -883,7 +894,7 @@ cask "steam"
 cask "sublime-text"
 # Backup, recovery and cloning software
 cask "superduper"
-# Terminal for orchestrating agents
+# Workspace for running coding agents in parallel
 cask "superset"
 # Replacement for RCDefaultApps, written in Swift
 cask "swiftdefaultappsprefpane"
@@ -1005,8 +1016,8 @@ mas "iMovie", id: 408981434
 mas "Invoice Generator", id: 1061863220
 mas "iScape", id: 439688430
 mas "Jira", id: 1475897096
-mas "Keynote", id: 361285480
 mas "Keynote", id: 409183694
+mas "Keynote", id: 361285480
 mas "Kindle", id: 302584613
 mas "Kindle Classic", id: 405399194
 mas "Koi Pond 3D Lite", id: 534867956
@@ -1034,7 +1045,7 @@ mas "OpenIn", id: 1643649331
 mas "Pages", id: 361309726
 mas "Pages", id: 409201541
 mas "Pandan", id: 1569600264
-mas "Paprika Recipe Manager 3", id: 1303222628
+mas "Paprika Recipe Manager 4", id: 1303222628
 mas "Pastel", id: 413897608
 mas "PCalc", id: 403504866
 mas "Pile", id: 1549454338
@@ -1060,6 +1071,7 @@ mas "Slack", id: 803453959
 mas "Slack 2", id: 803453959
 mas "Spark", id: 1176895641
 mas "Speedtest", id: 1153157709
+mas "SplatScene", id: 6761007245
 mas "Steam Link", id: 1246969117
 mas "StopTheMadness", id: 1376402589
 mas "Streaks", id: 963034692
@@ -1086,7 +1098,7 @@ mas "WhisperBar", id: 6753730407
 mas "Windows App", id: 1295203466
 mas "WireGuard", id: 1451685025
 mas "Workspaces", id: 1219826448
-mas "WriteRoom", id: 417967324
+mas "WriteRoomClassic", id: 417967324
 mas "Xcode", id: 497799835
 mas "Yoink", id: 457622435
 mas "Yomu", id: 562211012
