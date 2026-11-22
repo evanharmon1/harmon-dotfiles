@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are cut manually with `task release:patch|minor|major` (never
 automatically on merge).
 
+## [0.20.2](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.20.1...v0.20.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **antigravity:** default the Antigravity CLI model to Gemini 4 Neon (Medium) ([#178](https://github.com/evanharmon1/harmon-dotfiles/issues/178)) ([a8c69f6](https://github.com/evanharmon1/harmon-dotfiles/commit/a8c69f6eec6713dc4bfdeab444c26386dc21f56c))
+* **claude:** restore the current merge guard ([#176](https://github.com/evanharmon1/harmon-dotfiles/issues/176)) ([e0ab4d4](https://github.com/evanharmon1/harmon-dotfiles/commit/e0ab4d45c2ce6124d654b6663723dede0b8548d0))
+
 ## [0.20.1](https://github.com/evanharmon1/harmon-dotfiles/compare/v0.20.0...v0.20.1) (2026-11-15)
 
 
