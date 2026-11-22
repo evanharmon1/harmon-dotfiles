@@ -24,7 +24,7 @@
 */ -}}
 {{- $managed := fromJson (replace "@HOME@" .chezmoi.homeDir `
 {
-  "model": "Gemini 3.8 Flash (High)",
+  "model": "Gemini 4 Neon (Medium)",
   "toolPermission": "always-proceed",
   "artifactReviewPolicy": "always-proceed",
   "allowNonWorkspaceAccess": false,
