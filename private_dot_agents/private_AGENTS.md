@@ -31,7 +31,11 @@ rule applies, ask first.
    branches, releases, or infrastructure; force-pushes; history rewrites;
    `rm -rf` outside scratch dirs; bulk mutations. Verify the target is what it
    was described as — locate and confirm real paths, never guess a repo
-   directory.
+   directory. One standing exemption: an orchestrator may delete, without
+   asking, the local and remote branch of a lane whose PR a live read shows
+   `MERGED`, only through the orchestrate skill's `delete-merged-branch.sh`
+   and only when it accepts (it refuses unless that PR merged exactly that
+   branch tip). A refusal, a failed read, or any other branch still asks.
 
 5. **Never silently change security-relevant settings.** Permission,
    visibility, bypass, ruleset, and CODEOWNERS changes must be called out
