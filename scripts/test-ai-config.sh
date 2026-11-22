@@ -88,8 +88,8 @@ awk '/replace "@HOME@" \.chezmoi\.homeDir `[[:space:]]*$/{grab=1; next} grab && 
 jq -e . "$antigravity_managed" >/dev/null || fail "Antigravity CLI managed settings are not valid JSON"
 [ "$(jq -r '.statusLine.type' "$antigravity_managed")" = "command" ] ||
     fail "Antigravity CLI settings must configure command statusLine"
-[ "$(jq -r '.model' "$antigravity_managed")" = "Gemini 3.8 Flash (High)" ] ||
-    fail "Antigravity CLI settings must configure default model Gemini 3.8 Flash (High)"
+[ "$(jq -r '.model' "$antigravity_managed")" = "Gemini 4 Neon (Medium)" ] ||
+    fail "Antigravity CLI settings must configure default model Gemini 4 Neon (Medium)"
 # Keep managed JSONC in the strict JSON subset for portable local validation.
 jq -e . "$opencode_config" >/dev/null || fail "OpenCode config is not strict JSON"
 jq -e . "$opencode_tui" >/dev/null || fail "OpenCode TUI config is not strict JSON"
@@ -460,7 +460,7 @@ if command -v chezmoi >/dev/null 2>&1; then
         trustedWorkspaces: [($h + "/git/harmon-dotfiles"), "/elsewhere/repo-a", "/elsewhere/repo-b"]}' \
         >"$ag_home/.gemini/antigravity-cli/settings.json"
     render_antigravity "$ag_home" >"$test_tmp/ag.out" || fail "the Antigravity settings template did not render"
-    [ "$(jq -r '.model' "$test_tmp/ag.out")" = "Gemini 3.8 Flash (High)" ] ||
+    [ "$(jq -r '.model' "$test_tmp/ag.out")" = "Gemini 4 Neon (Medium)" ] ||
         fail "the Antigravity template did not re-assert the managed model"
     [ "$(jq -r '.someRuntimeKey' "$test_tmp/ag.out")" = "7" ] ||
         fail "the Antigravity template dropped an unmanaged key"
